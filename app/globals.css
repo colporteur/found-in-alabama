@@ -1,0 +1,61 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    -webkit-font-smoothing: antialiased;
+  }
+
+  h1, h2, h3, h4 {
+    @apply tracking-tight;
+  }
+}
+
+@layer components {
+  .container-content {
+    @apply max-w-5xl mx-auto px-6;
+  }
+
+  .marker-highlight {
+    background: linear-gradient(180deg, transparent 55%, theme('colors.brand.yellow') 55%);
+    padding: 0 0.15em;
+  }
+
+  .btn-primary {
+    @apply inline-flex items-center justify-center px-6 py-3 bg-brand-yellow text-brand-ink font-medium rounded-md hover:bg-brand-yellow-dark transition-colors;
+  }
+
+  .btn-secondary {
+    @apply inline-flex items-center justify-center px-6 py-3 bg-transparent text-brand-ink font-medium rounded-md border-2 border-brand-ink hover:bg-brand-ink hover:text-brand-paper transition-colors;
+  }
+
+  /* Article body styles for journal posts (markdown -> HTML) */
+  .prose-fia {
+    @apply text-brand-ink/85 text-lg leading-relaxed;
+  }
+  .prose-fia p {
+    @apply mb-5;
+  }
+  .prose-fia h2 {
+    @apply font-marker text-2xl md:text-3xl mt-10 mb-4 leading-tight;
+  }
+  .prose-fia h3 {
+    @apply font-marker text-xl md:text-2xl mt-8 mb-3 leading-tight;
+  }
+  .prose-fia ul {
+    @apply list-disc pl-6 mb-5 space-y-1;
+  }
+  .prose-fia ol {
+    @apply list-decimal pl-6 mb-5 space-y-1;
+  }
+  .prose-fia a {
+    @apply underline decoration-brand-yellow decoration-2 underline-offset-4 hover:decoration-brand-yellow-dark;
+  }
+  .prose-fia blockquote {
+    @apply border-l-4 border-brand-yellow pl-4 italic text-brand-ink/70;
+  }
+  .prose-fia img {
+    @apply rounded-lg my-6;
+  }
+}
