@@ -46,13 +46,14 @@ export default async function AdminDashboard() {
           desc="You're using it now. Sign-in works, items table is ready."
         />
         <PhaseCard
-          status="next"
+          status="ready"
           phase="2B"
           title="Claude API drafts"
           desc="Generate haul narratives from a hero photo + brief notes."
+          href="/admin/draft"
         />
         <PhaseCard
-          status="pending"
+          status="next"
           phase="2C"
           title="Chrome extension"
           desc="Capture items from Nifty when you visit your inventory page."
@@ -65,7 +66,13 @@ export default async function AdminDashboard() {
         />
       </div>
 
-      <div className="mt-12 pt-6 border-t border-brand-ink/10">
+      <div className="mt-12 pt-6 border-t border-brand-ink/10 flex flex-wrap gap-6">
+        <Link
+          href="/admin/draft"
+          className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+        >
+          Draft a haul narrative →
+        </Link>
         <Link
           href="/admin/inventory"
           className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
@@ -102,11 +109,13 @@ function PhaseCard({
   phase,
   title,
   desc,
+  href,
 }: {
   status: "ready" | "next" | "pending";
   phase: string;
   title: string;
   desc: string;
+  href?: string;
 }) {
   const badge =
     status === "ready"
@@ -117,8 +126,8 @@ function PhaseCard({
   const label =
     status === "ready" ? "Live" : status === "next" ? "Up next" : "Pending";
 
-  return (
-    <div className="bg-white border border-brand-ink/15 rounded-lg p-5">
+  const inner = (
+    <>
       <div className="flex items-baseline justify-between mb-2">
         <p className="font-marker text-base text-brand-ink/40">Phase {phase}</p>
         <span
@@ -129,6 +138,23 @@ function PhaseCard({
       </div>
       <h3 className="font-medium text-lg mb-1">{title}</h3>
       <p className="text-sm text-brand-ink/70 leading-relaxed">{desc}</p>
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link
+        href={href}
+        className="block bg-white border border-brand-ink/15 rounded-lg p-5 hover:border-brand-yellow transition-colors"
+      >
+        {inner}
+      </Link>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-brand-ink/15 rounded-lg p-5">
+      {inner}
     </div>
   );
 }

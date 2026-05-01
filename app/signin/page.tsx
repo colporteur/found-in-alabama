@@ -6,10 +6,23 @@ export const metadata: Metadata = {
   robots: { index: false, follow: false },
 };
 
-export default function SignInPage() {
+export default async function SignInPage({
+  searchParams,
+}: {
+  searchParams: { callbackUrl?: string };
+}) {
+  // If middleware bounced an unauthenticated user here, the original URL
+  // they were trying to reach is in ?callbackUrl=. Default to /admin so
+  // someone landing on /signin directly still ends up where they want.
+  const requestedCallback = searchParams.callbackUrl;
+  const safeCallback =
+    requestedCallback && requestedCallback.startsWith("/")
+      ? requestedCallback
+      : "/admin";
+
   async function handleSignIn(formData: FormData) {
     "use server";
-    await signIn("resend", formData);
+    await signIn("resend", formData, { redirectTo: safeCallback });
   }
 
   return (
