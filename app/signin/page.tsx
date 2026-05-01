@@ -22,7 +22,13 @@ export default async function SignInPage({
 
   async function handleSignIn(formData: FormData) {
     "use server";
-    await signIn("resend", formData, { redirectTo: safeCallback });
+    // Set redirectTo on the FormData itself — NextAuth's email provider
+    // reads callbackUrl from the form data. The third argument to signIn()
+    // when passing FormData is authorizationParams (OAuth-only), so an
+    // options object there gets ignored.
+    formData.set("redirectTo", safeCallback);
+    formData.set("callbackUrl", safeCallback);
+    await signIn("resend", formData);
   }
 
   return (
