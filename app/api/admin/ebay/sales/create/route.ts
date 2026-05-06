@@ -126,9 +126,15 @@ export async function POST(req: NextRequest) {
   //   description, discountRules, endDate, inventoryCriterion, marketplaceId,
   //   name, priority (PRIORITY_1|PRIORITY_2|PRIORITY_3), promotionImageUrl,
   //   promotionStatus, startDate.
+  // eBay requires the promotion image to be at least 500x500 pixels, JPEG
+  // or PNG, under 12MB. The site's logo.png is too small (smaller icons
+  // typically sit around 200-300px on the long edge), which triggers an
+  // opaque "Internal error" 500 from eBay rather than a clear validation
+  // error. Default to one of the haul photos in public/photos which are
+  // already well above the size cutoff. Override with EBAY_PROMOTION_IMAGE_URL.
   const promotionImageUrl =
     process.env.EBAY_PROMOTION_IMAGE_URL ||
-    "https://www.foundinalabama.com/logo.png";
+    "https://www.foundinalabama.com/photos/bookshelf.jpg";
 
   const ebayPayload = {
     name: body.name.slice(0, 90),
