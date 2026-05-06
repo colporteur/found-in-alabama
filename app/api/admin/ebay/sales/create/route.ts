@@ -136,23 +136,19 @@ export async function POST(req: NextRequest) {
     process.env.EBAY_PROMOTION_IMAGE_URL ||
     "https://www.foundinalabama.com/photos/bookshelf.jpg";
 
+  // Minimal body — only fields the docs mark as required. We've been
+  // hitting opaque 2003 "Internal error" on SCHEDULED and DRAFT alike
+  // even with everything filled in. Stripping optional fields
+  // (description, applyFreeShipping, autoSelectFutureInventory,
+  // blockPriceIncreaseInItemRevision, priority) to see if one of them
+  // is silently breaking things.
   const ebayPayload = {
     name: body.name.slice(0, 90),
-    description: (body.description ?? body.name).slice(0, 500),
     marketplaceId: "EBAY_US",
-    // Create in DRAFT first — eBay validates fewer things on DRAFT than
-    // SCHEDULED, and an opaque "Internal error" 500 on SCHEDULED creation
-    // commonly means a seller-account precondition (e.g. unaccepted
-    // Promotions Manager T&Cs) that DRAFTs are immune to. We can promote
-    // to SCHEDULED in a later round once we confirm the basic shape works.
     promotionStatus: "DRAFT",
     startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
     promotionImageUrl,
-    applyFreeShipping: false,
-    autoSelectFutureInventory: true,
-    blockPriceIncreaseInItemRevision: true,
-    priority: "PRIORITY_2",
     inventoryCriterion: {
       inventoryCriterionType: "INVENTORY_BY_RULE",
       selectionRules: [
