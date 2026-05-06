@@ -100,6 +100,12 @@ export async function tradingCall<T = Record<string, unknown>>(
     requestPayload
   )}`;
 
+  // Set EBAY_DEBUG=1 in env to log the request and response XML to the
+  // server console. Useful for diagnosing schema-validation failures.
+  if (process.env.EBAY_DEBUG === "1") {
+    console.log(`[ebay:${callName}] >>> request body:\n${xml}`);
+  }
+
   const response = await fetch(endpoint(creds.env), {
     method: "POST",
     headers: {
@@ -124,6 +130,12 @@ export async function tradingCall<T = Record<string, unknown>>(
   }
 
   const xmlText = await response.text();
+  if (process.env.EBAY_DEBUG === "1") {
+    console.log(
+      `[ebay:${callName}] <<< response body (first 2000 chars):\n${xmlText.slice(0, 2000)}`
+    );
+  }
+
   let parsed: Record<string, unknown>;
   try {
     parsed = parser.parse(xmlText) as Record<string, unknown>;
@@ -134,6 +146,7 @@ export async function tradingCall<T = Record<string, unknown>>(
       }; body starts: ${xmlText.slice(0, 300)}`
     );
   }
+
   const responseBody = parsed[`${callName}Response`] as
     | Record<string, unknown>
     | undefined;

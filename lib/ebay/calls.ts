@@ -15,9 +15,12 @@ export interface StoreCategoryNode {
 }
 
 export async function fetchStoreCategoryTree(): Promise<StoreCategoryNode[]> {
+  // Call GetStore with the smallest possible body. Earlier we passed
+  // LevelLimit + CategoryStructureOnly; eBay's schema validation rejected
+  // those values ("Input data for tag <5> is invalid"). The default response
+  // already includes the full CustomCategory tree, so we don't need them.
   const res = await tradingCall("GetStore", {
-    LevelLimit: 5,
-    CategoryStructureOnly: true,
+    CategoryStructureOnly: "true",
   });
   const store = (res as { Store?: { CustomCategories?: { CustomCategory?: unknown } } })
     .Store;

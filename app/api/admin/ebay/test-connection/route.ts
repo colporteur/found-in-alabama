@@ -25,29 +25,43 @@ export async function POST() {
   }
 
   const start = Date.now();
-  try {
-    // Use GetStore directly (small response) for the store name and the
-    // category tree at once. fetchStoreCategoryTree pulls the categories;
-    // a parallel raw call gives us the store name.
-    const [tree, raw] = await Promise.all([
-      fetchStoreCategoryTree(),
-      tradingCall("GetStore"),
-    ]);
+  let stage = "init";
 
+  try {
+    // Step 1: simplest possible Trading API call. GeteBayOfficialTime takes
+    // no parameters and authenticates with the same headers/token as every
+    // other call. If this fails, the issue is auth/headers, not XML format.
+    stage = "GeteBayOfficialTime";
+    const time = await tradingCall("GeteBayOfficialTime");
+    const officialTime =
+      (time as { Timestamp?: unknown }).Timestamp != null
+        ? String((time as { Timestamp?: unknown }).Timestamp)
+        : null;
+
+    // Step 2: the actual GetStore call. If step 1 worked but this fails,
+    // the issue is something specific to this call's request body.
+    stage = "GetStore";
+    const raw = await tradingCall("GetStore", {
+      CategoryStructureOnly: "true",
+    });
+    const storeName =
+      ((raw as { Store?: { Name?: unknown } }).Store?.Name as
+        | string
+        | undefined) ?? null;
+
+    // Step 3: parse the category tree out of the GetStore response.
+    stage = "fetchStoreCategoryTree";
+    const tree = await fetchStoreCategoryTree();
     const flat = flattenCategoryTree(tree);
     const sampleCategoryNames = flat
       .filter((c) => c.depth === 0)
       .slice(0, 6)
       .map((c) => c.name);
 
-    const storeName =
-      ((raw as { Store?: { Name?: unknown } }).Store?.Name as
-        | string
-        | undefined) ?? null;
-
     return NextResponse.json({
       ok: true,
       storeName,
+      officialTime,
       topLevelCategoryCount: tree.length,
       totalCategoryCount: flat.length,
       sampleCategoryNames,
@@ -57,6 +71,7 @@ export async function POST() {
     return NextResponse.json(
       {
         ok: false,
+        stage,
         error: (err as Error).message,
         durationMs: Date.now() - start,
       },

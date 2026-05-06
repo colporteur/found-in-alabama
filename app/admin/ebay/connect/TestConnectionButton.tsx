@@ -5,10 +5,12 @@ import { useState } from "react";
 interface TestResult {
   ok: boolean;
   storeName?: string;
+  officialTime?: string;
   topLevelCategoryCount?: number;
   totalCategoryCount?: number;
   sampleCategoryNames?: string[];
   error?: string;
+  stage?: string;
   durationMs?: number;
 }
 
@@ -58,6 +60,12 @@ export default function TestConnectionButton() {
               {result.storeName ?? "(no name returned)"}
             </span>
           </p>
+          {result.officialTime && (
+            <p>
+              <span className="text-brand-ink/60">eBay server time:</span>{" "}
+              {result.officialTime}
+            </p>
+          )}
           <p>
             <span className="text-brand-ink/60">Top-level categories:</span>{" "}
             {result.topLevelCategoryCount}
@@ -84,8 +92,14 @@ export default function TestConnectionButton() {
       )}
 
       {result && !result.ok && (
-        <div className="border-l-4 border-red-500 bg-red-50 p-4 text-sm">
-          <p className="font-medium mb-1">Test failed</p>
+        <div className="border-l-4 border-red-500 bg-red-50 p-4 text-sm space-y-1">
+          <p className="font-medium">Test failed</p>
+          {result.stage && (
+            <p>
+              <span className="text-brand-ink/60">Failed at step:</span>{" "}
+              <code>{result.stage}</code>
+            </p>
+          )}
           <p className="text-brand-ink/80 break-words">{result.error}</p>
         </div>
       )}
