@@ -192,11 +192,14 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Filter to "Other" with no second category. Same logic as the iterator
-    // version, kept inline so this route is self-contained and easy to read.
+    // Filter to "Other" with no second category, and skip zero-quantity
+    // listings — eBay leaves sold-out items in active state for up to 90
+    // days, but they don't need recategorizing.
     const matched = normalized.filter(
       (l) =>
-        l.storeCategory1Id === other.categoryId && !l.storeCategory2Id
+        l.storeCategory1Id === other.categoryId &&
+        !l.storeCategory2Id &&
+        (l.quantity ?? 0) > 0
     );
 
     if (matched.length > 0) {

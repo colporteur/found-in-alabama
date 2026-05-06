@@ -65,7 +65,9 @@ export async function POST(req: NextRequest) {
       .map((c) => ({ id: c.id, name: c.name, isAlabama: c.isAlabama }));
 
     // Find the next batch of listings without an existing suggestion. We
-    // use a NOT EXISTS subquery so re-running is idempotent.
+    // use a NOT EXISTS subquery so re-running is idempotent. Also skip
+    // zero-quantity listings — eBay keeps sold-out items active for ~90
+    // days but recategorizing them is wasted Claude calls.
     const listings = await db
       .select({
         itemId: ebayListings.itemId,
@@ -74,7 +76,8 @@ export async function POST(req: NextRequest) {
       })
       .from(ebayListings)
       .where(
-        sql`not exists (select 1 from ${ebayCategorySuggestions} s where s.item_id = ${ebayListings.itemId})`
+        sql`not exists (select 1 from ${ebayCategorySuggestions} s where s.item_id = ${ebayListings.itemId})
+            and coalesce(${ebayListings.quantity}, 0) > 0`
       )
       .limit(batchSize);
 
@@ -124,7 +127,8 @@ export async function POST(req: NextRequest) {
       .select({ count: count() })
       .from(ebayListings)
       .where(
-        sql`not exists (select 1 from ${ebayCategorySuggestions} s where s.item_id = ${ebayListings.itemId})`
+        sql`not exists (select 1 from ${ebayCategorySuggestions} s where s.item_id = ${ebayListings.itemId})
+            and coalesce(${ebayListings.quantity}, 0) > 0`
       );
 
     const result: BatchResult = {

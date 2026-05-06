@@ -44,6 +44,25 @@ const INITIAL_GEN: GenProgress = {
   totalFailures: 0,
 };
 
+type BulkDecision = "apply" | "skip" | "reject";
+
+interface BulkProgress {
+  status: "idle" | "running" | "done" | "stopped" | "error";
+  decision: BulkDecision | null;
+  done: number;
+  total: number;
+  failed: number;
+  lastError?: string;
+}
+
+const INITIAL_BULK: BulkProgress = {
+  status: "idle",
+  decision: null,
+  done: 0,
+  total: 0,
+  failed: 0,
+};
+
 function decodeText(s: string | null | undefined): string {
   if (!s) return "";
   return s
@@ -78,10 +97,24 @@ export default function ReviewQueue({
   const [decidingId, setDecidingId] = useState<string | null>(null);
   const stopRef = useRef(false);
 
+  // Bulk selection + bulk decision state.
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulk, setBulk] = useState<BulkProgress>(INITIAL_BULK);
+  const stopBulkRef = useRef(false);
+
   // Re-sync local queue when the server data refreshes (after a generate
-  // batch or decision).
+  // batch or decision). Also clear selections that no longer reference
+  // visible rows.
   useEffect(() => {
     setQueue(initialQueue);
+    setSelected((prev) => {
+      const visible = new Set(initialQueue.map((r) => r.suggestionId));
+      const next = new Set<string>();
+      for (const id of prev) {
+        if (visible.has(id)) next.add(id);
+      }
+      return next;
+    });
   }, [initialQueue]);
 
   // Sort categories: Alabama-flagged first, then alphabetical.
@@ -204,6 +237,116 @@ export default function ReviewQueue({
     }
   }
 
+  // ── Bulk selection helpers ──────────────────────────────────────────────
+
+  function toggleSelect(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectIds(ids: string[]) {
+    setSelected(new Set(ids));
+  }
+
+  // ── Bulk decision (sequential — each ReviseItem is real) ────────────────
+
+  async function runBulk(decision: BulkDecision) {
+    if (selected.size === 0) return;
+    if (
+      decision === "apply" &&
+      !confirm(
+        `Approve & push ${selected.size} suggestion${
+          selected.size === 1 ? "" : "s"
+        } to eBay? This makes real changes to your live listings.`
+      )
+    ) {
+      return;
+    }
+    stopBulkRef.current = false;
+    const ids = Array.from(selected);
+    setBulk({
+      status: "running",
+      decision,
+      done: 0,
+      total: ids.length,
+      failed: 0,
+    });
+
+    let done = 0;
+    let failed = 0;
+    let lastError: string | undefined;
+
+    for (const id of ids) {
+      if (stopBulkRef.current) {
+        setBulk({
+          status: "stopped",
+          decision,
+          done,
+          total: ids.length,
+          failed,
+          lastError,
+        });
+        startTransition(() => router.refresh());
+        return;
+      }
+      try {
+        const res = await fetch("/api/admin/ebay/suggestions/decide", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ suggestionId: id, decision }),
+        });
+        const json = await readJsonOrText<DecideResult>(res);
+        if (!json.ok) {
+          failed++;
+          lastError = json.error ?? `HTTP ${res.status}`;
+        } else {
+          // Optimistically remove this row + selection.
+          setQueue((q) => q.filter((row) => row.suggestionId !== id));
+          setSelected((s) => {
+            const next = new Set(s);
+            next.delete(id);
+            return next;
+          });
+        }
+      } catch (err) {
+        failed++;
+        lastError = (err as Error).message;
+      }
+      done++;
+      setBulk((prev) => ({ ...prev, done, failed, lastError }));
+    }
+
+    setBulk({
+      status: "done",
+      decision,
+      done,
+      total: ids.length,
+      failed,
+      lastError,
+    });
+    startTransition(() => router.refresh());
+  }
+
+  function stopBulk() {
+    stopBulkRef.current = true;
+  }
+
+  // ── Selection presets ───────────────────────────────────────────────────
+
+  const visibleIds = useMemo(() => queue.map((q) => q.suggestionId), [queue]);
+  const cat2EmptyIds = useMemo(
+    () => queue.filter((q) => !q.suggestedCategory2Id).map((q) => q.suggestionId),
+    [queue]
+  );
+  const highConfidenceIds = useMemo(
+    () => queue.filter((q) => q.confidence >= 0.85).map((q) => q.suggestionId),
+    [queue]
+  );
+
   return (
     <div className="space-y-6">
       {/* Generation card */}
@@ -287,6 +430,123 @@ export default function ReviewQueue({
         <Pill label="Rejected" value={counts.rejected} tone="red" />
       </div>
 
+      {/* Bulk selection toolbar */}
+      {queue.length > 0 && (
+        <div className="bg-white border border-brand-ink/15 rounded-lg p-4 sticky top-0 z-10 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2 text-xs">
+            <span className="text-brand-ink/60 font-medium uppercase tracking-wider">
+              Select
+            </span>
+            <PresetButton
+              onClick={() => selectIds(visibleIds)}
+              active={selected.size === visibleIds.length && visibleIds.length > 0}
+            >
+              All visible ({visibleIds.length})
+            </PresetButton>
+            <PresetButton
+              onClick={() => selectIds(highConfidenceIds)}
+              active={false}
+            >
+              ≥ 85% conf ({highConfidenceIds.length})
+            </PresetButton>
+            <PresetButton
+              onClick={() => selectIds(cat2EmptyIds)}
+              active={false}
+            >
+              Slot 2 = empty ({cat2EmptyIds.length})
+            </PresetButton>
+            <PresetButton
+              onClick={() => selectIds(visibleIds.slice(0, 10))}
+              active={false}
+            >
+              First 10
+            </PresetButton>
+            <PresetButton onClick={() => selectIds([])} active={selected.size === 0}>
+              None
+            </PresetButton>
+
+            <span className="ml-auto text-brand-ink/60">
+              {selected.size} selected
+            </span>
+
+            {bulk.status === "running" ? (
+              <button
+                type="button"
+                onClick={stopBulk}
+                className="bg-brand-ink/10 text-brand-ink px-3 py-1.5 rounded hover:bg-brand-ink/20"
+              >
+                Stop
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  disabled={selected.size === 0}
+                  onClick={() => runBulk("apply")}
+                  className="bg-brand-ink text-brand-paper px-3 py-1.5 rounded hover:bg-brand-ink/90 disabled:opacity-40"
+                >
+                  Approve {selected.size}
+                </button>
+                <button
+                  type="button"
+                  disabled={selected.size === 0}
+                  onClick={() => runBulk("skip")}
+                  className="bg-brand-paper text-brand-ink/70 border border-brand-ink/15 px-3 py-1.5 rounded hover:bg-brand-ink/5 disabled:opacity-40"
+                >
+                  Skip {selected.size}
+                </button>
+                <button
+                  type="button"
+                  disabled={selected.size === 0}
+                  onClick={() => runBulk("reject")}
+                  className="text-red-700 border border-red-200 px-3 py-1.5 rounded hover:bg-red-50 disabled:opacity-40"
+                >
+                  Reject {selected.size}
+                </button>
+              </>
+            )}
+          </div>
+
+          {bulk.status !== "idle" && bulk.decision && (
+            <div className="mt-3 text-xs">
+              <div className="flex items-baseline justify-between mb-1">
+                <span className="text-brand-ink/70">
+                  {bulk.status === "running"
+                    ? `${
+                        bulk.decision === "apply"
+                          ? "Approving"
+                          : bulk.decision === "skip"
+                          ? "Skipping"
+                          : "Rejecting"
+                      }… ${bulk.done} of ${bulk.total}`
+                    : bulk.status === "done"
+                    ? `✅ ${bulk.decision === "apply" ? "Approved" : bulk.decision === "skip" ? "Skipped" : "Rejected"} ${bulk.done - bulk.failed} of ${bulk.total}`
+                    : bulk.status === "stopped"
+                    ? `⏸ Stopped at ${bulk.done} of ${bulk.total}`
+                    : ""}
+                  {bulk.failed > 0 ? ` · ${bulk.failed} failed` : ""}
+                </span>
+              </div>
+              {bulk.total > 0 && (
+                <div className="h-1.5 bg-brand-paper rounded overflow-hidden border border-brand-ink/10">
+                  <div
+                    className="h-full bg-brand-yellow transition-[width] duration-300"
+                    style={{
+                      width: `${Math.round((bulk.done / bulk.total) * 100)}%`,
+                    }}
+                  />
+                </div>
+              )}
+              {bulk.lastError && (
+                <p className="text-red-700 mt-1 break-words">
+                  Last error: {bulk.lastError}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Queue */}
       {queue.length === 0 ? (
         <div className="bg-white border border-dashed border-brand-ink/20 rounded-lg p-12 text-center">
@@ -311,9 +571,11 @@ export default function ReviewQueue({
             <SuggestionCard
               key={row.suggestionId}
               row={row}
-              busy={decidingId === row.suggestionId}
+              busy={decidingId === row.suggestionId || bulk.status === "running"}
               categories={sortedCategoryOptions}
               onDecide={decide}
+              selected={selected.has(row.suggestionId)}
+              onToggleSelect={() => toggleSelect(row.suggestionId)}
             />
           ))}
         </ul>
@@ -365,6 +627,8 @@ function SuggestionCard({
   busy,
   categories,
   onDecide,
+  selected,
+  onToggleSelect,
 }: {
   row: SuggestionRow;
   busy: boolean;
@@ -374,6 +638,8 @@ function SuggestionCard({
     decision: "apply" | "skip" | "reject",
     overrides?: { cat1Id?: string; cat2Id?: string | null }
   ) => void;
+  selected: boolean;
+  onToggleSelect: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editCat1, setEditCat1] = useState<string>(
@@ -393,8 +659,21 @@ function SuggestionCard({
   const title = decodeText(row.title);
 
   return (
-    <li className="bg-white border border-brand-ink/15 rounded-lg p-4 sm:p-5">
+    <li
+      className={`bg-white border rounded-lg p-4 sm:p-5 transition-colors ${
+        selected ? "border-brand-yellow ring-1 ring-brand-yellow" : "border-brand-ink/15"
+      }`}
+    >
       <div className="flex flex-col sm:flex-row gap-4">
+        <div className="flex sm:flex-col items-start gap-3 sm:gap-2">
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            aria-label="Select this suggestion"
+            className="h-5 w-5 mt-1 accent-brand-yellow cursor-pointer"
+          />
+        </div>
         {row.primaryImageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
@@ -543,6 +822,30 @@ function SuggestionCard({
         </div>
       </div>
     </li>
+  );
+}
+
+function PresetButton({
+  onClick,
+  active,
+  children,
+}: {
+  onClick: () => void;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-2.5 py-1 rounded uppercase tracking-wider transition-colors ${
+        active
+          ? "bg-brand-ink text-brand-paper"
+          : "bg-brand-paper text-brand-ink/70 hover:bg-brand-ink/5 border border-brand-ink/15"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
