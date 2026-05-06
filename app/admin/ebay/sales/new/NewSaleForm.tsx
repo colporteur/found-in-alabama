@@ -38,6 +38,11 @@ interface CreateResult {
   saleId?: string;
   ebayPromotionId?: string;
   error?: string;
+  debug?: {
+    sentBody?: unknown;
+    sentToUrl?: string;
+    ebayResponseBody?: string;
+  };
 }
 
 function defaultStartIso(): string {
@@ -333,8 +338,39 @@ export default function NewSaleForm({ categories }: { categories: CategoryDTO[] 
           </div>
         )}
         {result && !result.ok && (
-          <div className="mt-3 border-l-4 border-red-500 bg-red-50 p-3 text-sm break-words">
-            ❌ {result.error}
+          <div className="mt-3 border-l-4 border-red-500 bg-red-50 p-3 text-sm break-words space-y-2">
+            <p>❌ {result.error}</p>
+            {result.debug && (
+              <details className="text-xs">
+                <summary className="cursor-pointer text-brand-ink/60 hover:text-brand-ink">
+                  Debug payload (EBAY_DEBUG enabled)
+                </summary>
+                <div className="mt-2 space-y-2">
+                  {result.debug.sentToUrl && (
+                    <p>
+                      <span className="text-brand-ink/60">URL:</span>{" "}
+                      <code>{result.debug.sentToUrl}</code>
+                    </p>
+                  )}
+                  {result.debug.sentBody !== undefined && (
+                    <div>
+                      <p className="text-brand-ink/60 mb-1">Request body:</p>
+                      <pre className="bg-white/60 border border-brand-ink/10 rounded p-2 overflow-x-auto max-h-72">
+                        {JSON.stringify(result.debug.sentBody, null, 2)}
+                      </pre>
+                    </div>
+                  )}
+                  {result.debug.ebayResponseBody && (
+                    <div>
+                      <p className="text-brand-ink/60 mb-1">eBay response:</p>
+                      <pre className="bg-white/60 border border-brand-ink/10 rounded p-2 overflow-x-auto max-h-72">
+                        {result.debug.ebayResponseBody}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </details>
+            )}
           </div>
         )}
       </div>

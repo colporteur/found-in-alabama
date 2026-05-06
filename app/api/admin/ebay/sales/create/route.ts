@@ -214,11 +214,24 @@ export async function POST(req: NextRequest) {
       details: { ebayPayload, ebayResponseBody: errorBody },
     });
 
+    // When EBAY_DEBUG=1, bake the exact request body and eBay's response
+    // into the API response so it's visible in the UI without digging
+    // into Vercel logs.
+    const debugInfo =
+      process.env.EBAY_DEBUG === "1"
+        ? {
+            sentBody: ebayPayload,
+            sentToUrl: "/sell/marketing/v1/item_price_markdown",
+            ebayResponseBody: errorBody,
+          }
+        : undefined;
+
     return NextResponse.json(
       {
         ok: false,
         saleId: localRow.id,
         error: errorMessage,
+        debug: debugInfo,
       },
       { status: err instanceof SellApiNoTokenError ? 401 : 500 }
     );
