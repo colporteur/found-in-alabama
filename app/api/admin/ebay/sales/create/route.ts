@@ -118,10 +118,16 @@ export async function POST(req: NextRequest) {
     .returning({ id: ebaySales.id });
 
   // Build the eBay request payload for /sell/marketing/v1/item_promotion.
-  // We previously tried /sell/marketing/v1/item_price_markdown_promotion
-  // but that path returned HTTP 404 — eBay seems to have consolidated
-  // markdown sales under the generic item_promotion endpoint, with
-  // promotionType="MARKDOWN_SALE" picking the markdown variant.
+  // Empirically, the markdown-sale variant of this endpoint requires:
+  //   - promotionImageUrl (any public URL)
+  //   - top-level inventoryCriterion
+  //   - discountRules (NOT selectedInventoryDiscounts at this endpoint)
+  //   - priority OMITTED (eBay's docs hint at "1" - "11" but our values
+  //     all errored — letting it default works)
+  const promotionImageUrl =
+    process.env.EBAY_PROMOTION_IMAGE_URL ||
+    "https://www.foundinalabama.com/logo.png";
+
   const ebayPayload = {
     name: body.name.slice(0, 90),
     description: (body.description ?? body.name).slice(0, 500),
@@ -130,23 +136,22 @@ export async function POST(req: NextRequest) {
     promotionStatus: "SCHEDULED",
     startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
-    priority: "MEDIUM",
+    promotionImageUrl,
     applyDiscountToSingleItemOnly: false,
-    selectedInventoryDiscounts: [
+    inventoryCriterion: {
+      inventoryCriterionType: "INVENTORY_BY_RULE",
+      ruleCriteria: [
+        {
+          marketplaceId: "EBAY_US",
+          ebayStoreCategoryIds: body.categoryIds,
+        },
+      ],
+    },
+    discountRules: [
       {
         discountBenefit: {
           percentageOffItem: body.discountPercent.toFixed(2),
         },
-        inventoryCriterion: {
-          inventoryCriterionType: "INVENTORY_BY_RULE",
-          ruleCriteria: [
-            {
-              marketplaceId: "EBAY_US",
-              ebayStoreCategoryIds: body.categoryIds,
-            },
-          ],
-        },
-        ruleSelectionType: "STORE_CATEGORY",
       },
     ],
   };
