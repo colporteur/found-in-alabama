@@ -67,6 +67,14 @@ const parser = new XMLParser({
   parseTagValue: true,
   parseAttributeValue: false,
   trimValues: true,
+  // Disable entity processing entirely. fast-xml-parser caps entity
+  // expansions at 1000 for XML-bomb safety, but eBay responses with a few
+  // hundred listings naturally contain >1000 &amp; references just in
+  // titles and descriptions. Our text values stay as-is (e.g. "Foo &amp; Bar"
+  // instead of "Foo & Bar") — fine for IDs, prices, store-category fields.
+  // If we ever need to display titles with entities decoded we can do it
+  // explicitly on the read side.
+  processEntities: false,
 });
 
 export interface EbayCallOptions {
