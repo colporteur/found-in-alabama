@@ -1,9 +1,25 @@
 import { auth, signOut } from "@/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import type { Metadata, Viewport } from "next";
+import PWAInstall from "@/components/PWAInstall";
 
-export const metadata = {
+export const metadata: Metadata = {
   robots: { index: false, follow: false },
+  // Apple-specific PWA meta — gets the standalone home-screen experience
+  // on iOS Safari.
+  appleWebApp: {
+    capable: true,
+    title: "FiA Admin",
+    statusBarStyle: "default",
+  },
+};
+
+// Theme color for the mobile browser chrome / status bar.
+export const viewport: Viewport = {
+  themeColor: "#0f1115",
+  width: "device-width",
+  initialScale: 1,
 };
 
 const adminNav = [
@@ -51,6 +67,7 @@ export default async function AdminLayout({
             </nav>
           </div>
           <div className="flex items-center gap-4 text-sm">
+            <PWAInstall />
             <span className="text-brand-ink/60 hidden sm:inline">
               {session.user.email}
             </span>
