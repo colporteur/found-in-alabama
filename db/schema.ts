@@ -69,6 +69,104 @@ export const apiKeys = pgTable("api_keys", {
   revokedAt: timestamp("revoked_at"),
 });
 
+// ─── eBay Tools ───────────────────────────────────────────────────────────────
+// Tables backing the /admin/ebay re-categorization tool. eBay credentials
+// (App ID, Cert ID, Dev ID, user token) live in .env.local — see
+// PHASE-EBAY-1-SETUP.md. These tables only cache fetched data and decisions.
+
+// Local cache of the seller's eBay Store custom category tree. Populated by
+// "Sync categories" in the eBay tool. parentCategoryId is null for top-level
+// nodes. CategoryID values are eBay-side numeric IDs stored as text.
+
+export const ebayStoreCategories = pgTable(
+  "ebay_store_categories",
+  {
+    categoryId: text("category_id").primaryKey(),
+    parentCategoryId: text("parent_category_id"),
+    name: text("name").notNull(),
+    order: integer("order").default(0).notNull(),
+    isAlabamaRelated: boolean("is_alabama_related").default(false).notNull(),
+    isOtherBucket: boolean("is_other_bucket").default(false).notNull(),
+    lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    parentIdx: index("ebay_store_categories_parent_idx").on(t.parentCategoryId),
+    alabamaIdx: index("ebay_store_categories_alabama_idx").on(t.isAlabamaRelated),
+  })
+);
+
+// Local cache of listings pulled for re-categorization. Only contains the
+// subset matching our filter (StoreCategoryID = "Other", StoreCategory2ID
+// empty) so the table stays small.
+
+export const ebayListings = pgTable(
+  "ebay_listings",
+  {
+    itemId: text("item_id").primaryKey(),
+    sku: text("sku"),
+    title: text("title").notNull(),
+    primaryImageUrl: text("primary_image_url"),
+    storeCategory1Id: text("store_category_1_id"),
+    storeCategory2Id: text("store_category_2_id"),
+    siteCategoryId: text("site_category_id"),
+    siteCategoryName: text("site_category_name"),
+    listingType: text("listing_type"),
+    quantity: integer("quantity"),
+    price: numeric("price", { precision: 10, scale: 2 }),
+    description: text("description"),
+    lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    storeCat1Idx: index("ebay_listings_store_cat1_idx").on(t.storeCategory1Id),
+    storeCat2Idx: index("ebay_listings_store_cat2_idx").on(t.storeCategory2Id),
+  })
+);
+
+// Claude-generated re-categorization suggestions. status flow:
+//   pending → auto-applied | applied | skipped | rejected.
+// auto-applied = Claude's confidence cleared the auto-apply threshold and the
+// change was pushed to eBay without explicit per-item review.
+
+export const ebayCategorySuggestions = pgTable(
+  "ebay_category_suggestions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    itemId: text("item_id")
+      .notNull()
+      .references(() => ebayListings.itemId, { onDelete: "cascade" }),
+    suggestedCategory1Id: text("suggested_category_1_id"),
+    suggestedCategory2Id: text("suggested_category_2_id"),
+    confidence: numeric("confidence", { precision: 4, scale: 3 }).notNull(),
+    reasoning: text("reasoning"),
+    status: text("status", {
+      enum: ["pending", "auto-applied", "applied", "skipped", "rejected"],
+    })
+      .default("pending")
+      .notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    decidedAt: timestamp("decided_at"),
+  },
+  (t) => ({
+    itemIdx: index("ebay_category_suggestions_item_idx").on(t.itemId),
+    statusIdx: index("ebay_category_suggestions_status_idx").on(t.status),
+  })
+);
+
+// Audit log of every eBay API operation we perform. Useful for debugging
+// failed pushes and seeing what Claude has been doing on Todd's behalf.
+
+export const ebaySyncLog = pgTable("ebay_sync_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  action: text("action").notNull(),
+  itemId: text("item_id"),
+  success: boolean("success").notNull(),
+  itemCount: integer("item_count"),
+  details: jsonb("details").$type<Record<string, unknown>>(),
+  errorMessage: text("error_message"),
+  startedAt: timestamp("started_at").defaultNow().notNull(),
+  endedAt: timestamp("ended_at"),
+});
+
 // ─── NextAuth tables (shape required by @auth/drizzle-adapter) ────────────────
 
 export const users = pgTable("user", {

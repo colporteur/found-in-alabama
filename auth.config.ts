@@ -6,6 +6,10 @@ import type { NextAuthConfig } from "next-auth";
 const adminEmail = process.env.ADMIN_EMAIL?.toLowerCase().trim();
 
 export const authConfig = {
+  // Trust the host header. On Vercel this is auto-set, but locally and on
+  // any non-Vercel environment we need to opt in explicitly. Required for
+  // sign-in to work on localhost. Single-user admin app, low risk.
+  trustHost: true,
   pages: {
     signIn: "/signin",
     verifyRequest: "/signin/check-email",

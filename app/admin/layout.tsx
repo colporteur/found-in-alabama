@@ -10,6 +10,7 @@ const adminNav = [
   { href: "/admin", label: "Dashboard" },
   { href: "/admin/draft", label: "Draft a haul" },
   { href: "/admin/inventory", label: "Inventory" },
+  { href: "/admin/ebay", label: "eBay tools" },
   { href: "/admin/api-keys", label: "API keys" },
 ];
 
