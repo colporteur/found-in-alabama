@@ -342,9 +342,30 @@ export default function ReviewQueue({
     () => queue.filter((q) => !q.suggestedCategory2Id).map((q) => q.suggestionId),
     [queue]
   );
-  const highConfidenceIds = useMemo(
-    () => queue.filter((q) => q.confidence >= 0.85).map((q) => q.suggestionId),
-    [queue]
+
+  // User-adjustable confidence threshold. Persisted to localStorage so the
+  // setting survives page reloads. Default 85% — a useful starting point
+  // for "obvious" matches.
+  const [confidencePct, setConfidencePct] = useState<number>(85);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("review:confidencePct");
+    if (saved) {
+      const n = Number(saved);
+      if (Number.isFinite(n) && n >= 0 && n <= 100) setConfidencePct(n);
+    }
+  }, []);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("review:confidencePct", String(confidencePct));
+  }, [confidencePct]);
+
+  const confidenceMatchingIds = useMemo(
+    () =>
+      queue
+        .filter((q) => q.confidence * 100 >= confidencePct)
+        .map((q) => q.suggestionId),
+    [queue, confidencePct]
   );
 
   return (
@@ -443,12 +464,36 @@ export default function ReviewQueue({
             >
               All visible ({visibleIds.length})
             </PresetButton>
-            <PresetButton
-              onClick={() => selectIds(highConfidenceIds)}
-              active={false}
-            >
-              ≥ 85% conf ({highConfidenceIds.length})
-            </PresetButton>
+            <span className="inline-flex items-stretch rounded overflow-hidden border border-brand-ink/15">
+              <span className="inline-flex items-center bg-brand-paper px-1.5 text-brand-ink/60">
+                ≥
+              </span>
+              <input
+                type="number"
+                min={0}
+                max={100}
+                step={5}
+                value={confidencePct}
+                onChange={(e) => {
+                  const n = Number(e.target.value);
+                  if (Number.isFinite(n)) {
+                    setConfidencePct(Math.max(0, Math.min(100, Math.round(n))));
+                  }
+                }}
+                aria-label="Confidence threshold percent"
+                className="w-12 text-xs text-center bg-brand-paper focus:outline-none focus:bg-white border-x border-brand-ink/10"
+              />
+              <span className="inline-flex items-center bg-brand-paper px-1.5 text-brand-ink/60">
+                %
+              </span>
+              <button
+                type="button"
+                onClick={() => selectIds(confidenceMatchingIds)}
+                className="px-2.5 py-1 uppercase tracking-wider bg-brand-paper text-brand-ink/70 hover:bg-brand-ink/5"
+              >
+                conf ({confidenceMatchingIds.length})
+              </button>
+            </span>
             <PresetButton
               onClick={() => selectIds(cat2EmptyIds)}
               active={false}
