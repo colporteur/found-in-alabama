@@ -140,7 +140,12 @@ export async function POST(req: NextRequest) {
     name: body.name.slice(0, 90),
     description: (body.description ?? body.name).slice(0, 500),
     marketplaceId: "EBAY_US",
-    promotionStatus: "SCHEDULED",
+    // Create in DRAFT first — eBay validates fewer things on DRAFT than
+    // SCHEDULED, and an opaque "Internal error" 500 on SCHEDULED creation
+    // commonly means a seller-account precondition (e.g. unaccepted
+    // Promotions Manager T&Cs) that DRAFTs are immune to. We can promote
+    // to SCHEDULED in a later round once we confirm the basic shape works.
+    promotionStatus: "DRAFT",
     startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
     promotionImageUrl,
