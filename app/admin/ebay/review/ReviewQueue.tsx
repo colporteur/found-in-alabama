@@ -427,31 +427,27 @@ function SuggestionCard({
           <div className="text-xs text-brand-ink/50 mb-3 flex flex-wrap gap-x-3 gap-y-1">
             <span>#{row.itemId}</span>
             {row.price && <span>${row.price}</span>}
-            <span>
-              Currently in:{" "}
-              <span className="text-brand-ink/70">
-                {row.currentCategory1Name ?? row.currentCategory1Id ?? "—"}
-              </span>
-            </span>
           </div>
 
           {!editing ? (
-            <div className="space-y-2">
-              <p className="text-sm">
-                <span className="text-brand-ink/60 mr-1">Suggested:</span>
-                <span className="font-medium">
-                  {row.suggestedCategory1Name ?? "(no fit found)"}
-                </span>
-                {row.suggestedCategory2Name && (
-                  <>
-                    {" "}
-                    <span className="text-brand-ink/40">+</span>{" "}
-                    <span>{row.suggestedCategory2Name}</span>
-                  </>
-                )}
-              </p>
+            <div className="space-y-2 text-sm">
+              <SlotChange
+                label="Slot 1"
+                from={row.currentCategory1Name ?? row.currentCategory1Id ?? "—"}
+                to={row.suggestedCategory1Name ?? "(no fit found)"}
+                isChange={
+                  !!row.suggestedCategory1Id &&
+                  row.suggestedCategory1Id !== row.currentCategory1Id
+                }
+              />
+              <SlotChange
+                label="Slot 2"
+                from="(empty)"
+                to={row.suggestedCategory2Name ?? "(leave empty)"}
+                isChange={!!row.suggestedCategory2Id}
+              />
               {row.reasoning && (
-                <p className="text-xs text-brand-ink/60 italic">
+                <p className="text-xs text-brand-ink/60 italic pt-1">
                   &ldquo;{row.reasoning}&rdquo;
                 </p>
               )}
@@ -547,6 +543,37 @@ function SuggestionCard({
         </div>
       </div>
     </li>
+  );
+}
+
+function SlotChange({
+  label,
+  from,
+  to,
+  isChange,
+}: {
+  label: string;
+  from: string;
+  to: string;
+  isChange: boolean;
+}) {
+  return (
+    <div className="flex flex-wrap items-baseline gap-2">
+      <span className="text-xs uppercase tracking-wider text-brand-ink/50 min-w-[3.5rem]">
+        {label}
+      </span>
+      <span className="text-brand-ink/60">{from}</span>
+      <span className="text-brand-ink/40">→</span>
+      <span
+        className={
+          isChange
+            ? "font-medium text-brand-ink"
+            : "text-brand-ink/50 italic"
+        }
+      >
+        {to}
+      </span>
+    </div>
   );
 }
 

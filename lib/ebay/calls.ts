@@ -219,8 +219,14 @@ function toFetchedListing(item: unknown): FetchedListing {
 
 /**
  * Update the Store Category 1 (and optionally 2) on a single listing.
- * Pass `null` for storeCategory2Id to leave slot 2 unchanged. Pass an empty
- * string to clear it (eBay accepts an empty value to remove slot 2).
+ *
+ * For storeCategory2Id:
+ *   - `null` → omit StoreCategory2ID from the request entirely. eBay leaves
+ *     the existing slot-2 value unchanged. (Empirically what we want when
+ *     filtering listings whose slot 2 is already empty.)
+ *   - non-empty string → set slot 2 to that category id.
+ *   - empty string is treated the same as null — eBay rejects empty
+ *     StoreCategory2ID with "Input data is invalid or missing".
  */
 export async function reviseStoreCategories(
   itemId: string,
@@ -230,7 +236,7 @@ export async function reviseStoreCategories(
   const storefront: Record<string, string> = {
     StoreCategoryID: storeCategory1Id,
   };
-  if (storeCategory2Id !== null) {
+  if (storeCategory2Id != null && storeCategory2Id !== "") {
     storefront.StoreCategory2ID = storeCategory2Id;
   }
   await tradingCall("ReviseItem", {

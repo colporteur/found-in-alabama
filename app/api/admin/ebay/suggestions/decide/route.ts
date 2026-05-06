@@ -99,13 +99,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    await reviseStoreCategories(suggestion.itemId, cat1Id, cat2Id ?? "");
+    // Normalize cat2Id: empty string and null both mean "no second category".
+    // Pass null so reviseStoreCategories omits the StoreCategory2ID field
+    // entirely from the ReviseItem call (eBay rejects empty values).
+    const cat2IdNormalized: string | null =
+      cat2Id && cat2Id !== "" ? cat2Id : null;
+
+    await reviseStoreCategories(suggestion.itemId, cat1Id, cat2IdNormalized);
 
     await db
       .update(ebayListings)
       .set({
         storeCategory1Id: cat1Id,
-        storeCategory2Id: cat2Id ?? null,
+        storeCategory2Id: cat2IdNormalized,
         lastSyncedAt: new Date(),
       })
       .where(eq(ebayListings.itemId, suggestion.itemId));
@@ -117,7 +123,7 @@ export async function POST(req: NextRequest) {
         decidedAt: new Date(),
         // Persist any user overrides so the audit log reflects what was sent.
         suggestedCategory1Id: cat1Id,
-        suggestedCategory2Id: cat2Id ?? null,
+        suggestedCategory2Id: cat2IdNormalized,
       })
       .where(eq(ebayCategorySuggestions.id, suggestionId));
 
@@ -128,7 +134,7 @@ export async function POST(req: NextRequest) {
       details: {
         suggestionId,
         cat1Id,
-        cat2Id: cat2Id ?? null,
+        cat2Id: cat2IdNormalized,
       },
       startedAt: new Date(start),
       endedAt: new Date(),
@@ -139,7 +145,7 @@ export async function POST(req: NextRequest) {
       decision: "apply",
       itemId: suggestion.itemId,
       cat1Id,
-      cat2Id: cat2Id ?? null,
+      cat2Id: cat2IdNormalized,
       durationMs: Date.now() - start,
     });
   } catch (err) {
