@@ -109,12 +109,14 @@ export async function tradingCall<T = Record<string, unknown>>(
   const response = await fetch(endpoint(creds.env), {
     method: "POST",
     headers: {
-      // Akamai sits in front of api.ebay.com and rejects requests without a
-      // proper User-Agent (and sometimes without Accept) with a 503 "Zero
-      // size object" error from errors.edgesuite.net. Be explicit about both.
+      // Akamai sits in front of api.ebay.com and rejects requests it thinks
+      // are bots with a 503 "Zero size object" from errors.edgesuite.net.
+      // Trial and error: simple non-URL User-Agent + */* Accept + explicit
+      // Accept-Encoding works where the more polite headers do not.
       "Content-Type": "text/xml; charset=utf-8",
-      Accept: "text/xml",
-      "User-Agent": "FoundInAlabama/1.0 (+https://www.foundinalabama.com)",
+      Accept: "*/*",
+      "Accept-Encoding": "gzip, deflate",
+      "User-Agent": "found-in-alabama-ebay/1.0",
       "X-EBAY-API-COMPATIBILITY-LEVEL": TRADING_API_VERSION,
       "X-EBAY-API-DEV-NAME": creds.devId,
       "X-EBAY-API-APP-NAME": creds.appId,
@@ -123,7 +125,6 @@ export async function tradingCall<T = Record<string, unknown>>(
       "X-EBAY-API-SITEID": opts.siteId ?? creds.siteId,
     },
     body: xml,
-    cache: "no-store",
   });
 
   if (!response.ok) {
