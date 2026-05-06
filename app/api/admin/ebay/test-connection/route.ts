@@ -28,15 +28,17 @@ export async function POST() {
   let stage = "init";
 
   try {
-    // Step 1: simplest possible Trading API call. GeteBayOfficialTime takes
-    // no parameters and authenticates with the same headers/token as every
-    // other call. If this fails, the issue is auth/headers, not XML format.
-    stage = "GeteBayOfficialTime";
-    const time = await tradingCall("GeteBayOfficialTime");
-    const officialTime =
-      (time as { Timestamp?: unknown }).Timestamp != null
-        ? String((time as { Timestamp?: unknown }).Timestamp)
-        : null;
+    // Step 1: GetUser with no params returns the authenticated seller's
+    // account info. We use this as the simplest auth probe — earlier we
+    // tried GeteBayOfficialTime, but eBay's edge no longer routes that call
+    // from external IPs and Akamai returns "Zero size object" 503s.
+    // GetUser is a documented, widely-used call that's always routed.
+    stage = "GetUser";
+    const user = await tradingCall("GetUser");
+    const ebayUserId =
+      ((user as { User?: { UserID?: unknown } }).User?.UserID as
+        | string
+        | undefined) ?? null;
 
     // Step 2: the actual GetStore call. If step 1 worked but this fails,
     // the issue is something specific to this call's request body.
@@ -60,8 +62,8 @@ export async function POST() {
 
     return NextResponse.json({
       ok: true,
+      ebayUserId,
       storeName,
-      officialTime,
       topLevelCategoryCount: tree.length,
       totalCategoryCount: flat.length,
       sampleCategoryNames,

@@ -5,7 +5,7 @@ import { useState } from "react";
 interface TestResult {
   ok: boolean;
   storeName?: string;
-  officialTime?: string;
+  ebayUserId?: string;
   topLevelCategoryCount?: number;
   totalCategoryCount?: number;
   sampleCategoryNames?: string[];
@@ -60,10 +60,10 @@ export default function TestConnectionButton() {
               {result.storeName ?? "(no name returned)"}
             </span>
           </p>
-          {result.officialTime && (
+          {result.ebayUserId && (
             <p>
-              <span className="text-brand-ink/60">eBay server time:</span>{" "}
-              {result.officialTime}
+              <span className="text-brand-ink/60">eBay user ID:</span>{" "}
+              {result.ebayUserId}
             </p>
           )}
           <p>
