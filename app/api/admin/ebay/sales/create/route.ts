@@ -140,12 +140,14 @@ export async function POST(req: NextRequest) {
     applyDiscountToSingleItemOnly: false,
     inventoryCriterion: {
       inventoryCriterionType: "INVENTORY_BY_RULE",
-      ruleCriteria: [
-        {
-          marketplaceId: "EBAY_US",
-          ebayStoreCategoryIds: body.categoryIds,
-        },
-      ],
+      // ruleCriteria is a single object, not an array — eBay returned
+      // "Could not serialize field [inventoryCriterion.ruleCriteria]" when
+      // we wrapped it in []. Multi-category targeting goes inside this
+      // single object's ebayStoreCategoryIds array.
+      ruleCriteria: {
+        marketplaceId: "EBAY_US",
+        ebayStoreCategoryIds: body.categoryIds,
+      },
     },
     discountRules: [
       {
