@@ -117,17 +117,21 @@ export async function POST(req: NextRequest) {
     })
     .returning({ id: ebaySales.id });
 
-  // Build the eBay request payload. The item_price_markdown_promotion
-  // endpoint is the right one for category- and SKU-based markdown sales.
+  // Build the eBay request payload for /sell/marketing/v1/item_promotion.
+  // We previously tried /sell/marketing/v1/item_price_markdown_promotion
+  // but that path returned HTTP 404 — eBay seems to have consolidated
+  // markdown sales under the generic item_promotion endpoint, with
+  // promotionType="MARKDOWN_SALE" picking the markdown variant.
   const ebayPayload = {
-    applyFreeShipping: false,
-    blockPriceIncreaseInItemRevision: true,
-    description: (body.description ?? body.name).slice(0, 500),
-    endDate: endDate.toISOString(),
-    marketplaceId: "EBAY_US",
     name: body.name.slice(0, 90),
-    priority: "MEDIUM",
+    description: (body.description ?? body.name).slice(0, 500),
+    marketplaceId: "EBAY_US",
+    promotionType: "MARKDOWN_SALE",
     promotionStatus: "SCHEDULED",
+    startDate: startDate.toISOString(),
+    endDate: endDate.toISOString(),
+    priority: "MEDIUM",
+    applyDiscountToSingleItemOnly: false,
     selectedInventoryDiscounts: [
       {
         discountBenefit: {
@@ -145,12 +149,11 @@ export async function POST(req: NextRequest) {
         ruleSelectionType: "STORE_CATEGORY",
       },
     ],
-    startDate: startDate.toISOString(),
   };
 
   try {
     const resp = await sellApi<MarketingPromotionResponse>(
-      "/sell/marketing/v1/item_price_markdown_promotion",
+      "/sell/marketing/v1/item_promotion",
       { method: "POST", body: ebayPayload }
     );
 
