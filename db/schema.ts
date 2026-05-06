@@ -152,6 +152,69 @@ export const ebayCategorySuggestions = pgTable(
   })
 );
 
+// Cached promotion/sale records that we've created via the Sell Marketing
+// API. ebayPromotionId is null until eBay confirms creation. Status mirrors
+// eBay's promotion lifecycle (DRAFT → SCHEDULED → RUNNING → ENDED), with
+// FAILED added for our local error state.
+
+export const ebaySales = pgTable(
+  "ebay_sales",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    saleType: text("sale_type", {
+      enum: [
+        "MARKDOWN_CATEGORY",
+        "MARKDOWN_SKU",
+        "ORDER_DISCOUNT",
+        "CODELESS_VOUCHER",
+      ],
+    }).notNull(),
+    ebayPromotionId: text("ebay_promotion_id"),
+    status: text("status", {
+      enum: ["DRAFT", "SCHEDULED", "RUNNING", "PAUSED", "ENDED", "FAILED"],
+    })
+      .default("DRAFT")
+      .notNull(),
+    name: text("name").notNull(),
+    description: text("description"),
+    discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }),
+    minSpendAmount: numeric("min_spend_amount", { precision: 10, scale: 2 }),
+    // Scope holds the type-specific selection: store category IDs for
+    // MARKDOWN_CATEGORY, SKU list for MARKDOWN_SKU, etc.
+    scope: jsonb("scope")
+      .$type<{
+        categoryIds?: string[];
+        skus?: string[];
+        appliesToAll?: boolean;
+      }>()
+      .default({})
+      .notNull(),
+    startsAt: timestamp("starts_at").notNull(),
+    endsAt: timestamp("ends_at").notNull(),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    statusIdx: index("ebay_sales_status_idx").on(t.status),
+  })
+);
+
+// Audit log for sale operations (create, update, end). Useful for
+// debugging eBay rejections and tracing what was sent.
+
+export const ebaySaleAuditLog = pgTable("ebay_sale_audit_log", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  saleId: uuid("sale_id").references(() => ebaySales.id, {
+    onDelete: "cascade",
+  }),
+  action: text("action").notNull(),
+  success: boolean("success").notNull(),
+  details: jsonb("details").$type<Record<string, unknown>>(),
+  errorMessage: text("error_message"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 // OAuth tokens for the eBay Sell APIs (Marketing, Account, etc.). These
 // require a different auth chain than the Auth'n'Auth user token used by
 // the Trading API. Single-row table — id is always "singleton".
