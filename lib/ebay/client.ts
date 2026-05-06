@@ -109,7 +109,12 @@ export async function tradingCall<T = Record<string, unknown>>(
   const response = await fetch(endpoint(creds.env), {
     method: "POST",
     headers: {
+      // Akamai sits in front of api.ebay.com and rejects requests without a
+      // proper User-Agent (and sometimes without Accept) with a 503 "Zero
+      // size object" error from errors.edgesuite.net. Be explicit about both.
       "Content-Type": "text/xml; charset=utf-8",
+      Accept: "text/xml",
+      "User-Agent": "FoundInAlabama/1.0 (+https://www.foundinalabama.com)",
       "X-EBAY-API-COMPATIBILITY-LEVEL": TRADING_API_VERSION,
       "X-EBAY-API-DEV-NAME": creds.devId,
       "X-EBAY-API-APP-NAME": creds.appId,
@@ -118,7 +123,6 @@ export async function tradingCall<T = Record<string, unknown>>(
       "X-EBAY-API-SITEID": opts.siteId ?? creds.siteId,
     },
     body: xml,
-    // Trading API can be slow on big responses (GetSellerList paginated).
     cache: "no-store",
   });
 
