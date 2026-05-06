@@ -162,7 +162,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const resp = await sellApi<MarketingPromotionResponse>(
-      "/sell/marketing/v1/item_price_markdown/",
+      "/sell/marketing/v1/item_price_markdown",
       { method: "POST", body: ebayPayload }
     );
 
