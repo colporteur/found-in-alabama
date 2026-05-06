@@ -152,6 +152,22 @@ export const ebayCategorySuggestions = pgTable(
   })
 );
 
+// OAuth tokens for the eBay Sell APIs (Marketing, Account, etc.). These
+// require a different auth chain than the Auth'n'Auth user token used by
+// the Trading API. Single-row table — id is always "singleton".
+
+export const ebayOAuthTokens = pgTable("ebay_oauth_tokens", {
+  id: text("id").primaryKey(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  accessTokenExpiresAt: timestamp("access_token_expires_at").notNull(),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at").notNull(),
+  scope: text("scope").notNull(),
+  ebayUsername: text("ebay_username"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
 // Audit log of every eBay API operation we perform. Useful for debugging
 // failed pushes and seeing what Claude has been doing on Todd's behalf.
 

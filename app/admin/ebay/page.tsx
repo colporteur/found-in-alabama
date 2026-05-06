@@ -152,9 +152,24 @@ export default async function EbayDashboard() {
         />
       </div>
 
+      <div className="mt-10 pt-6 border-t border-brand-ink/10">
+        <p className="text-xs uppercase tracking-wider text-brand-earth mb-2">
+          Phase 2 — Sales &amp; promotions
+        </p>
+        <Link
+          href="/admin/ebay/sales"
+          className="inline-block bg-white border border-brand-ink/15 hover:border-brand-yellow rounded-lg p-4 transition-colors"
+        >
+          <p className="font-medium mb-1">Sales &amp; promotions →</p>
+          <p className="text-sm text-brand-ink/70">
+            Schedule markdown sales, order discounts, and codeless vouchers.
+            ROI reporting coming next.
+          </p>
+        </Link>
+      </div>
+
       <p className="text-xs text-brand-ink/50 mt-12">
-        Phase eBay-1 of the eBay automation tool. Phase 2 (sale scheduling)
-        and Phase 3 (newsletters) are planned but not yet built.
+        Phase 3 (newsletters) is planned but not yet built.
       </p>
     </section>
   );
