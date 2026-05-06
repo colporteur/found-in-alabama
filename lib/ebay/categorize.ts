@@ -55,6 +55,13 @@ Output format: JSON only, no code fences, no preamble. Exact shape:
 
 export async function suggestCategoryForListing(input: {
   title: string;
+  /**
+   * Image URL is accepted but currently ignored — the Anthropic SDK
+   * version pinned in this project (0.32.1) only supports base64 image
+   * sources, not URL sources. eBay titles are descriptive enough on
+   * their own. We can add base64 image fetching later if classification
+   * accuracy on title-only proves insufficient.
+   */
   imageUrl?: string | null;
   categories: CategoryOption[];
 }): Promise<SuggestionResult> {
@@ -71,29 +78,11 @@ ${lines}
 
 Return your JSON suggestion.`;
 
-  const content: Array<
-    | { type: "text"; text: string }
-    | {
-        type: "image";
-        source:
-          | { type: "url"; url: string }
-          | { type: "base64"; media_type: string; data: string };
-      }
-  > = [];
-
-  if (input.imageUrl) {
-    content.push({
-      type: "image",
-      source: { type: "url", url: input.imageUrl },
-    });
-  }
-  content.push({ type: "text", text: userText });
-
   const response = await claude.messages.create({
     model: CATEGORIZE_MODEL,
     max_tokens: 500,
     system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content }],
+    messages: [{ role: "user", content: userText }],
   });
 
   const textBlock = response.content.find((b) => b.type === "text");
