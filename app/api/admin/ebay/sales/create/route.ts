@@ -117,13 +117,14 @@ export async function POST(req: NextRequest) {
     })
     .returning({ id: ebaySales.id });
 
-  // Build the eBay request payload for /sell/marketing/v1/item_promotion.
-  // Empirically, the markdown-sale variant of this endpoint requires:
-  //   - promotionImageUrl (any public URL)
-  //   - top-level inventoryCriterion
-  //   - discountRules (NOT selectedInventoryDiscounts at this endpoint)
-  //   - priority OMITTED (eBay's docs hint at "1" - "11" but our values
-  //     all errored — letting it default works)
+  // Build the eBay request payload for /sell/marketing/v1/item_price_markdown/.
+  // Confirmed shape from eBay's actual docs:
+  //   - URL is /sell/marketing/v1/item_price_markdown/ (trailing slash, no
+  //     "_promotion" suffix — earlier guesses were wrong)
+  //   - inventoryCriterion uses `selectionRules` (array), NOT `ruleCriteria`
+  //   - selectionRules entries take `categoryIds` + `categoryScope: "STORE"`
+  //     (NOT `ebayStoreCategoryIds`)
+  //   - No `promotionType` field — that's implied by the endpoint
   const promotionImageUrl =
     process.env.EBAY_PROMOTION_IMAGE_URL ||
     "https://www.foundinalabama.com/logo.png";
@@ -132,7 +133,6 @@ export async function POST(req: NextRequest) {
     name: body.name.slice(0, 90),
     description: (body.description ?? body.name).slice(0, 500),
     marketplaceId: "EBAY_US",
-    promotionType: "MARKDOWN_SALE",
     promotionStatus: "SCHEDULED",
     startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
@@ -140,14 +140,12 @@ export async function POST(req: NextRequest) {
     applyDiscountToSingleItemOnly: false,
     inventoryCriterion: {
       inventoryCriterionType: "INVENTORY_BY_RULE",
-      // ruleCriteria is a single object, not an array — eBay returned
-      // "Could not serialize field [inventoryCriterion.ruleCriteria]" when
-      // we wrapped it in []. Multi-category targeting goes inside this
-      // single object's ebayStoreCategoryIds array.
-      ruleCriteria: {
-        marketplaceId: "EBAY_US",
-        ebayStoreCategoryIds: body.categoryIds,
-      },
+      selectionRules: [
+        {
+          categoryIds: body.categoryIds,
+          categoryScope: "STORE",
+        },
+      ],
     },
     discountRules: [
       {
@@ -160,7 +158,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const resp = await sellApi<MarketingPromotionResponse>(
-      "/sell/marketing/v1/item_promotion",
+      "/sell/marketing/v1/item_price_markdown/",
       { method: "POST", body: ebayPayload }
     );
 
