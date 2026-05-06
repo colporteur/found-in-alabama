@@ -117,14 +117,15 @@ export async function POST(req: NextRequest) {
     })
     .returning({ id: ebaySales.id });
 
-  // Build the eBay request payload for /sell/marketing/v1/item_price_markdown/.
-  // Confirmed shape from eBay's actual docs:
-  //   - URL is /sell/marketing/v1/item_price_markdown/ (trailing slash, no
-  //     "_promotion" suffix — earlier guesses were wrong)
-  //   - inventoryCriterion uses `selectionRules` (array), NOT `ruleCriteria`
-  //   - selectionRules entries take `categoryIds` + `categoryScope: "STORE"`
-  //     (NOT `ebayStoreCategoryIds`)
-  //   - No `promotionType` field — that's implied by the endpoint
+  // Body for POST /sell/marketing/v1/item_price_markdown/ (the markdown
+  // promotion endpoint, distinct from /item_promotion). Earlier 500
+  // "Internal error" was caused by including applyDiscountToSingleItemOnly
+  // (that's an ItemPromotion field, not valid here) and missing markdown-
+  // specific fields. ItemPriceMarkdown's actual fields:
+  //   applyFreeShipping, autoSelectFutureInventory, blockPriceIncreaseInItemRevision,
+  //   description, discountRules, endDate, inventoryCriterion, marketplaceId,
+  //   name, priority (PRIORITY_1|PRIORITY_2|PRIORITY_3), promotionImageUrl,
+  //   promotionStatus, startDate.
   const promotionImageUrl =
     process.env.EBAY_PROMOTION_IMAGE_URL ||
     "https://www.foundinalabama.com/logo.png";
@@ -137,7 +138,10 @@ export async function POST(req: NextRequest) {
     startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
     promotionImageUrl,
-    applyDiscountToSingleItemOnly: false,
+    applyFreeShipping: false,
+    autoSelectFutureInventory: true,
+    blockPriceIncreaseInItemRevision: true,
+    priority: "PRIORITY_2",
     inventoryCriterion: {
       inventoryCriterionType: "INVENTORY_BY_RULE",
       selectionRules: [

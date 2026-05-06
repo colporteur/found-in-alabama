@@ -67,8 +67,25 @@ export async function sellApi<T = unknown>(
     init.body = JSON.stringify(opts.body);
   }
 
+  // Set EBAY_DEBUG=1 in env to log Sell API request body + response body
+  // to the server console. Useful for diagnosing 5xx errors where eBay's
+  // error message itself is uninformative.
+  if (process.env.EBAY_DEBUG === "1") {
+    console.log(`[ebay-sell:${method}] ${path}`);
+    if (init.body) {
+      console.log(`[ebay-sell:request-body] ${init.body}`);
+    }
+  }
+
   const res = await fetch(url, init);
   const text = await res.text();
+
+  if (process.env.EBAY_DEBUG === "1") {
+    console.log(
+      `[ebay-sell:${method}:${res.status}] response body (first 2000 chars):\n${text.slice(0, 2000)}`
+    );
+  }
+
   if (!res.ok) {
     throw new SellApiError(
       `Sell API ${method} ${path} failed: HTTP ${res.status}`,
