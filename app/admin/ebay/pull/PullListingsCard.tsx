@@ -1,16 +1,53 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { CachedListing } from "./page";
 
-interface PullResult {
+interface PageResult {
   ok: boolean;
-  matched?: number;
-  inserted?: number;
+  pageNumber?: number;
+  totalPages?: number;
+  hasMore?: boolean;
+  scannedThisPage?: number;
+  matchedThisPage?: number;
   otherCategoryName?: string;
-  error?: string;
   durationMs?: number;
+  error?: string;
+}
+
+interface PullProgress {
+  pagesDone: number;
+  totalPages: number;
+  scanned: number;
+  matched: number;
+  status: "idle" | "running" | "stopped" | "done" | "error";
+  error?: string;
+  lastPageMs?: number;
+}
+
+const INITIAL_PROGRESS: PullProgress = {
+  pagesDone: 0,
+  totalPages: 0,
+  scanned: 0,
+  matched: 0,
+  status: "idle",
+};
+
+/**
+ * Read fetch response body safely. If the server returned non-JSON (e.g.
+ * Vercel's HTML error page on a function timeout), surface the first chunk
+ * of that body as the error message instead of throwing a SyntaxError.
+ */
+async function readJsonOrText<T>(res: Response): Promise<T> {
+  const contentType = res.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    return (await res.json()) as T;
+  }
+  const text = await res.text();
+  throw new Error(
+    `Server returned non-JSON (HTTP ${res.status}): ${text.slice(0, 300)}`
+  );
 }
 
 export default function PullListingsCard({
@@ -24,34 +61,87 @@ export default function PullListingsCard({
 }) {
   const router = useRouter();
   const [, startTransition] = useTransition();
-  const [pulling, setPulling] = useState(false);
-  const [result, setResult] = useState<PullResult | null>(null);
-  const [maxItems, setMaxItems] = useState<string>("");
+  const [progress, setProgress] = useState<PullProgress>(INITIAL_PROGRESS);
+  const stopRef = useRef(false);
 
   async function runPull() {
-    setPulling(true);
-    setResult(null);
-    try {
-      const body: { maxItems?: number } = {};
-      const parsed = parseInt(maxItems, 10);
-      if (!Number.isNaN(parsed) && parsed > 0) {
-        body.maxItems = parsed;
+    stopRef.current = false;
+    setProgress({ ...INITIAL_PROGRESS, status: "running" });
+
+    let page = 1;
+    let totalPages = 0;
+    let scanned = 0;
+    let matched = 0;
+
+    while (!stopRef.current) {
+      try {
+        const t0 = Date.now();
+        const res = await fetch("/api/admin/ebay/pull-listings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pageNumber: page, entriesPerPage: 100 }),
+        });
+        const json = await readJsonOrText<PageResult>(res);
+
+        if (!json.ok) {
+          setProgress({
+            pagesDone: page - 1,
+            totalPages: totalPages || 0,
+            scanned,
+            matched,
+            status: "error",
+            error: json.error ?? `HTTP ${res.status}`,
+            lastPageMs: Date.now() - t0,
+          });
+          return;
+        }
+
+        totalPages = json.totalPages ?? totalPages;
+        scanned += json.scannedThisPage ?? 0;
+        matched += json.matchedThisPage ?? 0;
+
+        setProgress({
+          pagesDone: page,
+          totalPages,
+          scanned,
+          matched,
+          status: "running",
+          lastPageMs: Date.now() - t0,
+        });
+
+        // Refresh server state every 5 pages so the cached table fills in
+        // progressively rather than all at the end.
+        if (page % 5 === 0) {
+          startTransition(() => router.refresh());
+        }
+
+        if (!json.hasMore) {
+          setProgress((p) => ({ ...p, status: "done" }));
+          startTransition(() => router.refresh());
+          return;
+        }
+
+        page += 1;
+      } catch (err) {
+        setProgress({
+          pagesDone: page - 1,
+          totalPages,
+          scanned,
+          matched,
+          status: "error",
+          error: (err as Error).message,
+        });
+        return;
       }
-      const res = await fetch("/api/admin/ebay/pull-listings", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      const json = (await res.json()) as PullResult;
-      setResult(json);
-      if (json.ok) {
-        startTransition(() => router.refresh());
-      }
-    } catch (err) {
-      setResult({ ok: false, error: (err as Error).message });
-    } finally {
-      setPulling(false);
     }
+
+    // Loop exited because user clicked Stop.
+    setProgress((p) => ({ ...p, status: "stopped" }));
+    startTransition(() => router.refresh());
+  }
+
+  function stopPull() {
+    stopRef.current = true;
   }
 
   if (!otherCategory) {
@@ -67,6 +157,12 @@ export default function PullListingsCard({
     );
   }
 
+  const isRunning = progress.status === "running";
+  const pct =
+    progress.totalPages > 0
+      ? Math.min(100, Math.round((progress.pagesDone / progress.totalPages) * 100))
+      : 0;
+
   return (
     <div className="space-y-6">
       <div className="bg-white border border-brand-ink/15 rounded-lg p-5">
@@ -81,60 +177,80 @@ export default function PullListingsCard({
               </span>
             </p>
           </div>
-          <button
-            type="button"
-            onClick={runPull}
-            disabled={pulling}
-            className="bg-brand-ink text-brand-paper text-sm px-4 py-2 rounded hover:bg-brand-ink/90 disabled:opacity-50"
-          >
-            {pulling
-              ? "Pulling…"
-              : cachedTotal === 0
-              ? "Run first pull"
-              : "Re-pull"}
-          </button>
+          {isRunning ? (
+            <button
+              type="button"
+              onClick={stopPull}
+              className="bg-brand-ink/10 text-brand-ink text-sm px-4 py-2 rounded hover:bg-brand-ink/20"
+            >
+              Stop
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={runPull}
+              className="bg-brand-ink text-brand-paper text-sm px-4 py-2 rounded hover:bg-brand-ink/90"
+            >
+              {cachedTotal === 0 ? "Run first pull" : "Re-pull"}
+            </button>
+          )}
         </div>
 
-        <details className="text-sm text-brand-ink/70">
-          <summary className="cursor-pointer text-brand-ink/60 hover:text-brand-ink">
-            Advanced: limit how many to fetch
-          </summary>
-          <div className="mt-2 flex items-center gap-2">
-            <label htmlFor="maxItems" className="text-xs">
-              Max items (blank = all):
-            </label>
-            <input
-              id="maxItems"
-              type="number"
-              min={1}
-              value={maxItems}
-              onChange={(e) => setMaxItems(e.target.value)}
-              placeholder="e.g. 50"
-              className="text-sm border border-brand-ink/15 rounded px-2 py-1 w-32 bg-brand-paper focus:outline-none focus:border-brand-yellow"
-            />
-            <span className="text-xs text-brand-ink/50">
-              Useful for a smoke test if your store has thousands of listings.
-            </span>
-          </div>
-        </details>
+        {progress.status !== "idle" && (
+          <>
+            <div className="mt-3">
+              <div className="flex items-baseline justify-between text-sm mb-1">
+                <span className="text-brand-ink/70">
+                  Page {progress.pagesDone}
+                  {progress.totalPages > 0 ? ` of ${progress.totalPages}` : ""}
+                </span>
+                <span className="text-brand-ink/60 text-xs">
+                  scanned {progress.scanned.toLocaleString()} · matched{" "}
+                  {progress.matched.toLocaleString()}
+                  {progress.lastPageMs
+                    ? ` · ${progress.lastPageMs}ms last page`
+                    : ""}
+                </span>
+              </div>
+              <div className="h-2 bg-brand-paper rounded overflow-hidden border border-brand-ink/10">
+                <div
+                  className="h-full bg-brand-yellow transition-[width] duration-300"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
+            </div>
 
-        {result && result.ok && (
-          <div className="mt-3 border-l-4 border-brand-yellow bg-brand-yellow/10 p-3 text-sm">
-            ✅ Cached {result.matched} listings in {result.durationMs} ms.
-          </div>
-        )}
-        {result && !result.ok && (
-          <div className="mt-3 border-l-4 border-red-500 bg-red-50 p-3 text-sm">
-            ❌ {result.error}
-          </div>
+            {progress.status === "done" && (
+              <div className="mt-3 border-l-4 border-brand-yellow bg-brand-yellow/10 p-3 text-sm">
+                ✅ Done. Scanned {progress.scanned.toLocaleString()} active
+                listings, matched {progress.matched.toLocaleString()} into the
+                cache.
+              </div>
+            )}
+            {progress.status === "stopped" && (
+              <div className="mt-3 border-l-4 border-brand-ink/30 bg-brand-paper p-3 text-sm">
+                ⏸ Stopped at page {progress.pagesDone}. Cached so far:{" "}
+                {progress.matched.toLocaleString()}. Click Re-pull to resume —
+                already-cached listings get refreshed, not duplicated.
+              </div>
+            )}
+            {progress.status === "error" && (
+              <div className="mt-3 border-l-4 border-red-500 bg-red-50 p-3 text-sm">
+                ❌ {progress.error}
+                <p className="text-xs text-brand-ink/60 mt-2">
+                  Cached so far: {progress.matched.toLocaleString()}. You can
+                  click Re-pull to retry from page 1; existing rows just get
+                  refreshed.
+                </p>
+              </div>
+            )}
+          </>
         )}
 
-        <p className="text-xs text-brand-ink/50 mt-3">
-          Tip: GetSellerList scans every active listing and we filter
-          client-side, so a store with 5,000+ active listings can take
-          1&ndash;2 minutes. If the request times out at the Vercel 60s
-          limit, retry with a max-items cap to confirm the basic flow,
-          then we&rsquo;ll add resume support.
+        <p className="text-xs text-brand-ink/50 mt-4">
+          Tip: each page is one Trading API call (~5s). Pull runs page by
+          page so it can&rsquo;t hit Vercel&rsquo;s 60s function limit.
+          You can Stop at any time and Re-pull to resume.
         </p>
       </div>
 
