@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { StoredCategory } from "./page";
 
@@ -23,6 +23,15 @@ export default function CategoriesEditor({
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [categories, setCategories] = useState<StoredCategory[]>(initial);
+
+  // Re-sync local state whenever the server-rendered initial prop changes
+  // (e.g. after a sync triggers router.refresh()). Without this, the
+  // useState initializer captures the empty array on first render and
+  // never picks up the freshly synced rows.
+  useEffect(() => {
+    setCategories(initial);
+  }, [initial]);
+
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
