@@ -29,6 +29,13 @@ export const maxDuration = 60;
 interface PullBody {
   pageNumber?: number;
   entriesPerPage?: number;
+  /**
+   * If true, the route fetches one page and returns the first few raw
+   * normalized listings without writing to the DB. Used to verify that
+   * Storefront / StoreCategoryID is actually present in eBay's response
+   * when matched count is zero unexpectedly.
+   */
+  debug?: boolean;
 }
 
 interface PullResponse {
@@ -82,12 +89,27 @@ export async function POST(req: NextRequest) {
     const now = new Date();
     const future = new Date(now.getTime() + 120 * 24 * 60 * 60 * 1000);
 
+    // We use OutputSelector instead of DetailLevel/GranularityLevel because
+    // GranularityLevel=Coarse omits the Storefront block, which is exactly
+    // what we need for the StoreCategoryID filter. OutputSelector lets us
+    // ask for the precise fields we need with minimal payload.
     const res = await tradingCall("GetSellerList", {
       EndTimeFrom: now.toISOString(),
       EndTimeTo: future.toISOString(),
-      DetailLevel: "ReturnAll",
-      GranularityLevel: "Coarse",
       Pagination: { EntriesPerPage: entriesPerPage, PageNumber: pageNumber },
+      OutputSelector: [
+        "ItemArray.Item.ItemID",
+        "ItemArray.Item.SKU",
+        "ItemArray.Item.Title",
+        "ItemArray.Item.PictureDetails.PictureURL",
+        "ItemArray.Item.Storefront",
+        "ItemArray.Item.PrimaryCategory.CategoryID",
+        "ItemArray.Item.PrimaryCategory.CategoryName",
+        "ItemArray.Item.ListingType",
+        "ItemArray.Item.Quantity",
+        "ItemArray.Item.SellingStatus.CurrentPrice",
+        "PaginationResult",
+      ],
     });
 
     const itemArray = (res as { ItemArray?: { Item?: unknown } }).ItemArray;
@@ -99,14 +121,39 @@ export async function POST(req: NextRequest) {
         .PaginationResult?.TotalNumberOfPages ?? 1
     );
 
+    const normalized = arr.map((i) => normalizeListing(i));
+
+    // Debug short-circuit: don't filter, don't write — just return what
+    // we actually saw so we can diagnose mismatches.
+    if (body.debug) {
+      const sample = normalized.slice(0, 3);
+      const stats = {
+        total: normalized.length,
+        withStorefront: normalized.filter((l) => l.storeCategory1Id != null).length,
+        withSecondStoreCat: normalized.filter((l) => l.storeCategory2Id != null).length,
+        distinctStoreCat1Ids: Array.from(
+          new Set(normalized.map((l) => l.storeCategory1Id).filter(Boolean))
+        ).slice(0, 10),
+      };
+      return NextResponse.json({
+        ok: true,
+        debug: true,
+        otherCategoryId: other.categoryId,
+        otherCategoryName: other.name,
+        pageNumber,
+        totalPages,
+        stats,
+        sample,
+        durationMs: Date.now() - start,
+      });
+    }
+
     // Filter to "Other" with no second category. Same logic as the iterator
     // version, kept inline so this route is self-contained and easy to read.
-    const matched = arr
-      .map((i) => normalizeListing(i))
-      .filter(
-        (l) =>
-          l.storeCategory1Id === other.categoryId && !l.storeCategory2Id
-      );
+    const matched = normalized.filter(
+      (l) =>
+        l.storeCategory1Id === other.categoryId && !l.storeCategory2Id
+    );
 
     if (matched.length > 0) {
       const rows = matched.map((l) => ({

@@ -63,6 +63,26 @@ export default function PullListingsCard({
   const [, startTransition] = useTransition();
   const [progress, setProgress] = useState<PullProgress>(INITIAL_PROGRESS);
   const stopRef = useRef(false);
+  const [debug, setDebug] = useState<unknown>(null);
+  const [debugLoading, setDebugLoading] = useState(false);
+
+  async function runDebug() {
+    setDebug(null);
+    setDebugLoading(true);
+    try {
+      const res = await fetch("/api/admin/ebay/pull-listings", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pageNumber: 1, entriesPerPage: 50, debug: true }),
+      });
+      const json = await readJsonOrText<unknown>(res);
+      setDebug(json);
+    } catch (err) {
+      setDebug({ error: (err as Error).message });
+    } finally {
+      setDebugLoading(false);
+    }
+  }
 
   async function runPull() {
     stopRef.current = false;
@@ -252,6 +272,27 @@ export default function PullListingsCard({
           page so it can&rsquo;t hit Vercel&rsquo;s 60s function limit.
           You can Stop at any time and Re-pull to resume.
         </p>
+
+        <details className="mt-3 text-sm">
+          <summary className="cursor-pointer text-brand-ink/60 hover:text-brand-ink">
+            Debug: inspect page 1 without filtering or writing
+          </summary>
+          <div className="mt-3 space-y-2">
+            <button
+              type="button"
+              onClick={runDebug}
+              disabled={debugLoading}
+              className="text-xs bg-brand-ink/10 text-brand-ink px-3 py-1.5 rounded hover:bg-brand-ink/20 disabled:opacity-50"
+            >
+              {debugLoading ? "Inspecting…" : "Run debug fetch"}
+            </button>
+            {debug != null && (
+              <pre className="text-xs bg-brand-paper border border-brand-ink/10 rounded p-3 overflow-x-auto max-h-96">
+                {JSON.stringify(debug, null, 2)}
+              </pre>
+            )}
+          </div>
+        </details>
       </div>
 
       <div className="bg-white border border-brand-ink/15 rounded-lg p-5">
