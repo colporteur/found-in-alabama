@@ -89,27 +89,19 @@ export async function POST(req: NextRequest) {
     const now = new Date();
     const future = new Date(now.getTime() + 120 * 24 * 60 * 60 * 1000);
 
-    // We use OutputSelector instead of DetailLevel/GranularityLevel because
-    // GranularityLevel=Coarse omits the Storefront block, which is exactly
-    // what we need for the StoreCategoryID filter. OutputSelector lets us
-    // ask for the precise fields we need with minimal payload.
+    // DetailLevel=ReturnAll (with NO GranularityLevel) returns the full Item
+    // payload including Storefront. We previously tried two narrower
+    // approaches that both came back with empty data:
+    //   - GranularityLevel=Coarse → strips Storefront entirely
+    //   - OutputSelector with paths → eBay only honored the first selector
+    //     and returned just ItemID for everything else
+    // ReturnAll is heavier on the wire, but with EntriesPerPage capped at
+    // 50 in this debug-friendly mode the per-page response stays manageable.
     const res = await tradingCall("GetSellerList", {
       EndTimeFrom: now.toISOString(),
       EndTimeTo: future.toISOString(),
+      DetailLevel: "ReturnAll",
       Pagination: { EntriesPerPage: entriesPerPage, PageNumber: pageNumber },
-      OutputSelector: [
-        "ItemArray.Item.ItemID",
-        "ItemArray.Item.SKU",
-        "ItemArray.Item.Title",
-        "ItemArray.Item.PictureDetails.PictureURL",
-        "ItemArray.Item.Storefront",
-        "ItemArray.Item.PrimaryCategory.CategoryID",
-        "ItemArray.Item.PrimaryCategory.CategoryName",
-        "ItemArray.Item.ListingType",
-        "ItemArray.Item.Quantity",
-        "ItemArray.Item.SellingStatus.CurrentPrice",
-        "PaginationResult",
-      ],
     });
 
     const itemArray = (res as { ItemArray?: { Item?: unknown } }).ItemArray;

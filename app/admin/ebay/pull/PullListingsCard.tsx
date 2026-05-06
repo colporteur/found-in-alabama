@@ -99,7 +99,9 @@ export default function PullListingsCard({
         const res = await fetch("/api/admin/ebay/pull-listings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ pageNumber: page, entriesPerPage: 100 }),
+          // 50 per page keeps each ReturnAll response well under memory
+          // limits and per-page time around 3-5s.
+          body: JSON.stringify({ pageNumber: page, entriesPerPage: 50 }),
         });
         const json = await readJsonOrText<PageResult>(res);
 
