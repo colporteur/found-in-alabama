@@ -1,16 +1,13 @@
-// eBay tools dashboard. Shows connection status, sync state for store
-// categories and the "needs categorization" pool, plus links to the per-step
-// pages. Each card here is a thin status read; the heavy actions (pull
-// listings, run Claude, push revisions) live on dedicated routes.
+// eBay tools dashboard. As of Phase eBay-1.1 this is a thin entry point:
+// connection status, the auto-categorize tool, and the sales (Phase 2)
+// section. The old per-step review/pull pages have been replaced by the
+// one-button auto-categorize flow.
 
 import Link from "next/link";
 import { db } from "@/db";
-import {
-  ebayCategorySuggestions,
-  ebayListings,
-  ebayStoreCategories,
-} from "@/db/schema";
-import { count, eq, sql } from "drizzle-orm";
+import { ebayStoreCategories } from "@/db/schema";
+import { count, eq } from "drizzle-orm";
+import { getLatestRun } from "@/lib/ebay/auto-categorize";
 
 export const dynamic = "force-dynamic";
 
@@ -28,7 +25,7 @@ export default async function EbayDashboard() {
     .select({ count: count() })
     .from(ebayStoreCategories)
     .where(eq(ebayStoreCategories.isAlabamaRelated, true));
-  const [catOtherRow] = await db
+  const [otherCat] = await db
     .select({
       categoryId: ebayStoreCategories.categoryId,
       name: ebayStoreCategories.name,
@@ -37,28 +34,7 @@ export default async function EbayDashboard() {
     .where(eq(ebayStoreCategories.isOtherBucket, true))
     .limit(1);
 
-  const [listingTotal] = await db.select({ count: count() }).from(ebayListings);
-  const [pendingSuggestions] = await db
-    .select({ count: count() })
-    .from(ebayCategorySuggestions)
-    .where(eq(ebayCategorySuggestions.status, "pending"));
-  const [appliedSuggestions] = await db
-    .select({ count: count() })
-    .from(ebayCategorySuggestions)
-    .where(
-      sql`${ebayCategorySuggestions.status} in ('applied', 'auto-applied')`
-    );
-
-  const lastCatSync = await db
-    .select({ at: ebayStoreCategories.lastSyncedAt })
-    .from(ebayStoreCategories)
-    .orderBy(sql`${ebayStoreCategories.lastSyncedAt} desc`)
-    .limit(1);
-  const lastListingSync = await db
-    .select({ at: ebayListings.lastSyncedAt })
-    .from(ebayListings)
-    .orderBy(sql`${ebayListings.lastSyncedAt} desc`)
-    .limit(1);
+  const latestRun = await getLatestRun();
 
   return (
     <section className="container-content py-12">
@@ -66,14 +42,13 @@ export default async function EbayDashboard() {
         eBay tools
       </p>
       <h1 className="font-marker text-3xl md:text-4xl mb-3">
-        Re-categorize the &ldquo;Other&rdquo; pile
+        Manage your store
       </h1>
       <p className="text-brand-ink/70 mb-8 max-w-prose">
-        Pulls every active listing whose Store Category 1 is &ldquo;Other&rdquo;
-        and whose Store Category 2 is empty, asks Claude to suggest
-        better-fitting store categories with extra weight on your
-        Alabama-related ones, and pushes the changes back to eBay after you
-        approve them.
+        Two tools wired up to your eBay seller account: auto-categorize cleans
+        up the &ldquo;Other&rdquo; bucket using Claude, and sales/promotions
+        (Phase 2) schedules markdowns. Both depend on the Store category sync,
+        which you should run any time you add or rename Store categories.
       </p>
 
       <ConnectionCard configured={credsConfigured} />
@@ -82,11 +57,7 @@ export default async function EbayDashboard() {
         <Stat
           label="Store categories"
           value={catTotal?.count ?? 0}
-          hint={
-            lastCatSync[0]?.at
-              ? `Last synced ${formatRelative(lastCatSync[0].at)}`
-              : "Not synced yet"
-          }
+          hint={catTotal?.count ? "Synced" : "Not synced yet"}
         />
         <Stat
           label="Alabama-flagged"
@@ -95,59 +66,30 @@ export default async function EbayDashboard() {
         />
         <Stat
           label={"“Other” bucket"}
-          value={catOtherRow ? 1 : 0}
-          hint={catOtherRow?.name ?? "Auto-detected on sync"}
+          value={otherCat ? 1 : 0}
+          hint={otherCat?.name ?? "Auto-detected on sync"}
         />
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 max-w-3xl">
-        <StepCard
-          step="1"
-          title="Sync store categories"
-          desc="Pull your full Store category tree from eBay and auto-flag the Alabama-related ones. You can edit the flags before saving."
-          ready={credsConfigured}
+        <ToolCard
           href="/admin/ebay/categories"
-          ctaLabel={catTotal?.count ? "Review flags" : "Run sync"}
+          title="Sync Store categories"
+          desc="Pull your full Store category tree from eBay and flag the Alabama-related ones. Re-run any time you add or rename categories on eBay."
+          ready={credsConfigured}
+          cta={catTotal?.count ? "Edit flags" : "Run sync"}
         />
-        <StepCard
-          step="2"
-          title="Pull listings to recategorize"
-          desc='Find every active listing in the "Other" bucket with no second category set. Cached locally so you can review across sessions.'
-          ready={credsConfigured && !!catOtherRow}
-          href="/admin/ebay/pull"
-          ctaLabel={
-            listingTotal?.count
-              ? `${listingTotal.count} cached`
-              : "Pull listings"
-          }
-          hint={
-            lastListingSync[0]?.at
-              ? `Last pulled ${formatRelative(lastListingSync[0].at)}`
-              : undefined
-          }
-        />
-        <StepCard
-          step="3"
-          title="Review & approve suggestions"
-          desc="Claude scores each listing against your store categories. Auto-applies high-confidence matches; queues the rest for one-by-one review."
-          ready={!!listingTotal?.count}
-          href="/admin/ebay/review"
-          ctaLabel={
-            pendingSuggestions?.count
-              ? `${pendingSuggestions.count} pending`
-              : "Open review"
-          }
-        />
-        <StepCard
-          step="4"
-          title="History"
-          desc="See every change pushed to eBay, with the reasoning Claude gave at the time. Use this to audit results and undo if anything looks wrong."
-          ready={!!appliedSuggestions?.count}
-          href="/admin/ebay/history"
-          ctaLabel={
-            appliedSuggestions?.count
-              ? `${appliedSuggestions.count} applied`
-              : "Empty"
+        <ToolCard
+          href="/admin/ebay/auto-categorize"
+          title="Auto-categorize"
+          desc='One-button Claude-powered re-categorization of listings stuck in "Other." Pushes changes to eBay immediately. Phase 2 adds a 2nd category to items that still need one.'
+          ready={credsConfigured && !!otherCat}
+          cta={
+            latestRun?.status === "running"
+              ? "Run in progress →"
+              : latestRun
+              ? "Open"
+              : "Get started"
           }
         />
       </div>
@@ -158,12 +100,13 @@ export default async function EbayDashboard() {
         </p>
         <Link
           href="/admin/ebay/sales"
-          className="inline-block bg-white border border-brand-ink/15 hover:border-brand-yellow rounded-lg p-4 transition-colors"
+          className="inline-block bg-white border border-brand-ink/15 hover:border-brand-yellow rounded-lg p-4 transition-colors max-w-md"
         >
           <p className="font-medium mb-1">Sales &amp; promotions →</p>
           <p className="text-sm text-brand-ink/70">
             Schedule markdown sales, order discounts, and codeless vouchers.
-            ROI reporting coming next.
+            (eBay&rsquo;s Marketing API currently returns errors — Seller Hub
+            UI works fine in the meantime.)
           </p>
         </Link>
       </div>
@@ -183,7 +126,7 @@ function ConnectionCard({ configured }: { configured: boolean }) {
           Connected
         </span>
         <div className="text-sm text-brand-ink/70">
-          eBay credentials are loaded from <code>.env.local</code>. Auth token
+          eBay credentials loaded from <code>.env.local</code>. Auth token
           rotation is manual — see{" "}
           <Link
             className="underline decoration-brand-yellow decoration-2 underline-offset-2"
@@ -236,33 +179,29 @@ function Stat({
   );
 }
 
-function StepCard({
-  step,
+function ToolCard({
   title,
   desc,
   ready,
   href,
-  ctaLabel,
-  hint,
+  cta,
 }: {
-  step: string;
   title: string;
   desc: string;
   ready: boolean;
   href: string;
-  ctaLabel: string;
-  hint?: string;
+  cta: string;
 }) {
   const inner = (
     <div
-      className={`bg-white border rounded-lg p-5 transition-colors ${
+      className={`bg-white border rounded-lg p-5 h-full transition-colors ${
         ready
           ? "border-brand-ink/15 hover:border-brand-yellow"
           : "border-brand-ink/10 opacity-70"
       }`}
     >
       <div className="flex items-baseline justify-between mb-2">
-        <p className="font-marker text-base text-brand-ink/40">Step {step}</p>
+        <h3 className="font-medium text-lg">{title}</h3>
         <span
           className={`text-xs uppercase tracking-wider px-2 py-1 rounded ${
             ready
@@ -270,12 +209,10 @@ function StepCard({
               : "bg-brand-ink/10 text-brand-ink/60"
           }`}
         >
-          {ready ? ctaLabel : "Locked"}
+          {ready ? cta : "Locked"}
         </span>
       </div>
-      <h3 className="font-medium text-lg mb-1">{title}</h3>
       <p className="text-sm text-brand-ink/70 leading-relaxed">{desc}</p>
-      {hint && <p className="text-xs text-brand-ink/50 mt-2">{hint}</p>}
     </div>
   );
 
@@ -285,15 +222,4 @@ function StepCard({
       {inner}
     </Link>
   );
-}
-
-function formatRelative(d: Date): string {
-  const ms = Date.now() - new Date(d).getTime();
-  const minutes = Math.round(ms / 60000);
-  if (minutes < 1) return "just now";
-  if (minutes < 60) return `${minutes}m ago`;
-  const hours = Math.round(minutes / 60);
-  if (hours < 24) return `${hours}h ago`;
-  const days = Math.round(hours / 24);
-  return `${days}d ago`;
 }

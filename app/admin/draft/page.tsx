@@ -23,11 +23,14 @@ export default function DraftPage() {
     previewUrl: string;
     fileName: string;
   } | null>(null);
-  const [notes, setNotes] = useState("");
+  const [acquisitionContext, setAcquisitionContext] = useState("");
+  const [photoNotes, setPhotoNotes] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DraftResult | null>(null);
   const [copied, setCopied] = useState(false);
+  const [isPublishing, setIsPublishing] = useState(false);
+  const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
@@ -74,12 +77,13 @@ export default function DraftPage() {
     e.preventDefault();
     setError(null);
     setResult(null);
+    setPublishedUrl(null);
     if (!imageData) {
       setError("Please choose a hero image first.");
       return;
     }
-    if (notes.trim().length < 10) {
-      setError("Add at least a sentence of notes about this haul.");
+    if (acquisitionContext.trim().length + photoNotes.trim().length < 10) {
+      setError("Tell us at least a sentence about the haul.");
       return;
     }
     setIsGenerating(true);
@@ -90,7 +94,8 @@ export default function DraftPage() {
         body: JSON.stringify({
           imageBase64: imageData.base64,
           imageMediaType: imageData.mediaType,
-          notes: notes.trim(),
+          acquisitionContext: acquisitionContext.trim(),
+          photoNotes: photoNotes.trim(),
         }),
       });
       if (!res.ok) {
@@ -103,6 +108,37 @@ export default function DraftPage() {
       setError(err instanceof Error ? err.message : "Generation failed");
     } finally {
       setIsGenerating(false);
+    }
+  }
+
+  async function handlePublish() {
+    if (!result || !imageData) return;
+    setError(null);
+    setIsPublishing(true);
+    try {
+      const res = await fetch("/api/admin/publish", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          slug: result.slug,
+          title: result.title,
+          excerpt: result.excerpt,
+          body: result.body,
+          featured: true,
+          imageBase64: imageData.base64,
+          imageMediaType: imageData.mediaType,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as { postUrl: string };
+      setPublishedUrl(data.postUrl);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Publish failed");
+    } finally {
+      setIsPublishing(false);
     }
   }
 
@@ -184,18 +220,41 @@ ${r.body}
         </div>
 
         <div className="bg-white border border-brand-ink/15 rounded-lg p-5">
-          <label htmlFor="notes" className="block text-sm font-medium mb-2">
-            Notes about this haul
+          <label
+            htmlFor="acquisition-context"
+            className="block text-sm font-medium mb-2"
+          >
+            Where it came from
             <span className="text-brand-ink/50 font-normal ml-2">
-              Where it came from, kinds of items, anything notable
+              The acquisition story — estate, auction, source, dates, anything narrative
             </span>
           </label>
           <textarea
-            id="notes"
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            rows={5}
-            placeholder="e.g. Estate of a retired physician in Anniston. Mid-century furniture, medical books and journals, a few signed prints. Acquired April 22 — packing now."
+            id="acquisition-context"
+            value={acquisitionContext}
+            onChange={(e) => setAcquisitionContext(e.target.value)}
+            rows={4}
+            placeholder="e.g. Estate sale in Anniston, retired physician's family, sold over the weekend. Bought everything in the den plus the bookshelves in the back hall."
+            className="w-full px-4 py-3 border border-brand-ink/20 rounded-md text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow resize-y"
+          />
+        </div>
+
+        <div className="bg-white border border-brand-ink/15 rounded-lg p-5">
+          <label
+            htmlFor="photo-notes"
+            className="block text-sm font-medium mb-2"
+          >
+            What&apos;s in the photo
+            <span className="text-brand-ink/50 font-normal ml-2">
+              Notable items visible in the hero image — gives Claude concrete details to ground the narrative
+            </span>
+          </label>
+          <textarea
+            id="photo-notes"
+            value={photoNotes}
+            onChange={(e) => setPhotoNotes(e.target.value)}
+            rows={4}
+            placeholder="e.g. Stack of medical journals, a 1970s boombox, a leather portfolio, a vinyl record sleeve, an IKEA bag for scale."
             className="w-full px-4 py-3 border border-brand-ink/20 rounded-md text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow resize-y"
           />
         </div>
@@ -203,7 +262,11 @@ ${r.body}
         <div className="flex items-center gap-4">
           <button
             type="submit"
-            disabled={isGenerating || !imageData || notes.trim().length < 10}
+            disabled={
+              isGenerating ||
+              !imageData ||
+              acquisitionContext.trim().length + photoNotes.trim().length < 10
+            }
             className="inline-flex items-center justify-center px-6 py-3 bg-brand-yellow text-brand-ink font-medium rounded-md hover:bg-brand-yellow-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isGenerating ? "Generating…" : "Generate draft with Claude →"}
@@ -231,13 +294,46 @@ ${r.body}
                 Edit and copy
               </h2>
             </div>
-            <button
-              onClick={handleCopy}
-              className="inline-flex items-center px-4 py-2 bg-brand-ink text-brand-paper font-medium rounded-md hover:bg-brand-ink/90 transition-colors text-sm"
-            >
-              {copied ? "Copied!" : "Copy as markdown"}
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                onClick={handlePublish}
+                disabled={isPublishing || !!publishedUrl}
+                className="inline-flex items-center px-4 py-2 bg-brand-yellow text-brand-ink font-medium rounded-md hover:bg-brand-yellow-dark transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isPublishing
+                  ? "Publishing…"
+                  : publishedUrl
+                  ? "Published ✓"
+                  : "Publish to site →"}
+              </button>
+              <button
+                onClick={handleCopy}
+                className="inline-flex items-center px-4 py-2 bg-transparent text-brand-ink border border-brand-ink/30 font-medium rounded-md hover:bg-brand-ink/5 transition-colors text-sm"
+              >
+                {copied ? "Copied!" : "Copy markdown"}
+              </button>
+            </div>
           </div>
+
+          {publishedUrl && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-md p-4 mb-6 text-sm text-emerald-900">
+              <p className="font-medium mb-1">
+                Published. Vercel is rebuilding now.
+              </p>
+              <p>
+                Your post will be live at{" "}
+                <a
+                  href={publishedUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline decoration-emerald-600 decoration-2 underline-offset-2"
+                >
+                  {publishedUrl}
+                </a>{" "}
+                in about a minute (refresh that page once Vercel finishes).
+              </p>
+            </div>
+          )}
 
           <div className="space-y-5">
             <Field label="Title">
@@ -291,10 +387,12 @@ ${r.body}
             </p>
           )}
 
-          <div className="mt-8 bg-brand-yellow/20 border border-brand-yellow rounded-md p-5">
-            <p className="text-sm font-medium mb-2">Next steps</p>
-            <ol className="text-sm text-brand-ink/80 space-y-1 list-decimal list-inside">
-              <li>Click &quot;Copy as markdown&quot; above</li>
+          <details className="mt-8 bg-brand-paper border border-brand-ink/10 rounded-md p-5">
+            <summary className="text-sm font-medium cursor-pointer text-brand-ink/70">
+              Manual publish fallback (if &ldquo;Publish to site&rdquo; fails)
+            </summary>
+            <ol className="mt-3 text-sm text-brand-ink/80 space-y-1 list-decimal list-inside">
+              <li>Click &quot;Copy markdown&quot; above</li>
               <li>
                 Create a new file at{" "}
                 <code className="bg-white px-1 rounded">
@@ -312,7 +410,7 @@ ${r.body}
                 <code className="bg-white px-1 rounded">git add . &amp;&amp; git commit -m &quot;Add {result.slug || "post"}&quot; &amp;&amp; git push</code>
               </li>
             </ol>
-          </div>
+          </details>
         </div>
       )}
     </section>

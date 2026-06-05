@@ -15,7 +15,12 @@ export const maxDuration = 60;
 type DraftRequest = {
   imageBase64: string;
   imageMediaType: "image/jpeg" | "image/png" | "image/webp" | "image/gif";
-  notes: string;
+  /** Where the haul came from (estate, auction, etc.) — narrative spine. */
+  acquisitionContext?: string;
+  /** What's in the hero photo — grounds specific details. */
+  photoNotes?: string;
+  /** Legacy single-field; if provided, used as acquisitionContext. */
+  notes?: string;
 };
 
 type DraftResponse = {
@@ -39,7 +44,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { imageBase64, imageMediaType, notes } = payload;
+  const { imageBase64, imageMediaType } = payload;
+  // Accept either the new two-field shape or the legacy single `notes`
+  const acquisitionContext = (
+    payload.acquisitionContext ?? payload.notes ?? ""
+  ).trim();
+  const photoNotes = (payload.photoNotes ?? "").trim();
 
   if (!imageBase64 || !imageMediaType) {
     return NextResponse.json(
@@ -47,18 +57,24 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
-  if (!notes || notes.trim().length < 10) {
+  // At least one of the two text inputs must be substantive
+  if (acquisitionContext.length + photoNotes.length < 10) {
     return NextResponse.json(
-      { error: "Notes are required (at least 10 characters)" },
+      {
+        error:
+          "Tell us at least a sentence about where the haul came from or what's in the photo.",
+      },
       { status: 400 }
     );
   }
 
   const claude = getClaude();
 
-  const userMessage = `Notes from the seller about this haul:
+  const userMessage = `Acquisition context (where the haul came from):
+${acquisitionContext.length ? acquisitionContext : "(not provided — infer from the photo)"}
 
-${notes.trim()}
+What's in the hero photo (visible items):
+${photoNotes.length ? photoNotes : "(not provided — describe what you see in the image)"}
 
 Generate the draft journal post as JSON.`;
 

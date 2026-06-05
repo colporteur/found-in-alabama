@@ -246,6 +246,95 @@ export const ebaySyncLog = pgTable("ebay_sync_log", {
   endedAt: timestamp("ended_at"),
 });
 
+// ─── Phase eBay-1.1 — Auto-categorize ────────────────────────────────────────
+// Replaces the manual review queue. Each "Run" pulls live "Other" listings
+// from eBay, asks Claude for a categorization (with extra weight on Alabama-
+// related categories), and pushes ReviseItem back to eBay — no approval step.
+//
+// Two phases per run:
+//   "primary"   — move listings out of the "Other" store category 1
+//   "secondary" — fill in a 2nd store category for items missing one
+// (secondary only unlocks once primary count is 0)
+//
+// No persistent listings cache. Each row in ebayAutoCategorizations is a
+// one-shot record of what happened to one listing during one run. Rows from
+// previous runs are purged when a new run starts so the page always shows
+// just the latest activity.
+
+export const ebayAutoCategorizeRuns = pgTable(
+  "ebay_auto_categorize_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    phase: text("phase", { enum: ["primary", "secondary"] }).notNull(),
+    status: text("status", {
+      enum: ["running", "completed", "failed", "cancelled"],
+    })
+      .default("running")
+      .notNull(),
+    initialQueueCount: integer("initial_queue_count"), // count of items eligible at run start (live from eBay)
+    // Snapshot of items to process — captured once at run start. Client
+    // calls /advance to process one item at a time, incrementing queueIndex.
+    queue: jsonb("queue")
+      .$type<
+        Array<{
+          itemId: string;
+          title: string;
+          primaryImageUrl: string | null;
+          price: string | null;
+          storeCategory1Id: string | null;
+          storeCategory2Id: string | null;
+        }>
+      >()
+      .default([])
+      .notNull(),
+    queueIndex: integer("queue_index").default(0).notNull(),
+    totalAttempted: integer("total_attempted").default(0).notNull(),
+    totalApplied: integer("total_applied").default(0).notNull(),
+    totalFailed: integer("total_failed").default(0).notNull(),
+    totalSkipped: integer("total_skipped").default(0).notNull(),
+    errorMessage: text("error_message"),
+    startedAt: timestamp("started_at").defaultNow().notNull(),
+    completedAt: timestamp("completed_at"),
+  },
+  (t) => ({
+    statusIdx: index("ebay_auto_runs_status_idx").on(t.status),
+    startedAtIdx: index("ebay_auto_runs_started_at_idx").on(t.startedAt),
+  })
+);
+
+export const ebayAutoCategorizations = pgTable(
+  "ebay_auto_categorizations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => ebayAutoCategorizeRuns.id, { onDelete: "cascade" }),
+    itemId: text("item_id").notNull(),
+    title: text("title").notNull(),
+    primaryImageUrl: text("primary_image_url"),
+    price: numeric("price", { precision: 10, scale: 2 }),
+    // Categorization decision
+    pickedCategory1Id: text("picked_category_1_id"),
+    pickedCategory1Name: text("picked_category_1_name"),
+    pickedCategory2Id: text("picked_category_2_id"),
+    pickedCategory2Name: text("picked_category_2_name"),
+    isAlabamaPick: boolean("is_alabama_pick").default(false).notNull(),
+    confidence: numeric("confidence", { precision: 4, scale: 3 }),
+    reasoning: text("reasoning"),
+    // Outcome
+    outcome: text("outcome", {
+      enum: ["applied", "ebay_failed", "ebay_ended", "claude_failed", "skipped"],
+    }).notNull(),
+    errorMessage: text("error_message"),
+    decidedAt: timestamp("decided_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    runIdx: index("ebay_auto_cats_run_idx").on(t.runId),
+    outcomeIdx: index("ebay_auto_cats_outcome_idx").on(t.outcome),
+    decidedAtIdx: index("ebay_auto_cats_decided_at_idx").on(t.decidedAt),
+  })
+);
+
 // ─── NextAuth tables (shape required by @auth/drizzle-adapter) ────────────────
 
 export const users = pgTable("user", {
