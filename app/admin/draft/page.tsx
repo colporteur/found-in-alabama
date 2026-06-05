@@ -17,12 +17,16 @@ export default function DraftPage() {
   // few seconds after the picker closes ("permission problems after a
   // reference to a file was acquired" error). Reading once up front and
   // holding the string avoids that.
-  const [imageData, setImageData] = useState<{
+  type ImageData = {
     base64: string;
     mediaType: string;
     previewUrl: string;
     fileName: string;
-  } | null>(null);
+  };
+
+  const [imageData, setImageData] = useState<ImageData | null>(null); // hero
+  const [contextImageData, setContextImageData] = useState<ImageData | null>(null);
+  const [contextUrl, setContextUrl] = useState("");
   const [acquisitionContext, setAcquisitionContext] = useState("");
   const [photoNotes, setPhotoNotes] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -32,45 +36,71 @@ export default function DraftPage() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
-    if (!file) {
-      setImageData(null);
-      return;
-    }
+  function readImageFile(
+    file: File,
+    onSuccess: (data: ImageData) => void,
+    onFail: (msg: string) => void
+  ) {
     const reader = new FileReader();
     reader.onerror = () => {
-      setError(
+      onFail(
         "Could not read the selected image. Try again, and don't switch apps between picking the file and the read finishing."
       );
-      setImageData(null);
     };
     reader.onload = () => {
       const dataUrl = reader.result as string;
       const match = dataUrl.match(/^data:(.+);base64,(.+)$/);
       if (!match) {
-        setError("Could not parse the image data.");
-        setImageData(null);
+        onFail("Could not parse the image data.");
         return;
       }
       const [, mediaType, base64] = match;
       const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
       if (!allowedTypes.includes(mediaType)) {
-        setError(
-          `Image type ${mediaType} not supported. Use JPG, PNG, WebP, or GIF.`
-        );
-        setImageData(null);
+        onFail(`Image type ${mediaType} not supported. Use JPG, PNG, WebP, or GIF.`);
         return;
       }
-      setError(null);
-      setImageData({
-        base64,
-        mediaType,
-        previewUrl: dataUrl,
-        fileName: file.name,
-      });
+      onSuccess({ base64, mediaType, previewUrl: dataUrl, fileName: file.name });
     };
     reader.readAsDataURL(file);
+  }
+
+  function handleHeroFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    if (!file) {
+      setImageData(null);
+      return;
+    }
+    readImageFile(
+      file,
+      (data) => {
+        setError(null);
+        setImageData(data);
+      },
+      (msg) => {
+        setError(msg);
+        setImageData(null);
+      }
+    );
+  }
+
+  function handleContextFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    if (!file) {
+      setContextImageData(null);
+      return;
+    }
+    readImageFile(
+      file,
+      (data) => {
+        setError(null);
+        setContextImageData(data);
+      },
+      (msg) => {
+        setError(msg);
+        setContextImageData(null);
+      }
+    );
   }
 
   async function handleGenerate(e: React.FormEvent) {
@@ -82,8 +112,12 @@ export default function DraftPage() {
       setError("Please choose a hero image first.");
       return;
     }
-    if (acquisitionContext.trim().length + photoNotes.trim().length < 10) {
-      setError("Tell us at least a sentence about the haul.");
+    const totalContextLength =
+      acquisitionContext.trim().length + photoNotes.trim().length;
+    if (totalContextLength < 10 && !contextImageData && !contextUrl.trim()) {
+      setError(
+        "Add at least a sentence of context, or attach a context photo, or paste a source URL."
+      );
       return;
     }
     setIsGenerating(true);
@@ -94,8 +128,11 @@ export default function DraftPage() {
         body: JSON.stringify({
           imageBase64: imageData.base64,
           imageMediaType: imageData.mediaType,
+          contextImageBase64: contextImageData?.base64,
+          contextImageMediaType: contextImageData?.mediaType,
           acquisitionContext: acquisitionContext.trim(),
           photoNotes: photoNotes.trim(),
+          contextUrl: contextUrl.trim(),
         }),
       });
       if (!res.ok) {
@@ -195,69 +232,126 @@ ${r.body}
         markdown.
       </p>
 
-      <form onSubmit={handleGenerate} className="space-y-6 max-w-3xl">
-        <div className="bg-white border border-brand-ink/15 rounded-lg p-5">
-          <label className="block text-sm font-medium mb-2">
-            Hero image
-            <span className="text-brand-ink/50 font-normal ml-2">
-              JPG, PNG, WebP, or GIF
-            </span>
-          </label>
-          <input
-            type="file"
-            accept="image/jpeg,image/png,image/webp,image/gif"
-            onChange={handleFileChange}
-            className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-brand-yellow file:text-brand-ink hover:file:bg-brand-yellow-dark file:cursor-pointer"
-          />
-          {imageData?.previewUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={imageData.previewUrl}
-              alt="Preview"
-              className="mt-4 rounded-md max-h-64 object-cover"
+      <form onSubmit={handleGenerate} className="space-y-8 max-w-3xl">
+
+        {/* ── Where it came from ─────────────────────────────────────── */}
+        <fieldset className="border border-brand-ink/15 rounded-lg p-5 space-y-4">
+          <legend className="font-marker text-lg px-2">Where it came from</legend>
+
+          <div>
+            <label
+              htmlFor="acquisition-context"
+              className="block text-sm font-medium mb-2"
+            >
+              Acquisition story
+              <span className="text-brand-ink/50 font-normal ml-2">
+                Estate, auction, source, dates, anything narrative
+              </span>
+            </label>
+            <textarea
+              id="acquisition-context"
+              value={acquisitionContext}
+              onChange={(e) => setAcquisitionContext(e.target.value)}
+              rows={4}
+              placeholder="e.g. Estate sale in Anniston, retired physician's family, sold over the weekend. Bought everything in the den plus the bookshelves in the back hall."
+              className="w-full px-4 py-3 border border-brand-ink/20 rounded-md text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow resize-y"
             />
-          )}
-        </div>
+          </div>
 
-        <div className="bg-white border border-brand-ink/15 rounded-lg p-5">
-          <label
-            htmlFor="acquisition-context"
-            className="block text-sm font-medium mb-2"
-          >
-            Where it came from
-            <span className="text-brand-ink/50 font-normal ml-2">
-              The acquisition story — estate, auction, source, dates, anything narrative
-            </span>
-          </label>
-          <textarea
-            id="acquisition-context"
-            value={acquisitionContext}
-            onChange={(e) => setAcquisitionContext(e.target.value)}
-            rows={4}
-            placeholder="e.g. Estate sale in Anniston, retired physician's family, sold over the weekend. Bought everything in the den plus the bookshelves in the back hall."
-            className="w-full px-4 py-3 border border-brand-ink/20 rounded-md text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow resize-y"
-          />
-        </div>
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Context photo
+              <span className="text-brand-ink/50 font-normal ml-2">
+                Optional — e.g. estate sale signage, the room before pack-out, auction catalog page
+              </span>
+            </label>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={handleContextFileChange}
+              className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-brand-ink/10 file:text-brand-ink hover:file:bg-brand-ink/20 file:cursor-pointer"
+            />
+            {contextImageData?.previewUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={contextImageData.previewUrl}
+                alt="Context preview"
+                className="mt-3 rounded-md max-h-40 object-cover"
+              />
+            )}
+            <p className="text-xs text-brand-ink/50 mt-1">
+              Not saved with the post — used only to help Claude understand the source.
+            </p>
+          </div>
 
-        <div className="bg-white border border-brand-ink/15 rounded-lg p-5">
-          <label
-            htmlFor="photo-notes"
-            className="block text-sm font-medium mb-2"
-          >
-            What&apos;s in the photo
-            <span className="text-brand-ink/50 font-normal ml-2">
-              Notable items visible in the hero image — gives Claude concrete details to ground the narrative
-            </span>
-          </label>
-          <textarea
-            id="photo-notes"
-            value={photoNotes}
-            onChange={(e) => setPhotoNotes(e.target.value)}
-            rows={4}
-            placeholder="e.g. Stack of medical journals, a 1970s boombox, a leather portfolio, a vinyl record sleeve, an IKEA bag for scale."
-            className="w-full px-4 py-3 border border-brand-ink/20 rounded-md text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow resize-y"
-          />
-        </div>
+          <div>
+            <label
+              htmlFor="context-url"
+              className="block text-sm font-medium mb-2"
+            >
+              Source URL
+              <span className="text-brand-ink/50 font-normal ml-2">
+                Optional — estate sale listing, auction page, etc. Claude reads it for proper nouns and dates.
+              </span>
+            </label>
+            <input
+              id="context-url"
+              type="url"
+              value={contextUrl}
+              onChange={(e) => setContextUrl(e.target.value)}
+              placeholder="https://www.estatesales.net/..."
+              className="w-full px-4 py-3 border border-brand-ink/20 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow"
+            />
+          </div>
+        </fieldset>
+
+        {/* ── The haul ───────────────────────────────────────────────── */}
+        <fieldset className="border border-brand-ink/15 rounded-lg p-5 space-y-4">
+          <legend className="font-marker text-lg px-2">The haul</legend>
+
+          <div>
+            <label className="block text-sm font-medium mb-2">
+              Hero photo
+              <span className="text-brand-ink/50 font-normal ml-2">
+                Required — JPG, PNG, WebP, or GIF. This is what readers will see.
+              </span>
+            </label>
+            <input
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={handleHeroFileChange}
+              className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-brand-yellow file:text-brand-ink hover:file:bg-brand-yellow-dark file:cursor-pointer"
+            />
+            {imageData?.previewUrl && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={imageData.previewUrl}
+                alt="Hero preview"
+                className="mt-3 rounded-md max-h-64 object-cover"
+              />
+            )}
+          </div>
+
+          <div>
+            <label
+              htmlFor="photo-notes"
+              className="block text-sm font-medium mb-2"
+            >
+              What&apos;s in the photo
+              <span className="text-brand-ink/50 font-normal ml-2">
+                Notable items visible in the hero image — gives Claude concrete details
+              </span>
+            </label>
+            <textarea
+              id="photo-notes"
+              value={photoNotes}
+              onChange={(e) => setPhotoNotes(e.target.value)}
+              rows={4}
+              placeholder="e.g. Stack of medical journals, a 1970s boombox, a leather portfolio, a vinyl record sleeve, an IKEA bag for scale."
+              className="w-full px-4 py-3 border border-brand-ink/20 rounded-md text-sm leading-relaxed focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow resize-y"
+            />
+          </div>
+        </fieldset>
 
         <div className="flex items-center gap-4">
           <button
@@ -265,7 +359,9 @@ ${r.body}
             disabled={
               isGenerating ||
               !imageData ||
-              acquisitionContext.trim().length + photoNotes.trim().length < 10
+              (acquisitionContext.trim().length + photoNotes.trim().length < 10 &&
+                !contextImageData &&
+                !contextUrl.trim())
             }
             className="inline-flex items-center justify-center px-6 py-3 bg-brand-yellow text-brand-ink font-medium rounded-md hover:bg-brand-yellow-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
