@@ -1,0 +1,21 @@
+{
+  "manifest_version": 3,
+  "name": "Found in Alabama — Nifty Sync",
+  "version": "1.0.0",
+  "description": "Captures items from your Nifty.ai inventory page and links them to Found in Alabama haul posts via the private-notes haul-slug convention.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": [
+    "https://app.nifty.ai/*",
+    "https://www.foundinalabama.com/*",
+    "http://localhost:3000/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Found in Alabama — Nifty Sync"
+  },
+  "icons": {
+    "16": "icons/16.png",
+    "48": "icons/48.png",
+    "128": "icons/128.png"
+  }
+}
