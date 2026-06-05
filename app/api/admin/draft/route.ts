@@ -7,7 +7,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getClaude, DRAFT_MODEL, DRAFT_SYSTEM_PROMPT } from "@/lib/claude";
 import { fetchUrlAsText } from "@/lib/url-fetch";
-import type Anthropic from "@anthropic-ai/sdk";
 
 // Use the Node runtime — the Anthropic SDK's streaming and large body
 // handling work better than at the edge for this use case.
@@ -15,6 +14,17 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 type ImageMediaType = "image/jpeg" | "image/png" | "image/webp" | "image/gif";
+
+// Structural type matching what the SDK's messages.create accepts for the
+// `content` field on a user message. We avoid importing the SDK's named
+// types because their exports shift between versions; the wire format is
+// stable, so a literal type is more durable.
+type UserContentBlock =
+  | {
+      type: "image";
+      source: { type: "base64"; media_type: ImageMediaType; data: string };
+    }
+  | { type: "text"; text: string };
 
 type DraftRequest = {
   // Hero (the haul) — always required. Will be saved with the post.
@@ -112,7 +122,7 @@ Generate the draft journal post as JSON.`.replace(/\n{3,}/g, "\n\n");
 
   // Build the message content array. Hero photo always present; context
   // photo if provided.
-  const content: Anthropic.Messages.ContentBlockParam[] = [
+  const content: UserContentBlock[] = [
     {
       type: "image",
       source: {
