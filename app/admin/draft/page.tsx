@@ -12,8 +12,17 @@ type DraftResult = {
 };
 
 export default function DraftPage() {
-  const [imageFile, setImageFile] = useState<File | null>(null);
-  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  // We store the file's base64 + mediaType in state at pick time, NOT the
+  // File reference. On iOS Safari, the File reference becomes invalid a
+  // few seconds after the picker closes ("permission problems after a
+  // reference to a file was acquired" error). Reading once up front and
+  // holding the string avoids that.
+  const [imageData, setImageData] = useState<{
+    base64: string;
+    mediaType: string;
+    previewUrl: string;
+    fileName: string;
+  } | null>(null);
   const [notes, setNotes] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -22,41 +31,50 @@ export default function DraftPage() {
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
-    setImageFile(file);
-    if (file) {
-      const reader = new FileReader();
-      reader.onload = () => setImagePreview(reader.result as string);
-      reader.readAsDataURL(file);
-    } else {
-      setImagePreview(null);
+    if (!file) {
+      setImageData(null);
+      return;
     }
-  }
-
-  async function fileToBase64(
-    file: File
-  ): Promise<{ data: string; mediaType: string }> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(reader.error);
-      reader.onload = () => {
-        const result = reader.result as string;
-        // result is "data:image/jpeg;base64,XXXX"
-        const match = result.match(/^data:(.+);base64,(.+)$/);
-        if (!match) {
-          reject(new Error("Could not parse data URL"));
-          return;
-        }
-        resolve({ data: match[2], mediaType: match[1] });
-      };
-      reader.readAsDataURL(file);
-    });
+    const reader = new FileReader();
+    reader.onerror = () => {
+      setError(
+        "Could not read the selected image. Try again, and don't switch apps between picking the file and the read finishing."
+      );
+      setImageData(null);
+    };
+    reader.onload = () => {
+      const dataUrl = reader.result as string;
+      const match = dataUrl.match(/^data:(.+);base64,(.+)$/);
+      if (!match) {
+        setError("Could not parse the image data.");
+        setImageData(null);
+        return;
+      }
+      const [, mediaType, base64] = match;
+      const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+      if (!allowedTypes.includes(mediaType)) {
+        setError(
+          `Image type ${mediaType} not supported. Use JPG, PNG, WebP, or GIF.`
+        );
+        setImageData(null);
+        return;
+      }
+      setError(null);
+      setImageData({
+        base64,
+        mediaType,
+        previewUrl: dataUrl,
+        fileName: file.name,
+      });
+    };
+    reader.readAsDataURL(file);
   }
 
   async function handleGenerate(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setResult(null);
-    if (!imageFile) {
+    if (!imageData) {
       setError("Please choose a hero image first.");
       return;
     }
@@ -66,17 +84,12 @@ export default function DraftPage() {
     }
     setIsGenerating(true);
     try {
-      const { data, mediaType } = await fileToBase64(imageFile);
-      const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-      if (!allowedTypes.includes(mediaType)) {
-        throw new Error(`Image type ${mediaType} not supported. Use JPG, PNG, WebP, or GIF.`);
-      }
       const res = await fetch("/api/admin/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          imageBase64: data,
-          imageMediaType: mediaType,
+          imageBase64: imageData.base64,
+          imageMediaType: imageData.mediaType,
           notes: notes.trim(),
         }),
       });
@@ -160,10 +173,10 @@ ${r.body}
             onChange={handleFileChange}
             className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-brand-yellow file:text-brand-ink hover:file:bg-brand-yellow-dark file:cursor-pointer"
           />
-          {imagePreview && (
+          {imageData?.previewUrl && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
-              src={imagePreview}
+              src={imageData.previewUrl}
               alt="Preview"
               className="mt-4 rounded-md max-h-64 object-cover"
             />
@@ -190,7 +203,7 @@ ${r.body}
         <div className="flex items-center gap-4">
           <button
             type="submit"
-            disabled={isGenerating || !imageFile || notes.trim().length < 10}
+            disabled={isGenerating || !imageData || notes.trim().length < 10}
             className="inline-flex items-center justify-center px-6 py-3 bg-brand-yellow text-brand-ink font-medium rounded-md hover:bg-brand-yellow-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isGenerating ? "Generating…" : "Generate draft with Claude →"}
