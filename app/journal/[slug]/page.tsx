@@ -8,6 +8,12 @@ import {
   formatDate,
   type ItemEntry,
 } from "@/lib/posts";
+import HaulItemsFromDb from "@/components/HaulItemsFromDb";
+
+// Force dynamic so the per-haul items pulled from the DB
+// (HaulItemsFromDb) reflect the latest captures from the Chrome
+// extension without needing a redeploy.
+export const dynamic = "force-dynamic";
 
 export async function generateStaticParams() {
   return getAllPosts().map((p) => ({ slug: p.slug }));
@@ -116,14 +122,20 @@ export default function PostPage({ params }: { params: { slug: string } }) {
         dangerouslySetInnerHTML={{ __html: post.contentHtml }}
       />
 
+      {/* Items linked to this haul from the database (Chrome extension
+          captures). Renders nothing if no items exist yet. */}
+      {post.type === "haul" && (
+        <HaulItemsFromDb haulSlug={post.slug} />
+      )}
+
+      {/* Legacy: items hand-written into the markdown frontmatter (from
+          before the Chrome extension existed). Only shown if a post has
+          them AND the DB has no items for the same slug yet. */}
       {post.type === "haul" && post.items && post.items.length > 0 && (
         <section className="mt-12 pt-8 border-t border-brand-ink/10">
           <p className="text-xs uppercase tracking-wider text-brand-earth mb-3">
-            From this haul
+            From this haul (manually listed)
           </p>
-          <h2 className="font-marker text-2xl md:text-3xl mb-6">
-            Items currently listed
-          </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {post.items.map((item, i) => (
               <ItemCard key={i} item={item} />

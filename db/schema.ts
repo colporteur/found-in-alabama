@@ -39,12 +39,23 @@ export const items = pgTable(
     niftyImportedAt: timestamp("nifty_imported_at"), // from CSV export "Imported/Created At"
     capturedAt: timestamp("captured_at").defaultNow().notNull(),
     lastSeenInExportAt: timestamp("last_seen_in_export_at"),
+    // Phase 2C-1: derived from Nifty privateNotes when it matches a published
+    // journal post slug. Used to link items to their haul story.
+    haulPostSlug: text("haul_post_slug"),
+    // Phase 2C-1: Nifty's own "sold at" timestamp. Captured verbatim so we
+    // can show "Sold on June 5" on the haul page.
+    soldAt: timestamp("sold_at"),
+    // Phase 2C-1: which marketplace converted the sale ("ebay" / "etsy" /
+    // "poshmark" / "mercari" / "depop" / "whatnot"). Derived from the
+    // marketplaceMetadata block — whichever platform's status was "SOLD".
+    soldOnMarketplace: text("sold_on_marketplace"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },
   (t) => ({
     titleNormalizedIdx: index("items_title_normalized_idx").on(t.titleNormalized),
     statusIdx: index("items_status_idx").on(t.status),
+    haulPostSlugIdx: index("items_haul_post_slug_idx").on(t.haulPostSlug),
   })
 );
 
