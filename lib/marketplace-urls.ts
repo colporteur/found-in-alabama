@@ -54,10 +54,10 @@ export function buildMarketplaceUrl(
       // it's listed there.
       return `https://www.depop.com/products/${encodeURIComponent(id)}/`;
     case "whatnot":
-      // Whatnot doesn't have stable per-item URLs we can construct from
-      // a single id. Return null; the UI will show the badge without a
-      // link.
-      return null;
+      // Best-effort: Whatnot's per-product URL appears to follow the
+      // pattern /listing/{id}. If that 404s in practice we can update
+      // this to a different pattern (e.g. /products/{id}).
+      return `https://www.whatnot.com/listing/${encodeURIComponent(id)}`;
     default:
       return null;
   }

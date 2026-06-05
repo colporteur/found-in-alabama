@@ -107,6 +107,7 @@ type ItemRow = {
   id: string;
   title: string;
   heroImage: string | null;
+  price: string | null;
   marketplaceUrls: unknown; // stored as jsonb, type-cast below
   soldAt: Date | string | null;
   soldOnMarketplace: string | null;
@@ -116,10 +117,18 @@ function getUrls(item: ItemRow): Record<string, string> {
   return (item.marketplaceUrls as Record<string, string>) ?? {};
 }
 
+function formatPrice(p: string | null | undefined): string | null {
+  if (!p) return null;
+  const n = parseFloat(p);
+  if (!Number.isFinite(n)) return null;
+  return `$${n.toFixed(2)}`;
+}
+
 function ActiveCard({ item }: { item: ItemRow }) {
   const urls = getUrls(item);
+  const price = formatPrice(item.price);
   return (
-    <div className="border border-brand-ink/15 rounded-lg overflow-hidden bg-white">
+    <div className="border border-brand-ink/15 rounded-lg overflow-hidden bg-white relative flex flex-col">
       {item.heroImage && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
@@ -128,11 +137,17 @@ function ActiveCard({ item }: { item: ItemRow }) {
           className="w-full aspect-square object-cover"
         />
       )}
-      <div className="p-3">
-        <p className="text-sm font-medium mb-2 leading-tight line-clamp-3">
+      <div className="absolute top-2 right-2 bg-brand-yellow text-brand-ink text-xs uppercase tracking-wider font-medium px-2 py-1 rounded shadow-sm">
+        Available
+      </div>
+      <div className="p-3 flex-1 flex flex-col">
+        <p className="text-sm font-medium mb-1 leading-tight line-clamp-3">
           {item.title}
         </p>
-        <div className="flex flex-wrap gap-1">
+        {price && (
+          <p className="font-marker text-lg leading-none mb-2">{price}</p>
+        )}
+        <div className="flex flex-wrap gap-1 mt-auto">
           {Object.entries(urls).map(([key, url]) => (
             <a
               key={key}
@@ -155,6 +170,7 @@ function SoldCard({ item }: { item: ItemRow }) {
   const soldOn = item.soldOnMarketplace
     ? MARKETPLACE_LABEL[item.soldOnMarketplace] ?? item.soldOnMarketplace
     : null;
+  const price = formatPrice(item.price);
   return (
     <div className="border border-brand-ink/10 rounded-lg overflow-hidden bg-white relative opacity-80">
       {item.heroImage && (
@@ -165,13 +181,18 @@ function SoldCard({ item }: { item: ItemRow }) {
           className="w-full aspect-square object-cover grayscale"
         />
       )}
-      <div className="absolute top-2 right-2 bg-emerald-700 text-white text-xs uppercase tracking-wider px-2 py-1 rounded">
+      <div className="absolute top-2 right-2 bg-emerald-700 text-white text-xs uppercase tracking-wider font-medium px-2 py-1 rounded shadow-sm">
         Sold
       </div>
       <div className="p-3">
         <p className="text-sm font-medium mb-1 leading-tight line-clamp-2 text-brand-ink/70">
           {item.title}
         </p>
+        {price && (
+          <p className="font-marker text-base text-brand-ink/50 line-through leading-none mb-2">
+            {price}
+          </p>
+        )}
         <p className="text-xs text-brand-ink/50">
           {soldOn ? `Sold on ${soldOn}` : "Sold"}
           {sold ? ` · ${sold}` : ""}
