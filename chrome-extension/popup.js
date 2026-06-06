@@ -287,7 +287,18 @@ function scrapeNiftyInventoryPage() {
   }
 
   function pickHeroImage(marketplaces) {
-    for (const v of Object.values(marketplaces)) {
+    // Prefer the marketplace that has status SOLD or LISTED (the one
+    // that actually transacted or is currently live) — its pictureUrl is
+    // most likely to be a real CDN URL. Skip DELISTED entries first.
+    const entries = Object.values(marketplaces);
+    for (const v of entries) {
+      if (v && v.pictureUrl && (v.status === "SOLD" || v.status === "LISTED")) {
+        return v.pictureUrl;
+      }
+    }
+    // Fall back to any non-null pictureUrl (DELISTED platforms sometimes
+    // still cache a thumbnail).
+    for (const v of entries) {
       if (v && v.pictureUrl) return v.pictureUrl;
     }
     return null;

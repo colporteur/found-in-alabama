@@ -129,13 +129,19 @@ function ActiveCard({ item }: { item: ItemRow }) {
   const price = formatPrice(item.price);
   return (
     <div className="border border-brand-ink/15 rounded-lg overflow-hidden bg-white relative flex flex-col">
-      {item.heroImage && (
+      {item.heroImage ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={item.heroImage}
           alt=""
           className="w-full aspect-square object-cover"
         />
+      ) : (
+        <div className="w-full aspect-square bg-brand-paper border-b border-brand-ink/10 flex items-center justify-center">
+          <span className="font-marker text-xl text-brand-ink/30 px-3 text-center leading-tight">
+            {item.title.split(/\s+/).slice(0, 2).join(" ")}
+          </span>
+        </div>
       )}
       <div className="absolute top-2 right-2 bg-brand-yellow text-brand-ink text-xs uppercase tracking-wider font-medium px-2 py-1 rounded shadow-sm">
         Available
@@ -173,13 +179,19 @@ function SoldCard({ item }: { item: ItemRow }) {
   const price = formatPrice(item.price);
   return (
     <div className="border border-brand-ink/10 rounded-lg overflow-hidden bg-white relative opacity-80">
-      {item.heroImage && (
+      {item.heroImage ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={item.heroImage}
           alt=""
           className="w-full aspect-square object-cover grayscale"
         />
+      ) : (
+        // Fallback when Nifty stripped the picture URL post-sale.
+        // Soft gray box with the marker-style "Sold" text in the middle.
+        <div className="w-full aspect-square bg-brand-paper border-b border-brand-ink/10 flex items-center justify-center">
+          <span className="font-marker text-2xl text-brand-ink/30">Sold</span>
+        </div>
       )}
       <div className="absolute top-2 right-2 bg-emerald-700 text-white text-xs uppercase tracking-wider font-medium px-2 py-1 rounded shadow-sm">
         Sold
