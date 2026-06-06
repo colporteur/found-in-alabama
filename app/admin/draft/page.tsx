@@ -11,21 +11,25 @@ type DraftResult = {
   usage?: { inputTokens: number; outputTokens: number };
 };
 
-export default function DraftPage() {
-  // We store the file's base64 + mediaType in state at pick time, NOT the
-  // File reference. On iOS Safari, the File reference becomes invalid a
-  // few seconds after the picker closes ("permission problems after a
-  // reference to a file was acquired" error). Reading once up front and
-  // holding the string avoids that.
-  type ImageData = {
-    base64: string;
-    mediaType: string;
-    previewUrl: string;
-    fileName: string;
-  };
+// We store the file's base64 + mediaType in state at pick time, NOT the
+// File reference. On iOS Safari, the File reference becomes invalid a
+// few seconds after the picker closes ("permission problems after a
+// reference to a file was acquired" error). Reading once up front and
+// holding the string avoids that.
+type ImageData = {
+  base64: string;
+  mediaType: string;
+  previewUrl: string;
+  fileName: string;
+};
 
-  const [imageData, setImageData] = useState<ImageData | null>(null); // hero
-  const [contextImageData, setContextImageData] = useState<ImageData | null>(null);
+// Keep these in sync with the API route's caps.
+const MAX_HERO_IMAGES = 8;
+const MAX_CONTEXT_IMAGES = 5;
+
+export default function DraftPage() {
+  const [heroImages, setHeroImages] = useState<ImageData[]>([]);
+  const [contextImages, setContextImages] = useState<ImageData[]>([]);
   const [contextUrl, setContextUrl] = useState("");
   const [acquisitionContext, setAcquisitionContext] = useState("");
   const [photoNotes, setPhotoNotes] = useState("");
@@ -36,71 +40,90 @@ export default function DraftPage() {
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
 
-  function readImageFile(
-    file: File,
-    onSuccess: (data: ImageData) => void,
-    onFail: (msg: string) => void
+  function readImageFile(file: File): Promise<ImageData> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => {
+        reject(
+          new Error(
+            "Could not read the selected image. Try again, and don't switch apps between picking the file and the read finishing."
+          )
+        );
+      };
+      reader.onload = () => {
+        const dataUrl = reader.result as string;
+        const match = dataUrl.match(/^data:(.+);base64,(.+)$/);
+        if (!match) {
+          reject(new Error("Could not parse the image data."));
+          return;
+        }
+        const [, mediaType, base64] = match;
+        const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+        if (!allowedTypes.includes(mediaType)) {
+          reject(
+            new Error(
+              `Image type ${mediaType} not supported. Use JPG, PNG, WebP, or GIF.`
+            )
+          );
+          return;
+        }
+        resolve({
+          base64,
+          mediaType,
+          previewUrl: dataUrl,
+          fileName: file.name,
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function appendFiles(
+    incoming: FileList | null,
+    current: ImageData[],
+    setter: (next: ImageData[]) => void,
+    max: number
   ) {
-    const reader = new FileReader();
-    reader.onerror = () => {
-      onFail(
-        "Could not read the selected image. Try again, and don't switch apps between picking the file and the read finishing."
-      );
-    };
-    reader.onload = () => {
-      const dataUrl = reader.result as string;
-      const match = dataUrl.match(/^data:(.+);base64,(.+)$/);
-      if (!match) {
-        onFail("Could not parse the image data.");
-        return;
-      }
-      const [, mediaType, base64] = match;
-      const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-      if (!allowedTypes.includes(mediaType)) {
-        onFail(`Image type ${mediaType} not supported. Use JPG, PNG, WebP, or GIF.`);
-        return;
-      }
-      onSuccess({ base64, mediaType, previewUrl: dataUrl, fileName: file.name });
-    };
-    reader.readAsDataURL(file);
-  }
-
-  function handleHeroFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
-    if (!file) {
-      setImageData(null);
+    if (!incoming || incoming.length === 0) return;
+    const room = max - current.length;
+    if (room <= 0) {
+      setError(`You've already added the maximum of ${max} photos here.`);
       return;
     }
-    readImageFile(
-      file,
-      (data) => {
-        setError(null);
-        setImageData(data);
-      },
-      (msg) => {
-        setError(msg);
-        setImageData(null);
+    const toRead = Array.from(incoming).slice(0, room);
+    const dropped = incoming.length - toRead.length;
+    try {
+      const newOnes = await Promise.all(toRead.map(readImageFile));
+      setError(null);
+      setter([...current, ...newOnes]);
+      if (dropped > 0) {
+        setError(
+          `Added ${newOnes.length}. Skipped ${dropped} because the limit is ${max}.`
+        );
       }
-    );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not read images.");
+    }
   }
 
-  function handleContextFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
-    if (!file) {
-      setContextImageData(null);
-      return;
-    }
-    readImageFile(
-      file,
-      (data) => {
-        setError(null);
-        setContextImageData(data);
-      },
-      (msg) => {
-        setError(msg);
-        setContextImageData(null);
-      }
-    );
+  function removeAt(
+    index: number,
+    current: ImageData[],
+    setter: (next: ImageData[]) => void
+  ) {
+    setter(current.filter((_, i) => i !== index));
+  }
+
+  function moveToFront(
+    index: number,
+    current: ImageData[],
+    setter: (next: ImageData[]) => void
+  ) {
+    if (index === 0) return;
+    const next = [...current];
+    const [moved] = next.splice(index, 1);
+    next.unshift(moved);
+    setter(next);
   }
 
   async function handleGenerate(e: React.FormEvent) {
@@ -108,13 +131,17 @@ export default function DraftPage() {
     setError(null);
     setResult(null);
     setPublishedUrl(null);
-    if (!imageData) {
-      setError("Please choose a hero image first.");
+    if (heroImages.length === 0) {
+      setError("Please add at least one haul photo first.");
       return;
     }
     const totalContextLength =
       acquisitionContext.trim().length + photoNotes.trim().length;
-    if (totalContextLength < 10 && !contextImageData && !contextUrl.trim()) {
+    if (
+      totalContextLength < 10 &&
+      contextImages.length === 0 &&
+      !contextUrl.trim()
+    ) {
       setError(
         "Add at least a sentence of context, or attach a context photo, or paste a source URL."
       );
@@ -126,10 +153,14 @@ export default function DraftPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          imageBase64: imageData.base64,
-          imageMediaType: imageData.mediaType,
-          contextImageBase64: contextImageData?.base64,
-          contextImageMediaType: contextImageData?.mediaType,
+          heroImages: heroImages.map((i) => ({
+            base64: i.base64,
+            mediaType: i.mediaType,
+          })),
+          contextImages: contextImages.map((i) => ({
+            base64: i.base64,
+            mediaType: i.mediaType,
+          })),
           acquisitionContext: acquisitionContext.trim(),
           photoNotes: photoNotes.trim(),
           contextUrl: contextUrl.trim(),
@@ -149,7 +180,7 @@ export default function DraftPage() {
   }
 
   async function handlePublish() {
-    if (!result || !imageData) return;
+    if (!result || heroImages.length === 0) return;
     setError(null);
     setIsPublishing(true);
     try {
@@ -162,8 +193,10 @@ export default function DraftPage() {
           excerpt: result.excerpt,
           body: result.body,
           featured: true,
-          imageBase64: imageData.base64,
-          imageMediaType: imageData.mediaType,
+          haulImages: heroImages.map((i) => ({
+            base64: i.base64,
+            mediaType: i.mediaType,
+          })),
         }),
       });
       if (!res.ok) {
@@ -179,15 +212,34 @@ export default function DraftPage() {
     }
   }
 
+  function extForMedia(mt: string): string {
+    if (mt === "image/png") return "png";
+    if (mt === "image/webp") return "webp";
+    if (mt === "image/gif") return "gif";
+    return "jpg";
+  }
+
   function buildMarkdown(r: DraftResult): string {
     const date = new Date().toISOString().split("T")[0];
     const slug = r.slug || "untitled-haul";
+    const heroExt =
+      heroImages[0] ? extForMedia(heroImages[0].mediaType) : "jpg";
+    const galleryYaml =
+      heroImages.length > 1
+        ? `gallery:\n${heroImages
+            .slice(1)
+            .map(
+              (img, i) =>
+                `  - "/photos/posts/${slug}-${i + 1}.${extForMedia(img.mediaType)}"`
+            )
+            .join("\n")}\n`
+        : "";
     return `---
 title: "${r.title.replace(/"/g, '\\"')}"
 date: "${date}"
 type: "haul"
-hero: "/photos/posts/${slug}-hero.jpg"
-excerpt: "${r.excerpt.replace(/"/g, '\\"')}"
+hero: "/photos/posts/${slug}-hero.${heroExt}"
+${galleryYaml}excerpt: "${r.excerpt.replace(/"/g, '\\"')}"
 featured: true
 items: []
 ---
@@ -202,7 +254,7 @@ ${r.body}
       await navigator.clipboard.writeText(buildMarkdown(result));
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch (err) {
+    } catch {
       setError("Could not copy to clipboard. Manually copy from below.");
     }
   }
@@ -227,9 +279,10 @@ ${r.body}
       </div>
 
       <p className="text-brand-ink/70 mb-8 max-w-prose">
-        Upload a hero photo from a recent haul plus a few sentences of context.
-        Claude will draft a complete journal post you can edit and copy as
-        markdown.
+        Upload one or more photos from a recent haul plus a few sentences of
+        context. Claude will draft a complete journal post you can edit and
+        publish. The first haul photo becomes the hero; the rest show up in a
+        gallery below the narrative.
       </p>
 
       <form onSubmit={handleGenerate} className="space-y-8 max-w-3xl">
@@ -260,26 +313,40 @@ ${r.body}
 
           <div>
             <label className="block text-sm font-medium mb-2">
-              Context photo
-              <span className="text-brand-ink/50 font-normal ml-2">
-                Optional — e.g. estate sale signage, the room before pack-out, auction catalog page
+              Context photos{" "}
+              <span className="text-brand-ink/50 font-normal ml-1">
+                ({contextImages.length}/{MAX_CONTEXT_IMAGES})
+              </span>
+              <span className="text-brand-ink/50 font-normal ml-2 block mt-1">
+                Optional — estate sale signage, the room before pack-out, auction catalog page
               </span>
             </label>
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp,image/gif"
-              onChange={handleContextFileChange}
-              className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-brand-ink/10 file:text-brand-ink hover:file:bg-brand-ink/20 file:cursor-pointer"
+              multiple
+              onChange={(e) =>
+                appendFiles(
+                  e.target.files,
+                  contextImages,
+                  setContextImages,
+                  MAX_CONTEXT_IMAGES
+                ).finally(() => {
+                  e.target.value = "";
+                })
+              }
+              disabled={contextImages.length >= MAX_CONTEXT_IMAGES}
+              className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-brand-ink/10 file:text-brand-ink hover:file:bg-brand-ink/20 file:cursor-pointer disabled:opacity-50"
             />
-            {contextImageData?.previewUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={contextImageData.previewUrl}
-                alt="Context preview"
-                className="mt-3 rounded-md max-h-40 object-cover"
+            {contextImages.length > 0 && (
+              <ThumbnailGrid
+                images={contextImages}
+                onRemove={(i) =>
+                  removeAt(i, contextImages, setContextImages)
+                }
               />
             )}
-            <p className="text-xs text-brand-ink/50 mt-1">
+            <p className="text-xs text-brand-ink/50 mt-2">
               Not saved with the post — used only to help Claude understand the source.
             </p>
           </div>
@@ -311,23 +378,37 @@ ${r.body}
 
           <div>
             <label className="block text-sm font-medium mb-2">
-              Hero photo
-              <span className="text-brand-ink/50 font-normal ml-2">
-                Required — JPG, PNG, WebP, or GIF. This is what readers will see.
+              Haul photos{" "}
+              <span className="text-brand-ink/50 font-normal ml-1">
+                ({heroImages.length}/{MAX_HERO_IMAGES})
+              </span>
+              <span className="text-brand-ink/50 font-normal ml-2 block mt-1">
+                Required — JPG, PNG, WebP, or GIF. First photo becomes the hero; rest appear in a gallery on the post.
               </span>
             </label>
             <input
               type="file"
               accept="image/jpeg,image/png,image/webp,image/gif"
-              onChange={handleHeroFileChange}
-              className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-brand-yellow file:text-brand-ink hover:file:bg-brand-yellow-dark file:cursor-pointer"
+              multiple
+              onChange={(e) =>
+                appendFiles(
+                  e.target.files,
+                  heroImages,
+                  setHeroImages,
+                  MAX_HERO_IMAGES
+                ).finally(() => {
+                  e.target.value = "";
+                })
+              }
+              disabled={heroImages.length >= MAX_HERO_IMAGES}
+              className="block w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-medium file:bg-brand-yellow file:text-brand-ink hover:file:bg-brand-yellow-dark file:cursor-pointer disabled:opacity-50"
             />
-            {imageData?.previewUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={imageData.previewUrl}
-                alt="Hero preview"
-                className="mt-3 rounded-md max-h-64 object-cover"
+            {heroImages.length > 0 && (
+              <ThumbnailGrid
+                images={heroImages}
+                onRemove={(i) => removeAt(i, heroImages, setHeroImages)}
+                onMakeHero={(i) => moveToFront(i, heroImages, setHeroImages)}
+                heroLabel
               />
             )}
           </div>
@@ -337,9 +418,9 @@ ${r.body}
               htmlFor="photo-notes"
               className="block text-sm font-medium mb-2"
             >
-              What&apos;s in the photo
+              What&apos;s in the photos
               <span className="text-brand-ink/50 font-normal ml-2">
-                Notable items visible in the hero image — gives Claude concrete details
+                Notable items visible across the haul photos — gives Claude concrete details
               </span>
             </label>
             <textarea
@@ -358,9 +439,9 @@ ${r.body}
             type="submit"
             disabled={
               isGenerating ||
-              !imageData ||
+              heroImages.length === 0 ||
               (acquisitionContext.trim().length + photoNotes.trim().length < 10 &&
-                !contextImageData &&
+                contextImages.length === 0 &&
                 !contextUrl.trim())
             }
             className="inline-flex items-center justify-center px-6 py-3 bg-brand-yellow text-brand-ink font-medium rounded-md hover:bg-brand-yellow-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -400,7 +481,7 @@ ${r.body}
                   ? "Publishing…"
                   : publishedUrl
                   ? "Published ✓"
-                  : "Publish to site →"}
+                  : `Publish ${heroImages.length} photo${heroImages.length === 1 ? "" : "s"} →`}
               </button>
               <button
                 onClick={handleCopy}
@@ -500,7 +581,8 @@ ${r.body}
                 Drop your hero photo at{" "}
                 <code className="bg-white px-1 rounded">
                   public/photos/posts/{result.slug || "your-slug"}-hero.jpg
-                </code>
+                </code>{" "}
+                (additional photos as <code className="bg-white px-1 rounded">-1.jpg</code>, <code className="bg-white px-1 rounded">-2.jpg</code>, etc.)
               </li>
               <li>
                 <code className="bg-white px-1 rounded">git add . &amp;&amp; git commit -m &quot;Add {result.slug || "post"}&quot; &amp;&amp; git push</code>
@@ -510,6 +592,60 @@ ${r.body}
         </div>
       )}
     </section>
+  );
+}
+
+function ThumbnailGrid({
+  images,
+  onRemove,
+  onMakeHero,
+  heroLabel,
+}: {
+  images: ImageData[];
+  onRemove: (i: number) => void;
+  onMakeHero?: (i: number) => void;
+  heroLabel?: boolean;
+}) {
+  return (
+    <div className="mt-3 grid grid-cols-3 sm:grid-cols-4 gap-2">
+      {images.map((img, i) => (
+        <div
+          key={`${img.fileName}-${i}`}
+          className="relative group border border-brand-ink/15 rounded-md overflow-hidden bg-white"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={img.previewUrl}
+            alt={img.fileName}
+            className="w-full aspect-square object-cover"
+          />
+          {heroLabel && i === 0 && (
+            <span className="absolute top-1 left-1 bg-brand-yellow text-brand-ink text-[10px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded shadow-sm">
+              Hero
+            </span>
+          )}
+          {heroLabel && i !== 0 && onMakeHero && (
+            <button
+              type="button"
+              onClick={() => onMakeHero(i)}
+              className="absolute bottom-1 left-1 right-1 bg-brand-ink/70 hover:bg-brand-ink text-white text-[10px] uppercase tracking-wider font-medium py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Make this the hero photo"
+            >
+              Make hero
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onRemove(i)}
+            className="absolute top-1 right-1 bg-white/90 hover:bg-white text-brand-ink rounded-full w-6 h-6 flex items-center justify-center text-sm shadow-sm leading-none"
+            title="Remove"
+            aria-label="Remove image"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 

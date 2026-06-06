@@ -122,6 +122,35 @@ export default function PostPage({ params }: { params: { slug: string } }) {
         dangerouslySetInnerHTML={{ __html: post.contentHtml }}
       />
 
+      {/* Additional haul photos (gallery) — rendered between the
+          narrative and the linked items. */}
+      {post.gallery && post.gallery.length > 0 && (
+        <section className="mt-4 mb-12">
+          <p className="text-xs uppercase tracking-wider text-brand-earth mb-3">
+            More from this haul
+          </p>
+          <div
+            className={
+              post.gallery.length === 1
+                ? "grid grid-cols-1 gap-3"
+                : post.gallery.length === 2
+                  ? "grid grid-cols-2 gap-3"
+                  : "grid grid-cols-2 md:grid-cols-3 gap-3"
+            }
+          >
+            {post.gallery.map((src, i) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={src + i}
+                src={src}
+                alt=""
+                className="w-full aspect-square object-cover rounded-lg border border-brand-ink/10"
+              />
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Items linked to this haul from the database (Chrome extension
           captures). Renders nothing if no items exist yet. */}
       {post.type === "haul" && (

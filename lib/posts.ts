@@ -28,6 +28,8 @@ export type Post = {
   date: string;            // ISO yyyy-mm-dd
   type: PostType;
   hero?: string;
+  /** Additional photos rendered as a gallery between body and items. */
+  gallery?: string[];
   excerpt?: string;
   featured?: boolean;
   contentHtml: string;
@@ -67,6 +69,7 @@ export function getAllPosts(): Post[] {
       date: data.date ?? "",
       type: (data.type ?? "haul") as PostType,
       hero: data.hero,
+      gallery: Array.isArray(data.gallery) ? data.gallery : undefined,
       excerpt: data.excerpt,
       featured: Boolean(data.featured),
       items: data.items,

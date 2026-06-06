@@ -1,7 +1,13 @@
 // POST /api/admin/draft
-// Body: { imageBase64: string, imageMediaType: string, notes: string }
-// Returns: { title, slug, excerpt, body } — all strings, all editable on the
-// client.
+// Body: {
+//   heroImages: [{ base64, mediaType }],  // 1+ haul photos
+//   contextImages?: [{ base64, mediaType }],  // 0+ context photos
+//   acquisitionContext?, photoNotes?, contextUrl?, notes?
+// }
+// Returns: { title, slug, excerpt, body }
+//
+// Legacy single-image fields (imageBase64/imageMediaType/contextImageBase64/
+// contextImageMediaType) are still accepted to keep older clients working.
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
@@ -26,12 +32,15 @@ type UserContentBlock =
     }
   | { type: "text"; text: string };
 
+type ImagePayload = { base64: string; mediaType: ImageMediaType };
+
 type DraftRequest = {
-  // Hero (the haul) — always required. Will be saved with the post.
-  imageBase64: string;
-  imageMediaType: ImageMediaType;
-  // Context photo (where it came from) — optional. Only used as Claude
-  // vision input; not saved with the post.
+  // Preferred: arrays. heroImages[0] is the main photo Claude focuses on.
+  heroImages?: ImagePayload[];
+  contextImages?: ImagePayload[];
+  // Legacy single-image fields — still accepted.
+  imageBase64?: string;
+  imageMediaType?: ImageMediaType;
   contextImageBase64?: string;
   contextImageMediaType?: ImageMediaType;
   /** Where the haul came from (estate, auction, etc.) — narrative spine. */
@@ -51,6 +60,10 @@ type DraftResponse = {
   body: string;
 };
 
+// Hard caps so a misbehaving client can't fire 50 images at Claude.
+const MAX_HERO_IMAGES = 8;
+const MAX_CONTEXT_IMAGES = 5;
+
 export async function POST(req: NextRequest) {
   // Auth gate — must be the signed-in admin.
   const session = await auth();
@@ -65,7 +78,47 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  const { imageBase64, imageMediaType, contextImageBase64, contextImageMediaType } = payload;
+  // Normalize to arrays. Prefer the new shape; fall back to legacy fields.
+  let heroImages: ImagePayload[] = [];
+  if (Array.isArray(payload.heroImages) && payload.heroImages.length > 0) {
+    heroImages = payload.heroImages;
+  } else if (payload.imageBase64 && payload.imageMediaType) {
+    heroImages = [
+      { base64: payload.imageBase64, mediaType: payload.imageMediaType },
+    ];
+  }
+
+  let contextImages: ImagePayload[] = [];
+  if (Array.isArray(payload.contextImages) && payload.contextImages.length > 0) {
+    contextImages = payload.contextImages;
+  } else if (payload.contextImageBase64 && payload.contextImageMediaType) {
+    contextImages = [
+      {
+        base64: payload.contextImageBase64,
+        mediaType: payload.contextImageMediaType,
+      },
+    ];
+  }
+
+  if (heroImages.length === 0) {
+    return NextResponse.json(
+      { error: "At least one haul (hero) image is required" },
+      { status: 400 }
+    );
+  }
+  if (heroImages.length > MAX_HERO_IMAGES) {
+    return NextResponse.json(
+      { error: `Too many haul images. Max is ${MAX_HERO_IMAGES}.` },
+      { status: 400 }
+    );
+  }
+  if (contextImages.length > MAX_CONTEXT_IMAGES) {
+    return NextResponse.json(
+      { error: `Too many context images. Max is ${MAX_CONTEXT_IMAGES}.` },
+      { status: 400 }
+    );
+  }
+
   // Accept either the new two-field shape or the legacy single `notes`
   const acquisitionContext = (
     payload.acquisitionContext ?? payload.notes ?? ""
@@ -73,17 +126,11 @@ export async function POST(req: NextRequest) {
   const photoNotes = (payload.photoNotes ?? "").trim();
   const contextUrl = (payload.contextUrl ?? "").trim();
 
-  if (!imageBase64 || !imageMediaType) {
-    return NextResponse.json(
-      { error: "imageBase64 and imageMediaType are required" },
-      { status: 400 }
-    );
-  }
   // Some kind of text input or context image is required so Claude has
   // *something* beyond just the hero to work with.
   if (
     acquisitionContext.length + photoNotes.length < 10 &&
-    !contextImageBase64 &&
+    contextImages.length === 0 &&
     !contextUrl
   ) {
     return NextResponse.json(
@@ -103,13 +150,25 @@ export async function POST(req: NextRequest) {
 
   const claude = getClaude();
 
+  const heroLabel =
+    heroImages.length === 1
+      ? "the haul photo"
+      : `${heroImages.length} haul photos (first is the main hero, rest are additional angles/items)`;
+  const contextLabel =
+    contextImages.length === 0
+      ? ""
+      : contextImages.length === 1
+        ? "One context photo provided (separate from the haul — where the items came from)."
+        : `${contextImages.length} context photos provided (separate from the haul — where the items came from).`;
+
   const userMessage = `Acquisition context (where the haul came from):
 ${acquisitionContext.length ? acquisitionContext : "(not provided)"}
 
-What's in the hero photo (visible items):
-${photoNotes.length ? photoNotes : "(not provided — describe what you see in the image)"}
+What's in the photos (visible items):
+${photoNotes.length ? photoNotes : "(not provided — describe what you see in the images)"}
 
-${contextImageBase64 ? "Context photo provided (separate from the hero — see second image)." : ""}
+You're looking at ${heroLabel}.
+${contextLabel}
 ${
   contextUrl
     ? urlText
@@ -120,25 +179,28 @@ ${
 
 Generate the draft journal post as JSON.`.replace(/\n{3,}/g, "\n\n");
 
-  // Build the message content array. Hero photo always present; context
-  // photo if provided.
-  const content: UserContentBlock[] = [
-    {
-      type: "image",
-      source: {
-        type: "base64",
-        media_type: imageMediaType,
-        data: imageBase64,
-      },
-    },
-  ];
-  if (contextImageBase64 && contextImageMediaType) {
+  // Build the content array. Order:
+  //   1. All hero photos (the haul), in user-supplied order
+  //   2. All context photos
+  //   3. The text prompt
+  const content: UserContentBlock[] = [];
+  for (const img of heroImages) {
     content.push({
       type: "image",
       source: {
         type: "base64",
-        media_type: contextImageMediaType,
-        data: contextImageBase64,
+        media_type: img.mediaType,
+        data: img.base64,
+      },
+    });
+  }
+  for (const img of contextImages) {
+    content.push({
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: img.mediaType,
+        data: img.base64,
       },
     });
   }
