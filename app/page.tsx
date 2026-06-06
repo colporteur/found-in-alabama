@@ -7,25 +7,14 @@ export default function HomePage() {
   const recentPosts = getRecentPosts(3);
   return (
     <>
-      {/* Hero */}
-      <section className="container-content py-16 md:py-24">
-        <p className="font-marker text-sm uppercase tracking-widest text-brand-earth mb-6">
-          Est. in Alabama · Listing daily
-        </p>
-        <h1 className="font-marker text-5xl md:text-7xl leading-tight mb-6">
-          Estate finds, books,
-          <br />
-          and small antiques —
-          <br />
+      {/* Hero — condensed */}
+      <section className="container-content py-12 md:py-16">
+        <h1 className="font-marker text-5xl md:text-7xl leading-tight mb-5">
+          Estate finds, books, and small antiques —{" "}
           <span className="marker-highlight">found in Alabama.</span>
         </h1>
-        <p className="text-2xl md:text-3xl font-medium text-brand-ink leading-snug mb-6 max-w-3xl">
-          If you collect it, we sell it. Come check out what we've found.
-        </p>
-        <p className="text-lg md:text-xl text-brand-ink/80 max-w-prose mb-8 leading-relaxed">
-          We sift through estates, auctions, and library deaccessions across the
-          state and list the best of it online for it to find its new home.
-          If you have an estate or collection to sell, we'd like to hear about it.
+        <p className="text-xl md:text-2xl font-medium text-brand-ink leading-snug mb-7 max-w-3xl">
+          If you collect it, we sell it. Come check out what we&rsquo;ve found.
         </p>
         <div className="flex flex-wrap gap-3">
           <Link href="/we-buy" className="btn-primary">
@@ -34,46 +23,6 @@ export default function HomePage() {
           <Link href="/find-me" className="btn-secondary">
             Shop the inventory
           </Link>
-        </div>
-      </section>
-
-      {/* What we do */}
-      <section className="bg-white border-y border-brand-ink/10">
-        <div className="container-content py-16">
-          <p className="text-xs uppercase tracking-wider text-brand-earth mb-3">
-            What we do
-          </p>
-          <h2 className="font-marker text-3xl md:text-4xl mb-12 max-w-2xl">
-            A small Alabama operation with a wide reach.
-          </h2>
-          <div className="grid gap-10 md:grid-cols-3">
-            <div>
-              <p className="font-marker text-2xl text-brand-yellow-dark mb-2">01</p>
-              <h3 className="font-medium text-lg mb-2">We buy</h3>
-              <p className="text-brand-ink/80 text-sm leading-relaxed">
-                Estates, libraries, collections, downsizes, and inventory
-                buyouts. Books, ephemera, vintage, small antiques, and a long
-                list besides.
-              </p>
-            </div>
-            <div>
-              <p className="font-marker text-2xl text-brand-yellow-dark mb-2">02</p>
-              <h3 className="font-medium text-lg mb-2">We list</h3>
-              <p className="text-brand-ink/80 text-sm leading-relaxed">
-                Every item gets researched, photographed, and listed across six
-                marketplaces — eBay, Etsy, Poshmark, Mercari, Depop, and
-                Whatnot — to find the right buyer.
-              </p>
-            </div>
-            <div>
-              <p className="font-marker text-2xl text-brand-yellow-dark mb-2">03</p>
-              <h3 className="font-medium text-lg mb-2">We ship</h3>
-              <p className="text-brand-ink/80 text-sm leading-relaxed">
-                Carefully packed and out the door fast. Thousands of items move
-                through our shop every year.
-              </p>
-            </div>
-          </div>
         </div>
       </section>
 
