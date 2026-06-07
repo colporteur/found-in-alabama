@@ -53,16 +53,17 @@ export default async function AdminDashboard() {
           href="/admin/draft"
         />
         <PhaseCard
-          status="next"
+          status="ready"
           phase="2C"
           title="Chrome extension"
           desc="Capture items from Nifty when you visit your inventory page."
         />
         <PhaseCard
-          status="pending"
+          status="ready"
           phase="2D"
-          title="Sale detection"
-          desc="Diff your nightly Nifty CSV against the database to mark sold items."
+          title="Social copy"
+          desc="Generate tailored posts per channel (Instagram, Facebook, Pinterest, BlueSky, X)."
+          href="/admin/social"
         />
       </div>
 
@@ -72,6 +73,12 @@ export default async function AdminDashboard() {
           className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
         >
           Draft a haul narrative →
+        </Link>
+        <Link
+          href="/admin/social"
+          className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+        >
+          Generate social copy →
         </Link>
         <Link
           href="/admin/inventory"
