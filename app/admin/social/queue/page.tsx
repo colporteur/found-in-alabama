@@ -36,6 +36,11 @@ export default async function SocialQueuePage() {
     scheduledFor: r.scheduledFor ? r.scheduledFor.toISOString() : null,
     postedAt: r.postedAt ? r.postedAt.toISOString() : null,
     notes: r.notes,
+    postId: r.postId ?? null,
+    postUrl: r.postUrl ?? null,
+    postError: r.postError ?? null,
+    attemptCount: r.attemptCount ?? 0,
+    lastAttemptAt: r.lastAttemptAt ? r.lastAttemptAt.toISOString() : null,
     createdAt:
       r.createdAt instanceof Date
         ? r.createdAt.toISOString()

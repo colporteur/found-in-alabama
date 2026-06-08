@@ -375,13 +375,23 @@ export const socialDrafts = pgTable(
     content: jsonb("content").$type<Record<string, unknown>>().notNull(),
     // Lifecycle
     status: text("status", {
-      enum: ["draft", "scheduled", "posted", "skipped"],
+      enum: ["draft", "scheduled", "posted", "skipped", "failed"],
     })
       .default("draft")
       .notNull(),
     scheduledFor: timestamp("scheduled_for"),
     postedAt: timestamp("posted_at"),
     notes: text("notes"),
+    // Phase 2D-3: auto-posting tracking
+    // Platform's own id for the published post (e.g. BlueSky URI, Pinterest pin id).
+    postId: text("post_id"),
+    // Publicly-clickable URL to the published post, for display in the queue.
+    postUrl: text("post_url"),
+    // Last error message if a post attempt failed.
+    postError: text("post_error"),
+    // How many times we've tried to post this draft (manual + cron combined).
+    attemptCount: integer("attempt_count").default(0).notNull(),
+    lastAttemptAt: timestamp("last_attempt_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
   },

@@ -87,6 +87,12 @@ export default async function AdminDashboard() {
           Social queue →
         </Link>
         <Link
+          href="/admin/settings/posting"
+          className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+        >
+          Posting connections →
+        </Link>
+        <Link
           href="/admin/inventory"
           className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
         >

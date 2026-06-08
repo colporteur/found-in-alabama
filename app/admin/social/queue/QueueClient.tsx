@@ -20,19 +20,26 @@ export type DraftRow = {
   contentType: string;
   channel: string;
   content: Record<string, unknown>;
-  status: "draft" | "scheduled" | "posted" | "skipped";
+  status: "draft" | "scheduled" | "posted" | "skipped" | "failed";
   scheduledFor: string | null;
   postedAt: string | null;
   notes: string | null;
+  // Phase 2D-3 auto-posting fields
+  postId: string | null;
+  postUrl: string | null;
+  postError: string | null;
+  attemptCount: number;
+  lastAttemptAt: string | null;
   createdAt: string;
   updatedAt: string;
 };
 
-type TabKey = "schedule" | "drafts" | "posted" | "skipped";
+type TabKey = "schedule" | "drafts" | "failed" | "posted" | "skipped";
 
 const TAB_LABELS: Record<TabKey, string> = {
   schedule: "Scheduled",
   drafts: "Drafts",
+  failed: "Failed",
   posted: "Posted",
   skipped: "Skipped",
 };
@@ -52,6 +59,7 @@ export default function QueueClient({
     return {
       schedule: drafts.filter((d) => d.status === "scheduled").length,
       drafts: drafts.filter((d) => d.status === "draft").length,
+      failed: drafts.filter((d) => d.status === "failed").length,
       posted: drafts.filter((d) => d.status === "posted").length,
       skipped: drafts.filter((d) => d.status === "skipped").length,
     };
@@ -63,6 +71,7 @@ export default function QueueClient({
       if (channelFilter !== "all" && d.channel !== channelFilter) return false;
       if (tab === "schedule") return d.status === "scheduled";
       if (tab === "drafts") return d.status === "draft";
+      if (tab === "failed") return d.status === "failed";
       if (tab === "posted") return d.status === "posted";
       if (tab === "skipped") return d.status === "skipped";
       return false;
@@ -158,7 +167,54 @@ export default function QueueClient({
     }
   }
 
-  const rowProps = { onPatch: patchDraft, onDelete: deleteDraft };
+  /** Post a draft right now. Updates row with result on success/failure. */
+  async function postNow(id: string): Promise<DraftRow | null> {
+    try {
+      setError(null);
+      const res = await fetch(`/api/admin/social/drafts/${id}/post`, {
+        method: "POST",
+      });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        draft?: DraftRow;
+      };
+      if (data.draft) {
+        const normalized: DraftRow = {
+          ...data.draft,
+          scheduledFor: data.draft.scheduledFor
+            ? new Date(data.draft.scheduledFor).toISOString()
+            : null,
+          postedAt: data.draft.postedAt
+            ? new Date(data.draft.postedAt).toISOString()
+            : null,
+          lastAttemptAt: data.draft.lastAttemptAt
+            ? new Date(data.draft.lastAttemptAt).toISOString()
+            : null,
+          createdAt: new Date(data.draft.createdAt).toISOString(),
+          updatedAt: new Date(data.draft.updatedAt).toISOString(),
+        };
+        setDrafts((prev) =>
+          prev.map((d) => (d.id === id ? normalized : d))
+        );
+        if (!res.ok) setError(data.error ?? `HTTP ${res.status}`);
+        return normalized;
+      }
+      if (!res.ok) {
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+      return null;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Post failed");
+      return null;
+    }
+  }
+
+  const rowProps = {
+    onPatch: patchDraft,
+    onDelete: deleteDraft,
+    onPostNow: postNow,
+  };
 
   if (drafts.length === 0) {
     return (
@@ -298,12 +354,14 @@ function BucketSection({
   drafts,
   onPatch,
   onDelete,
+  onPostNow,
 }: {
   title: string;
   tint: "red" | "yellow" | "plain";
   drafts: DraftRow[];
   onPatch: (id: string, body: Record<string, unknown>) => Promise<DraftRow | null>;
   onDelete: (id: string) => Promise<void>;
+  onPostNow: (id: string) => Promise<DraftRow | null>;
 }) {
   const tintClass =
     tint === "red"
@@ -325,6 +383,7 @@ function BucketSection({
             draft={d}
             onPatch={onPatch}
             onDelete={onDelete}
+            onPostNow={onPostNow}
           />
         ))}
       </div>

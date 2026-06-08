@@ -9,7 +9,7 @@ import { eq } from "drizzle-orm";
 
 export const runtime = "nodejs";
 
-const ALLOWED_STATUSES = ["draft", "scheduled", "posted", "skipped"] as const;
+const ALLOWED_STATUSES = ["draft", "scheduled", "posted", "skipped", "failed"] as const;
 type DraftStatus = (typeof ALLOWED_STATUSES)[number];
 
 type PatchBody = {

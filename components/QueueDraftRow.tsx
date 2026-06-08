@@ -65,6 +65,10 @@ const STATUS_BADGE: Record<
     label: "Posted",
     cls: "bg-emerald-100 text-emerald-800",
   },
+  failed: {
+    label: "Failed",
+    cls: "bg-red-100 text-red-800",
+  },
   skipped: {
     label: "Skipped",
     cls: "bg-brand-ink/10 text-brand-ink/50 line-through",
@@ -75,6 +79,7 @@ export default function QueueDraftRow({
   draft,
   onPatch,
   onDelete,
+  onPostNow,
 }: {
   draft: DraftRow;
   onPatch: (
@@ -82,6 +87,7 @@ export default function QueueDraftRow({
     body: Record<string, unknown>
   ) => Promise<DraftRow | null>;
   onDelete: (id: string) => Promise<void>;
+  onPostNow?: (id: string) => Promise<DraftRow | null>;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [scheduleInput, setScheduleInput] = useState(
@@ -89,6 +95,7 @@ export default function QueueDraftRow({
   );
   const [editingText, setEditingText] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [posting, setPosting] = useState(false);
 
   const channelMeta = CHANNELS[draft.channel as ChannelKey];
   const channelLabel = channelMeta?.label ?? draft.channel;
@@ -132,6 +139,21 @@ export default function QueueDraftRow({
   async function restoreToDraft() {
     setBusy(true);
     await onPatch(draft.id, { status: "draft", postedAt: null });
+    setBusy(false);
+  }
+
+  async function postRightNow() {
+    if (!onPostNow) return;
+    if (!confirm(`Post this to ${channelLabel} right now?`)) return;
+    setPosting(true);
+    await onPostNow(draft.id);
+    setPosting(false);
+  }
+
+  /** Re-arm a previously-failed draft for another try. */
+  async function retryFailed() {
+    setBusy(true);
+    await onPatch(draft.id, { status: "scheduled" });
     setBusy(false);
   }
 
@@ -210,6 +232,22 @@ export default function QueueDraftRow({
           <p className="text-sm text-brand-ink/75 mt-1 line-clamp-2">
             {preview}
           </p>
+          {draft.status === "posted" && draft.postUrl && (
+            <a
+              href={draft.postUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-emerald-700 hover:underline mt-1 inline-block"
+            >
+              View live post →
+            </a>
+          )}
+          {draft.status === "failed" && draft.postError && (
+            <p className="text-xs text-red-700 mt-1">
+              {draft.postError}
+              {draft.attemptCount > 0 ? ` (${draft.attemptCount} attempt${draft.attemptCount === 1 ? "" : "s"})` : ""}
+            </p>
+          )}
         </div>
         <button
           onClick={() => setExpanded((x) => !x)}
@@ -270,6 +308,28 @@ export default function QueueDraftRow({
 
           {/* Action row */}
           <div className="flex flex-wrap gap-2 pt-2 border-t border-brand-ink/10">
+            {onPostNow && draft.status !== "posted" && (
+              <button
+                type="button"
+                onClick={postRightNow}
+                disabled={posting || busy}
+                className="px-3 py-1.5 bg-brand-yellow text-brand-ink text-sm font-medium rounded hover:bg-brand-yellow-dark transition-colors disabled:opacity-50"
+                title={`Publish to ${channelLabel} immediately`}
+              >
+                {posting ? "Posting…" : draft.status === "failed" ? "Try again" : "Post now"}
+              </button>
+            )}
+            {draft.status === "failed" && (
+              <button
+                type="button"
+                onClick={retryFailed}
+                disabled={busy}
+                className="px-3 py-1.5 bg-transparent text-brand-ink border border-brand-ink/30 text-sm font-medium rounded hover:bg-brand-ink/5 transition-colors disabled:opacity-50"
+                title="Move back to Scheduled (won't try until the cron runs again)"
+              >
+                Re-arm
+              </button>
+            )}
             <button
               type="button"
               onClick={copy}
@@ -283,6 +343,7 @@ export default function QueueDraftRow({
                 onClick={markPosted}
                 disabled={busy}
                 className="px-3 py-1.5 bg-emerald-700 text-white text-sm font-medium rounded hover:bg-emerald-800 transition-colors disabled:opacity-50"
+                title="Mark as already posted (e.g. you posted it manually elsewhere)"
               >
                 Mark posted
               </button>

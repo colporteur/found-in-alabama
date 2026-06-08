@@ -50,6 +50,13 @@
       "when": 1780877063081,
       "tag": "0006_condemned_sandman",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1780879459803,
+      "tag": "0007_huge_titania",
+      "breakpoints": true
     }
   ]
 }
