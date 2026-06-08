@@ -15,9 +15,16 @@ type AnyDraft = Record<string, unknown>;
 export default function SocialDraftCard({
   channel,
   draft,
+  onSave,
+  isSaved,
+  isSaving,
 }: {
   channel: ChannelKey;
   draft: AnyDraft | undefined;
+  /** If provided, render a "Save to queue" button. */
+  onSave?: () => void | Promise<void>;
+  isSaved?: boolean;
+  isSaving?: boolean;
 }) {
   const meta = CHANNELS[channel];
   const [copied, setCopied] = useState<string | null>(null);
@@ -171,13 +178,28 @@ export default function SocialDraftCard({
 
       {body}
 
-      <div className="flex items-center gap-2 mt-5 pt-4 border-t border-brand-ink/10">
+      <div className="flex items-center gap-2 mt-5 pt-4 border-t border-brand-ink/10 flex-wrap">
         <button
           onClick={() => copy(fullText, "all")}
           className="inline-flex items-center px-3 py-1.5 bg-brand-yellow text-brand-ink text-sm font-medium rounded hover:bg-brand-yellow-dark transition-colors"
         >
           {copied === "all" ? "Copied!" : "Copy post"}
         </button>
+        {onSave && (
+          isSaved ? (
+            <span className="inline-flex items-center px-3 py-1.5 text-sm text-emerald-700 font-medium">
+              Saved ✓
+            </span>
+          ) : (
+            <button
+              onClick={() => void onSave()}
+              disabled={isSaving}
+              className="inline-flex items-center px-3 py-1.5 bg-transparent text-brand-ink border border-brand-ink/30 text-sm font-medium rounded hover:bg-brand-ink/5 transition-colors disabled:opacity-50"
+            >
+              {isSaving ? "Saving…" : "Save to queue"}
+            </button>
+          )
+        )}
         {overLimit && (
           <span className="text-xs text-red-700">
             Over the platform limit by {charCount - meta.charLimit} chars.

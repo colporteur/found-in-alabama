@@ -346,6 +346,53 @@ export const ebayAutoCategorizations = pgTable(
   })
 );
 
+// ─── Phase 2D-2 — Social draft queue ─────────────────────────────────────────
+// Persisted output of the social copy generator. One row per (generation,
+// channel) pair. Source fields are denormalized so the queue page renders
+// fast and survives source deletion. content is the per-channel JSON shape
+// returned by Claude (see lib/social/channel-styles.ts ChannelOutput).
+
+export const socialDrafts = pgTable(
+  "social_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Source — what this post is about
+    sourceType: text("source_type", { enum: ["haul", "item"] }).notNull(),
+    sourceId: text("source_id").notNull(),
+    sourceTitle: text("source_title").notNull(), // denormalized for list rendering
+    sourceImage: text("source_image"),           // URL for thumbnail in queue
+    // Generation grouping — all channels from one /generate call share this
+    generationId: uuid("generation_id").notNull(),
+    contentType: text("content_type", {
+      enum: ["just-listed", "new-haul", "throwback", "just-sold"],
+    }).notNull(),
+    channel: text("channel").notNull(), // ChannelKey ("instagram_feed", etc.)
+    // Per-channel JSON content from Claude. Shape varies by channel:
+    //   text-with-hashtags: { text, hashtags[] }
+    //   text:               { text }
+    //   story:              { overlay_text, cta }
+    //   pinterest:          { title, description, board_suggestion }
+    content: jsonb("content").$type<Record<string, unknown>>().notNull(),
+    // Lifecycle
+    status: text("status", {
+      enum: ["draft", "scheduled", "posted", "skipped"],
+    })
+      .default("draft")
+      .notNull(),
+    scheduledFor: timestamp("scheduled_for"),
+    postedAt: timestamp("posted_at"),
+    notes: text("notes"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    statusIdx: index("social_drafts_status_idx").on(t.status),
+    scheduledForIdx: index("social_drafts_scheduled_for_idx").on(t.scheduledFor),
+    generationIdIdx: index("social_drafts_generation_idx").on(t.generationId),
+    channelIdx: index("social_drafts_channel_idx").on(t.channel),
+  })
+);
+
 // ─── NextAuth tables (shape required by @auth/drizzle-adapter) ────────────────
 
 export const users = pgTable("user", {

@@ -43,6 +43,13 @@
       "when": 1780696684929,
       "tag": "0005_illegal_siren",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1780877063081,
+      "tag": "0006_condemned_sandman",
+      "breakpoints": true
     }
   ]
 }

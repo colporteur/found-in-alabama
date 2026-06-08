@@ -5,6 +5,7 @@
 // then calls /api/admin/social/generate and renders the per-channel cards.
 
 import { useMemo, useState } from "react";
+import Link from "next/link";
 import SocialDraftCard from "@/components/SocialDraftCard";
 import {
   CHANNELS,
@@ -36,8 +37,18 @@ type GenerateResponse = {
   drafts: Record<string, Record<string, unknown>>;
   missingChannels: string[];
   usedVision: boolean;
+  generationId: string;
+  contentType: ContentType;
+  source: {
+    sourceType: "haul" | "item";
+    sourceId: string;
+    sourceTitle: string;
+    sourceImage: string | null;
+  };
   usage?: { inputTokens: number; outputTokens: number };
 };
+
+type SavedMap = Record<string, { id: string }>;
 
 export default function SocialGeneratorClient({
   hauls,
@@ -54,12 +65,15 @@ export default function SocialGeneratorClient({
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<GenerateResponse | null>(null);
+  const [saved, setSaved] = useState<SavedMap>({}); // channel → { id }
+  const [isSavingAll, setIsSavingAll] = useState(false);
 
   // When user switches between haul/item, swap the default content type
   function switchSourceKind(kind: SourceKind) {
     setSourceKind(kind);
     setContentType(kind === "haul" ? "new-haul" : "just-listed");
     setResult(null);
+    setSaved({});
   }
 
   function toggleChannel(c: ChannelKey) {
@@ -89,6 +103,7 @@ export default function SocialGeneratorClient({
     e.preventDefault();
     setError(null);
     setResult(null);
+    setSaved({});
     if (channels.length === 0) {
       setError("Pick at least one channel.");
       return;
@@ -127,8 +142,105 @@ export default function SocialGeneratorClient({
     }
   }
 
+  /** Save one channel's draft to the queue. Updates `saved` state. */
+  async function saveOne(channel: ChannelKey) {
+    if (!result) return;
+    const draft = result.drafts[channel];
+    if (!draft) return;
+    try {
+      const res = await fetch("/api/admin/social/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          drafts: [
+            {
+              ...result.source,
+              generationId: result.generationId,
+              contentType: result.contentType,
+              channel,
+              content: draft,
+            },
+          ],
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as {
+        saved: Array<{ id: string; channel: string }>;
+      };
+      setSaved((prev) => {
+        const next = { ...prev };
+        for (const row of data.saved) {
+          next[row.channel] = { id: row.id };
+        }
+        return next;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    }
+  }
+
+  /** Save every unsaved channel in this generation. */
+  async function saveAll() {
+    if (!result) return;
+    const unsaved = channels.filter((c) => !saved[c] && result.drafts[c]);
+    if (unsaved.length === 0) return;
+    setIsSavingAll(true);
+    try {
+      const res = await fetch("/api/admin/social/drafts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          drafts: unsaved.map((channel) => ({
+            ...result.source,
+            generationId: result.generationId,
+            contentType: result.contentType,
+            channel,
+            content: result.drafts[channel],
+          })),
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const data = (await res.json()) as {
+        saved: Array<{ id: string; channel: string }>;
+      };
+      setSaved((prev) => {
+        const next = { ...prev };
+        for (const row of data.saved) {
+          next[row.channel] = { id: row.id };
+        }
+        return next;
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setIsSavingAll(false);
+    }
+  }
+
+  const savedCount = Object.keys(saved).length;
+  const totalDrafts = result
+    ? channels.filter((c) => result.drafts[c]).length
+    : 0;
+  const unsavedCount = totalDrafts - savedCount;
+
   return (
     <div className="space-y-8 max-w-4xl">
+      {/* Quick link to the queue page */}
+      <div className="flex justify-end -mb-4">
+        <Link
+          href="/admin/social/queue"
+          className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+        >
+          View queue →
+        </Link>
+      </div>
+
       <form onSubmit={handleGenerate} className="space-y-6">
         {/* ── Source kind toggle ─────────────────────────────────────── */}
         <div>
@@ -347,17 +459,36 @@ export default function SocialGeneratorClient({
         <div className="space-y-4 pt-6 border-t border-brand-ink/10">
           <div className="flex flex-wrap items-baseline justify-between gap-3">
             <h2 className="font-marker text-2xl">Drafts</h2>
-            <div className="text-xs text-brand-ink/55 flex flex-wrap gap-x-4 gap-y-1">
-              {!result.usedVision && (
-                <span className="text-amber-700">
-                  ⚠ No image available — text-only generation
-                </span>
+            <div className="flex flex-wrap items-center gap-3">
+              {unsavedCount > 0 ? (
+                <button
+                  onClick={saveAll}
+                  disabled={isSavingAll}
+                  className="inline-flex items-center px-4 py-2 bg-brand-ink text-brand-paper text-sm font-medium rounded hover:bg-brand-ink/90 transition-colors disabled:opacity-50"
+                >
+                  {isSavingAll
+                    ? "Saving…"
+                    : `Save ${unsavedCount} to queue`}
+                </button>
+              ) : (
+                savedCount > 0 && (
+                  <span className="text-sm text-emerald-700 font-medium">
+                    All saved ✓ <Link href="/admin/social/queue" className="underline decoration-brand-yellow decoration-2 underline-offset-2">View queue</Link>
+                  </span>
+                )
               )}
-              {result.usage && (
-                <span>
-                  {result.usage.inputTokens.toLocaleString()} in / {result.usage.outputTokens.toLocaleString()} out
-                </span>
-              )}
+              <div className="text-xs text-brand-ink/55 flex flex-wrap gap-x-4 gap-y-1">
+                {!result.usedVision && (
+                  <span className="text-amber-700">
+                    ⚠ No image — text-only generation
+                  </span>
+                )}
+                {result.usage && (
+                  <span>
+                    {result.usage.inputTokens.toLocaleString()} in / {result.usage.outputTokens.toLocaleString()} out
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
@@ -370,7 +501,14 @@ export default function SocialGeneratorClient({
 
           <div className="grid gap-4 md:grid-cols-2">
             {channels.map((c) => (
-              <SocialDraftCard key={c} channel={c} draft={result.drafts[c]} />
+              <SocialDraftCard
+                key={c}
+                channel={c}
+                draft={result.drafts[c]}
+                onSave={result.drafts[c] ? () => saveOne(c) : undefined}
+                isSaved={!!saved[c]}
+                isSaving={isSavingAll}
+              />
             ))}
           </div>
         </div>

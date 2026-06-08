@@ -81,6 +81,12 @@ export default async function AdminDashboard() {
           Generate social copy →
         </Link>
         <Link
+          href="/admin/social/queue"
+          className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+        >
+          Social queue →
+        </Link>
+        <Link
           href="/admin/inventory"
           className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
         >

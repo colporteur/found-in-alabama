@@ -8,6 +8,7 @@
 // One Claude vision call → all requested channels at once as a single
 // JSON object. Cheaper than per-channel calls and keeps voice consistent.
 
+import { randomUUID } from "crypto";
 import fs from "fs/promises";
 import path from "path";
 import { NextRequest, NextResponse } from "next/server";
@@ -306,10 +307,34 @@ export async function POST(req: NextRequest) {
       if (key in drafts) filtered[key] = drafts[key];
     }
 
+    // generationId groups all channels from this one call. Returned to
+    // the client so a follow-up POST /api/admin/social/drafts can save
+    // the lot with a shared group id.
+    const generationId = randomUUID();
+
+    // Denormalized source fields the client needs to save drafts
+    const sourcePayload =
+      source.kind === "haul"
+        ? {
+            sourceType: "haul" as const,
+            sourceId: source.slug,
+            sourceTitle: source.title,
+            sourceImage: source.heroImage,
+          }
+        : {
+            sourceType: "item" as const,
+            sourceId: body.sourceId,
+            sourceTitle: source.title,
+            sourceImage: source.heroImage,
+          };
+
     return NextResponse.json({
       drafts: filtered,
       missingChannels: requested.filter((k) => !(k in filtered)),
       usedVision: !!image,
+      generationId,
+      contentType: body.contentType,
+      source: sourcePayload,
       usage: {
         inputTokens: response.usage.input_tokens,
         outputTokens: response.usage.output_tokens,
