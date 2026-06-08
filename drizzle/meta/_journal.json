@@ -64,6 +64,13 @@
       "when": 1780944005441,
       "tag": "0008_hard_inertia",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1780945978833,
+      "tag": "0009_empty_marauders",
+      "breakpoints": true
     }
   ]
 }

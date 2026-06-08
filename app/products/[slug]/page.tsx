@@ -11,6 +11,12 @@ import { db, items } from "@/db";
 import { eq } from "drizzle-orm";
 import { getPost } from "@/lib/posts";
 import type { MarketplaceKey } from "@/db/schema";
+import { resolveSimilarCategoryIdFast } from "@/lib/items/similar";
+import {
+  ebayStoreCategoryUrl,
+  isEbayStoreConfigured,
+} from "@/lib/ebay/store-url";
+import SeeSimilarButton from "@/components/SeeSimilarButton";
 
 // Refetch on every request so a fresh capture from the Chrome extension
 // shows up immediately without a redeploy.
@@ -36,13 +42,27 @@ const MARKETPLACE_ORDER: MarketplaceKey[] = [
 
 type Item = typeof items.$inferSelect;
 
-async function loadItem(slug: string): Promise<Item | null> {
-  const [row] = await db
+// Match against slug first; fall back to UUID. The HaulItemsFromDb
+// productHref helper uses UUID for legacy rows that don't have slugs
+// yet, so both URL shapes must resolve.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+async function loadItem(idOrSlug: string): Promise<Item | null> {
+  const [bySlug] = await db
     .select()
     .from(items)
-    .where(eq(items.slug, slug))
+    .where(eq(items.slug, idOrSlug))
     .limit(1);
-  return row ?? null;
+  if (bySlug) return bySlug;
+  if (UUID_RE.test(idOrSlug)) {
+    const [byId] = await db
+      .select()
+      .from(items)
+      .where(eq(items.id, idOrSlug))
+      .limit(1);
+    return byId ?? null;
+  }
+  return null;
 }
 
 function formatPrice(p: string | null): string | null {
@@ -107,6 +127,17 @@ export default async function ProductPage({
       ? MARKETPLACE_LABEL[item.soldOnMarketplace as MarketplaceKey] ??
         item.soldOnMarketplace
       : null;
+
+  // "See similar items" — fast path only (cache + eBay listing join).
+  // If we get a hit, render an instant link. If not, render a client
+  // button that triggers the Haiku fallback on click (and caches it).
+  const ebayConfigured = isEbayStoreConfigured();
+  const fastCategoryId = ebayConfigured
+    ? await resolveSimilarCategoryIdFast(item)
+    : null;
+  const fastSimilarUrl = fastCategoryId
+    ? ebayStoreCategoryUrl(fastCategoryId)
+    : null;
 
   return (
     <article className="container-content py-12">
@@ -231,6 +262,27 @@ export default async function ProductPage({
                   </Link>{" "}
                   story.
                 </p>
+              )}
+            </div>
+          )}
+
+          {/* See similar items — opens the seller's eBay store category */}
+          {ebayConfigured && (
+            <div className="mb-8">
+              <p className="text-xs uppercase tracking-wider text-brand-earth mb-3">
+                Looking for more like this?
+              </p>
+              {fastSimilarUrl ? (
+                <a
+                  href={fastSimilarUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center px-4 py-2 bg-transparent text-brand-ink border border-brand-ink/30 text-sm font-medium rounded-md hover:bg-brand-ink/5 transition-colors"
+                >
+                  See similar items →
+                </a>
+              ) : (
+                <SeeSimilarButton slug={item.slug ?? item.id} />
               )}
             </div>
           )}

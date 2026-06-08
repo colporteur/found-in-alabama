@@ -46,6 +46,10 @@ export const items = pgTable(
     // Phase 2C-1: derived from Nifty privateNotes when it matches a published
     // journal post slug. Used to link items to their haul story.
     haulPostSlug: text("haul_post_slug"),
+    // Phase 3B: cached eBay store category ID for "See similar items"
+    // on the product page. Populated either by joining ebayListings
+    // (free) or by a one-shot Haiku call on first product-page visit.
+    ebayStoreCategoryId: text("ebay_store_category_id"),
     // Phase 2C-1: Nifty's own "sold at" timestamp. Captured verbatim so we
     // can show "Sold on June 5" on the haul page.
     soldAt: timestamp("sold_at"),

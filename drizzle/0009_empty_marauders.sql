@@ -1,0 +1,1 @@
+ALTER TABLE "items" ADD COLUMN "ebay_store_category_id" text;

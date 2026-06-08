@@ -11,6 +11,7 @@ import {
   CHANNELS,
   type ChannelKey,
 } from "@/lib/social/channel-styles";
+import { isEbayStoreConfigured } from "@/lib/ebay/store-url";
 
 export const dynamic = "force-dynamic";
 
@@ -93,6 +94,50 @@ export default async function PostingSettingsPage() {
               })}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {/* Product-page integrations (not auto-posting, but related env config) */}
+      <div className="mb-12">
+        <h2 className="font-marker text-xl mb-3">Product page integrations</h2>
+        <div className="border border-brand-ink/15 rounded-lg p-5 bg-white">
+          <div className="flex items-baseline justify-between mb-2 gap-3">
+            <h3 className="font-marker text-lg">eBay store category links</h3>
+            {isEbayStoreConfigured() ? (
+              <span className="text-xs px-2 py-0.5 rounded bg-emerald-100 text-emerald-800 font-medium">
+                Configured
+              </span>
+            ) : (
+              <span className="text-xs px-2 py-0.5 rounded bg-amber-100 text-amber-900 font-medium">
+                Not configured
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-brand-ink/70 mb-3">
+            Drives the &ldquo;See similar items&rdquo; link on each product page.
+            Without this, that link is hidden.
+          </p>
+          {!isEbayStoreConfigured() && (
+            <details className="text-sm">
+              <summary className="cursor-pointer text-brand-ink/70 hover:text-brand-ink">
+                Setup instructions
+              </summary>
+              <ol className="mt-3 space-y-2 list-decimal list-inside text-brand-ink/85">
+                <li>
+                  Find your eBay seller username (visible at{" "}
+                  <code className="bg-brand-paper px-1 rounded">
+                    ebay.com/usr/&lt;username&gt;
+                  </code>
+                  ).
+                </li>
+                <li>
+                  Add to <code className="bg-brand-paper px-1 rounded">.env.local</code> and Vercel env vars:
+                  <pre className="bg-brand-paper text-brand-ink p-2 rounded mt-1 text-xs overflow-x-auto">{`EBAY_STORE_USERNAME="colporteurbooks"`}</pre>
+                </li>
+                <li>Redeploy. Refresh — &ldquo;See similar items&rdquo; appears on product pages.</li>
+              </ol>
+            </details>
+          )}
         </div>
       </div>
 
