@@ -8,6 +8,8 @@
 import type { ChannelKey } from "@/lib/social/channel-styles";
 import { CHANNELS, channelLabel } from "@/lib/social/channel-styles";
 
+const SITE_URL = "https://www.foundinalabama.com";
+
 export type SocialContentType = "just-listed" | "new-haul" | "throwback" | "just-sold";
 
 const CONTENT_TYPE_LABELS: Record<SocialContentType, string> = {
@@ -48,6 +50,28 @@ export type HaulSource = {
 };
 
 export type SocialSource = ItemSource | HaulSource;
+
+/**
+ * Pick the most useful public URL for a source — the one we want Claude
+ * to invite readers toward. For hauls this is the journal post; for
+ * items it's the first available marketplace listing (eBay preferred).
+ * Returns null when no URL is available (Claude will skip the link).
+ */
+export function sourceUrl(source: SocialSource): string | null {
+  if (source.kind === "haul") {
+    return `${SITE_URL}/journal/${source.slug}`;
+  }
+  const urls = source.marketplaceUrls;
+  return (
+    urls.ebay ??
+    urls.etsy ??
+    urls.poshmark ??
+    urls.mercari ??
+    urls.depop ??
+    urls.whatnot ??
+    null
+  );
+}
 
 // ─── System prompt ───────────────────────────────────────────────────────────
 
@@ -90,13 +114,14 @@ const CHANNEL_RULES = `# Channel rules — output exactly the shape shown for ea
 - 80–220 words.
 - First-person plural ("we found...") matches Todd's voice.
 - Sentence fragments are fine.
-- End with a soft pointer to where it's listed (e.g. "On eBay" or "Available on Etsy"). No "link in bio."
+- End with a soft pointer to where it's listed (e.g. "On eBay" or "Available on Etsy"). No "link in bio." DO NOT include the source URL — URLs aren't clickable in Instagram captions and would just look like noise.
 - 8–12 hashtags. Mix broad (#estatesale, #vintagestyle), niche/item-specific (#midcenturybrass, #goldenagedetectives, #pyrexlove), and local (#alabamavintage, #birminghamantiques, #southernfinds, #shopalabama). All lowercase. No spaces. Don't use # inside the text — only in the hashtags array.
 
 ## instagram_story
 { "overlay_text": string, "cta": string }
 - overlay_text: ≤8 words, looks good big on an image.
 - cta: short, e.g. "Tap for the link," "Listed in bio," "Swipe up." Pick what fits.
+- DO NOT include the source URL anywhere — the link gets attached as a story sticker separately.
 
 ## facebook
 { "text": string }
@@ -104,23 +129,27 @@ const CHANNEL_RULES = `# Channel rules — output exactly the shape shown for ea
 - Conversational, local-community feel. If the source mentions a town (Anniston, Birmingham, Tuscaloosa, etc.), lean into it.
 - Story-first. "We just got back from..." or "This came out of..." is fine.
 - 0–2 hashtags inline, only if natural.
+- If a source URL is provided, end the post with the URL on its own line. Facebook auto-generates a preview card for it — that's the point.
 
 ## pinterest
 { "title": string, "description": string, "board_suggestion": string }
 - title: 50–60 chars max. Keyword-dense for search. NO first person. Pattern: [era] [material/style] [item] — [extra detail]. Example: "1973 Heywood-Wakefield walnut end table — mid-century modern."
 - description: 200–400 chars. Searchable. Mention materials, era, condition cues, what room/style it pairs with. Keywords matter more than voice.
 - board_suggestion: one short board name where this pin belongs. Examples: "Mid-century finds", "Vintage Pyrex", "Alabama estate hauls", "Vintage books & ephemera".
+- DO NOT include the source URL in the description — Pinterest pins have a separate destination URL field that handles it.
 
 ## bluesky
 { "text": string }
-- ≤300 characters total (count carefully).
-- One observation. Conversational. No hashtags. End with a quiet pointer to where it's listed if it fits in the budget.
+- ≤300 characters total (count carefully — URL counts toward the limit even though BlueSky shortens its display).
+- One observation. Conversational. No hashtags.
+- If a source URL is provided, end the post with the URL on its own line. Budget for it: leave at least 50 chars before the URL so the post itself isn't squeezed.
 
 ## twitter
 { "text": string }
-- ≤270 characters total (count carefully).
+- ≤270 characters total including the URL (t.co shortens to ~23 chars but the API still counts the original — budget conservatively).
 - Punchy. Lead with the hook (surprise, value, question).
-- 0–2 hashtags inline only if they read naturally.`;
+- 0–2 hashtags inline only if they read naturally.
+- If a source URL is provided, end the tweet with it on its own line.`;
 
 export function buildSystemPrompt(): string {
   return `You write social media posts for "Found in Alabama," a small Alabama-based reseller of estate finds, books, vintage, ephemera, and small antiques. They sell across six marketplaces: eBay, Etsy, Poshmark, Mercari, Depop, and Whatnot.
@@ -148,6 +177,11 @@ Return one JSON object whose keys are exactly the requested channel names (e.g. 
 // ─── User message builder ────────────────────────────────────────────────────
 
 function describeSource(source: SocialSource): string {
+  const url = sourceUrl(source);
+  const urlLine = url
+    ? `Source URL (include where the per-channel rules say to): ${url}`
+    : "Source URL: (none — skip the URL block in every channel)";
+
   if (source.kind === "item") {
     const marketplaceList = Object.keys(source.marketplaceUrls).join(", ");
     return `SOURCE: single item
@@ -158,13 +192,15 @@ ${
   source.haulTitle
     ? `From the haul: "${source.haulTitle}"${source.haulExcerpt ? ` — ${source.haulExcerpt}` : ""}`
     : ""
-}`.trim();
+}
+${urlLine}`.trim();
   }
   return `SOURCE: haul (multi-item journal post)
 Title: ${source.title}
 Posted: ${source.date}
 ${source.excerpt ? `Excerpt: ${source.excerpt}` : ""}
 ${typeof source.itemCount === "number" ? `Items captured from this haul so far: ${source.itemCount}` : ""}
+${urlLine}
 
 Full haul narrative:
 ${source.body}`.trim();
