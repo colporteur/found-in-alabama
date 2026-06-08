@@ -7,7 +7,7 @@
 // We log in once per call (BlueSky sessions are cheap to create). For higher
 // volume we'd cache the session, but at our cadence this is plenty.
 
-import { AtpAgent } from "@atproto/api";
+import { AtpAgent, AppBskyEmbedImages } from "@atproto/api";
 import type {
   PostingAdapter,
   PostInput,
@@ -109,7 +109,7 @@ export const blueskyAdapter: PostingAdapter = {
     }
 
     // Upload image if we have one, then attach as an embed
-    let embed: Record<string, unknown> | undefined;
+    let embed: AppBskyEmbedImages.Main | undefined;
     if (input.image) {
       try {
         const uploaded = await agent.uploadBlob(input.image.data, {
