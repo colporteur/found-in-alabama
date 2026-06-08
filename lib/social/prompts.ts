@@ -23,6 +23,8 @@ const CONTENT_TYPE_LABELS: Record<SocialContentType, string> = {
 export type ItemSource = {
   kind: "item";
   title: string;
+  /** Slug for the public product page at /products/{slug}. */
+  slug: string | null;
   /** Public URL to the item's hero image. */
   heroImage: string | null;
   /** Decimal price as a string, e.g. "24.00". */
@@ -53,13 +55,19 @@ export type SocialSource = ItemSource | HaulSource;
 
 /**
  * Pick the most useful public URL for a source — the one we want Claude
- * to invite readers toward. For hauls this is the journal post; for
- * items it's the first available marketplace listing (eBay preferred).
- * Returns null when no URL is available (Claude will skip the link).
+ * to invite readers toward.
+ *   - Haul: the journal post at /journal/{slug}
+ *   - Item: our own product page at /products/{slug} (preferred — keeps
+ *           traffic on our domain, lets the buyer pick the marketplace
+ *           from one consolidated page). Falls back to the first
+ *           available marketplace URL if the item somehow has no slug.
  */
 export function sourceUrl(source: SocialSource): string | null {
   if (source.kind === "haul") {
     return `${SITE_URL}/journal/${source.slug}`;
+  }
+  if (source.slug) {
+    return `${SITE_URL}/products/${source.slug}`;
   }
   const urls = source.marketplaceUrls;
   return (

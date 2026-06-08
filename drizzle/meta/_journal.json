@@ -57,6 +57,13 @@
       "when": 1780879459803,
       "tag": "0007_huge_titania",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1780944005441,
+      "tag": "0008_hard_inertia",
+      "breakpoints": true
     }
   ]
 }

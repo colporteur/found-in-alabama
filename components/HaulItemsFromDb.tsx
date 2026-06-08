@@ -2,6 +2,7 @@
 // given haul-post slug and renders them in two groups (active + sold)
 // with a stats card above.
 
+import Link from "next/link";
 import { db, items as itemsTable } from "@/db";
 import { and, eq, desc } from "drizzle-orm";
 
@@ -106,12 +107,22 @@ export default async function HaulItemsFromDb({
 type ItemRow = {
   id: string;
   title: string;
+  slug: string | null;
   heroImage: string | null;
   price: string | null;
   marketplaceUrls: unknown; // stored as jsonb, type-cast below
   soldAt: Date | string | null;
   soldOnMarketplace: string | null;
 };
+
+/**
+ * Build the URL for an item's product page. Falls back to the
+ * UUID-based form for legacy rows without a slug — the next Chrome-
+ * extension sync will backfill the slug column.
+ */
+function productHref(item: ItemRow): string {
+  return item.slug ? `/products/${item.slug}` : `/products/${item.id}`;
+}
 
 function getUrls(item: ItemRow): Record<string, string> {
   return (item.marketplaceUrls as Record<string, string>) ?? {};
@@ -127,29 +138,34 @@ function formatPrice(p: string | null | undefined): string | null {
 function ActiveCard({ item }: { item: ItemRow }) {
   const urls = getUrls(item);
   const price = formatPrice(item.price);
+  const href = productHref(item);
   return (
-    <div className="border border-brand-ink/15 rounded-lg overflow-hidden bg-white relative flex flex-col">
-      {item.heroImage ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={item.heroImage}
-          alt=""
-          className="w-full aspect-square object-cover"
-        />
-      ) : (
-        <div className="w-full aspect-square bg-brand-paper border-b border-brand-ink/10 flex items-center justify-center">
-          <span className="font-marker text-xl text-brand-ink/30 px-3 text-center leading-tight">
-            {item.title.split(/\s+/).slice(0, 2).join(" ")}
-          </span>
-        </div>
-      )}
-      <div className="absolute top-2 right-2 bg-brand-yellow text-brand-ink text-xs uppercase tracking-wider font-medium px-2 py-1 rounded shadow-sm">
-        Available
-      </div>
+    <div className="border border-brand-ink/15 rounded-lg overflow-hidden bg-white relative flex flex-col group">
+      <Link href={href} className="block relative">
+        {item.heroImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.heroImage}
+            alt=""
+            className="w-full aspect-square object-cover group-hover:opacity-90 transition-opacity"
+          />
+        ) : (
+          <div className="w-full aspect-square bg-brand-paper border-b border-brand-ink/10 flex items-center justify-center">
+            <span className="font-marker text-xl text-brand-ink/30 px-3 text-center leading-tight">
+              {item.title.split(/\s+/).slice(0, 2).join(" ")}
+            </span>
+          </div>
+        )}
+        <span className="absolute top-2 right-2 bg-brand-yellow text-brand-ink text-xs uppercase tracking-wider font-medium px-2 py-1 rounded shadow-sm">
+          Available
+        </span>
+      </Link>
       <div className="p-3 flex-1 flex flex-col">
-        <p className="text-sm font-medium mb-1 leading-tight line-clamp-3">
-          {item.title}
-        </p>
+        <Link href={href} className="block group/title">
+          <p className="text-sm font-medium mb-1 leading-tight line-clamp-3 group-hover/title:underline decoration-brand-yellow decoration-2 underline-offset-2">
+            {item.title}
+          </p>
+        </Link>
         {price && (
           <p className="font-marker text-lg leading-none mb-2">{price}</p>
         )}
@@ -177,29 +193,34 @@ function SoldCard({ item }: { item: ItemRow }) {
     ? MARKETPLACE_LABEL[item.soldOnMarketplace] ?? item.soldOnMarketplace
     : null;
   const price = formatPrice(item.price);
+  const href = productHref(item);
   return (
-    <div className="border border-brand-ink/10 rounded-lg overflow-hidden bg-white relative opacity-80">
-      {item.heroImage ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img
-          src={item.heroImage}
-          alt=""
-          className="w-full aspect-square object-cover grayscale"
-        />
-      ) : (
-        // Fallback when Nifty stripped the picture URL post-sale.
-        // Soft gray box with the marker-style "Sold" text in the middle.
-        <div className="w-full aspect-square bg-brand-paper border-b border-brand-ink/10 flex items-center justify-center">
-          <span className="font-marker text-2xl text-brand-ink/30">Sold</span>
-        </div>
-      )}
-      <div className="absolute top-2 right-2 bg-emerald-700 text-white text-xs uppercase tracking-wider font-medium px-2 py-1 rounded shadow-sm">
-        Sold
-      </div>
+    <div className="border border-brand-ink/10 rounded-lg overflow-hidden bg-white relative opacity-80 group">
+      <Link href={href} className="block relative">
+        {item.heroImage ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={item.heroImage}
+            alt=""
+            className="w-full aspect-square object-cover grayscale group-hover:opacity-90 transition-opacity"
+          />
+        ) : (
+          // Fallback when Nifty stripped the picture URL post-sale.
+          // Soft gray box with the marker-style "Sold" text in the middle.
+          <div className="w-full aspect-square bg-brand-paper border-b border-brand-ink/10 flex items-center justify-center">
+            <span className="font-marker text-2xl text-brand-ink/30">Sold</span>
+          </div>
+        )}
+        <span className="absolute top-2 right-2 bg-emerald-700 text-white text-xs uppercase tracking-wider font-medium px-2 py-1 rounded shadow-sm">
+          Sold
+        </span>
+      </Link>
       <div className="p-3">
-        <p className="text-sm font-medium mb-1 leading-tight line-clamp-2 text-brand-ink/70">
-          {item.title}
-        </p>
+        <Link href={href} className="block group/title">
+          <p className="text-sm font-medium mb-1 leading-tight line-clamp-2 text-brand-ink/70 group-hover/title:underline decoration-brand-yellow decoration-2 underline-offset-2">
+            {item.title}
+          </p>
+        </Link>
         {price && (
           <p className="font-marker text-base text-brand-ink/50 line-through leading-none mb-2">
             {price}

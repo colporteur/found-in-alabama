@@ -165,6 +165,7 @@ async function loadItemSource(id: string): Promise<SocialSource | null> {
   return {
     kind: "item",
     title: row.title,
+    slug: row.slug ?? null,
     heroImage: row.heroImage,
     price: row.price,
     marketplaceUrls: (row.marketplaceUrls as Record<string, string>) ?? {},

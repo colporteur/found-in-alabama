@@ -36,7 +36,8 @@ import {
   type MarketplaceMetadata,
 } from "@/lib/marketplace-urls";
 import { privateNotesToHaulSlug } from "@/lib/posts-slugs";
-import { sql } from "drizzle-orm";
+import { buildSlug } from "@/lib/items/slug";
+import { eq, sql } from "drizzle-orm";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -114,10 +115,23 @@ export async function POST(req: NextRequest) {
       const soldMarketplace = isSold ? detectSoldMarketplace(marketplaces) : null;
       const haulSlug = privateNotesToHaulSlug(incoming.privateNotes);
 
+      // Slug lookup: if the existing row already has one, keep it
+      // forever (URLs are permanent). Only generate a new slug when
+      // we don't have one yet — covers new inserts AND back-fills any
+      // pre-Phase-3A rows that are still slug-less.
+      const [existing] = await db
+        .select({ id: itemsTable.id, slug: itemsTable.slug })
+        .from(itemsTable)
+        .where(eq(itemsTable.niftyId, incoming.niftyId))
+        .limit(1);
+      const slug =
+        existing?.slug ?? (await buildSlug(incoming.title, existing?.id));
+
       const values = {
         niftyId: incoming.niftyId,
         title: incoming.title,
         titleNormalized: normalizeTitle(incoming.title),
+        slug,
         sku: incoming.skus?.[0] ?? null,
         status: isSold ? ("sold" as const) : ("active" as const),
         heroImage: incoming.heroImage ?? null,
@@ -143,6 +157,9 @@ export async function POST(req: NextRequest) {
           set: {
             title: values.title,
             titleNormalized: values.titleNormalized,
+            // Slug uses COALESCE so we set it on rows that don't yet
+            // have one but never overwrite an existing slug.
+            slug: sql`COALESCE(${itemsTable.slug}, ${values.slug})`,
             sku: values.sku,
             status: values.status,
             heroImage: values.heroImage,

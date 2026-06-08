@@ -25,6 +25,10 @@ export const items = pgTable(
     niftyId: text("nifty_id").unique(),
     title: text("title").notNull(),
     titleNormalized: text("title_normalized").notNull(), // lowercased, trimmed — used for matching CSV exports
+    // Public URL segment for /products/{slug}. Generated at capture time
+    // from title; nullable for back-compat with rows captured before
+    // Phase 3A (the next sync fills them in).
+    slug: text("slug").unique(),
     sku: text("sku"),
     quantity: integer("quantity").default(1).notNull(),
     status: text("status", { enum: ["active", "sold"] })
@@ -56,6 +60,7 @@ export const items = pgTable(
     titleNormalizedIdx: index("items_title_normalized_idx").on(t.titleNormalized),
     statusIdx: index("items_status_idx").on(t.status),
     haulPostSlugIdx: index("items_haul_post_slug_idx").on(t.haulPostSlug),
+    slugIdx: index("items_slug_idx").on(t.slug),
   })
 );
 
