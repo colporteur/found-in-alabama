@@ -90,6 +90,7 @@ export const publerAdapter: PostingAdapter = {
     try {
       const created = await createPost({
         accountId: acct.accountId,
+        provider: acct.provider,
         text,
         imageUrl: input.imageSrc,
         link: input.sourceUrl,
@@ -113,15 +114,27 @@ export const publerAdapter: PostingAdapter = {
       const final = await waitForJob(jobId);
       const status = (typeof final.status === "string" ? final.status : "").toLowerCase();
       if (status === "complete" || status === "completed" || status === "success") {
+        // "complete" only means the job ran — individual accounts can
+        // still fail. Non-empty payload.failures = our post failed.
+        const failures = final.failures;
+        if (failures && Object.keys(failures).length > 0) {
+          return {
+            ok: false,
+            error: `Publer job ${jobId} completed with failures: ${JSON.stringify(failures).slice(0, 800)}`,
+          };
+        }
         // Try to extract the platform post id / url from the payload.
         const payload = final.payload as
-          | { posts?: Array<{ id?: string; url?: string }> }
+          | {
+              posts?: Array<{ id?: string; url?: string; post_link?: string }>;
+            }
           | undefined;
         const first = payload?.posts?.[0];
+        const postUrl = first?.post_link ?? first?.url;
         return {
           ok: true,
           postId: first?.id ?? jobId,
-          postUrl: typeof first?.url === "string" ? first.url : null,
+          postUrl: typeof postUrl === "string" ? postUrl : null,
         };
       }
       if (status === "failed" || status === "error") {

@@ -52,7 +52,10 @@ async function publerFetch<T>(
   const headers: Record<string, string> = {
     Authorization: `Bearer-API ${requireEnv("PUBLER_API_KEY")}`,
     Accept: "application/json",
-    "Content-Type": "application/json",
+    // multipart bodies (FormData) must let fetch set its own boundary header
+    ...(init.body instanceof FormData
+      ? {}
+      : { "Content-Type": "application/json" }),
     ...((init.headers as Record<string, string>) ?? {}),
   };
   if (workspaceId) headers["Publer-Workspace-Id"] = workspaceId;
@@ -187,20 +190,93 @@ export async function setMapping(
     .where(eq(publerAccounts.accountId, accountId));
 }
 
+// ─── Media upload ────────────────────────────────────────────────────────────
+
+/**
+ * Publer requires media to be uploaded to its servers BEFORE being
+ * referenced in a post (by media id) — passing an external image URL
+ * inside the post body is silently ignored. We fetch the image bytes
+ * ourselves and use the synchronous multipart POST /media endpoint,
+ * which returns the media id directly (the /media/from-url variant is
+ * async and would mean polling a second job).
+ */
+export async function uploadImageFromUrl(
+  imageUrl: string
+): Promise<{ id: string }> {
+  const imgRes = await fetch(imageUrl);
+  if (!imgRes.ok) {
+    throw new PublerError(
+      `Could not fetch image for Publer upload (${imgRes.status}): ${imageUrl}`,
+      imgRes.status
+    );
+  }
+  const contentType = imgRes.headers.get("content-type") ?? "image/jpeg";
+  const buf = await imgRes.arrayBuffer();
+  const filename =
+    imageUrl.split("/").pop()?.split("?")[0] || "image.jpg";
+
+  const form = new FormData();
+  form.append("file", new Blob([buf], { type: contentType }), filename);
+
+  const uploaded = await publerFetch<{ id?: string; [k: string]: unknown }>(
+    "/media",
+    { method: "POST", body: form }
+  );
+  console.log(`[publer] media upload response:`, JSON.stringify(uploaded));
+  if (!uploaded.id || typeof uploaded.id !== "string") {
+    throw new PublerError(
+      `Publer media upload returned no id: ${JSON.stringify(uploaded).slice(0, 500)}`,
+      502
+    );
+  }
+  return { id: uploaded.id };
+}
+
 // ─── Create post ─────────────────────────────────────────────────────────────
 
 export type CreatePostInput = {
   /** Publer account id we're posting to. */
   accountId: string;
+  /**
+   * Publer network provider for the account ("instagram" | "facebook" |
+   * "twitter" | ...). Used as the key under `networks` so Publer
+   * validates content against the right platform. Falls back to
+   * "default" when unknown.
+   */
+  provider?: string | null;
   /** Plain text content. */
   text: string;
-  /** Absolute URL to an image (Publer fetches it). */
+  /** Absolute URL to an image (we upload it to Publer first). */
   imageUrl: string | null;
-  /** Click-through link for platforms that use one (FB, Pinterest). */
+  /** Click-through link. Appended to text for FB/X; skipped on IG (not clickable). */
   link?: string | null;
   /** Set to "story" for Instagram story posts; "feed" otherwise. */
   postType?: "feed" | "story";
 };
+
+/** Network keys Publer accepts under `networks`. */
+const KNOWN_PROVIDERS = new Set([
+  "facebook",
+  "instagram",
+  "twitter",
+  "linkedin",
+  "pinterest",
+  "google",
+  "youtube",
+  "tiktok",
+  "wordpress_oauth",
+  "wordpress_basic",
+  "telegram",
+  "mastodon",
+  "threads",
+  "bluesky",
+]);
+
+function networkKeyFor(provider: string | null | undefined): string {
+  const p = (provider ?? "").toLowerCase();
+  if (p === "x") return "twitter";
+  return KNOWN_PROVIDERS.has(p) ? p : "default";
+}
 
 export type CreatePostResponse = {
   /** Publer's internal post/job id (varies by API version). */
@@ -212,18 +288,56 @@ export type CreatePostResponse = {
 };
 
 export type JobStatusResponse = {
-  /** Publer job lifecycle: "queued" → "working" → "complete" | "failed". */
+  /** Publer job lifecycle: "working" → "complete" | "failed". */
   status?: string;
   /** Result payload when complete (contains post ids / urls) or error info on failure. */
   payload?: unknown;
-  failures?: unknown;
+  /** payload.failures — non-empty means at least one account's post failed. */
+  failures?: Record<string, unknown>;
   message?: string;
+  /** The raw, unnormalized response, for logging. */
+  raw?: unknown;
   [k: string]: unknown;
 };
 
+/**
+ * Publer returns job status either flat ({status, payload, plan}) or
+ * wrapped ({success, data: {status, result: {status, payload, plan}}})
+ * depending on API version. Normalize both. The `plan` object is just
+ * account plan info — not job data — so we drop it.
+ */
+function normalizeJobStatus(rawIn: unknown): JobStatusResponse {
+  const raw = (rawIn ?? {}) as Record<string, unknown>;
+  const data = (raw.data ?? raw) as Record<string, unknown>;
+  const result = (data.result ?? data) as Record<string, unknown>;
+  const status =
+    typeof result.status === "string"
+      ? result.status
+      : typeof data.status === "string"
+        ? data.status
+        : typeof raw.status === "string"
+          ? raw.status
+          : undefined;
+  const payload = (result.payload ?? data.payload ?? raw.payload) as
+    | Record<string, unknown>
+    | undefined;
+  const failures =
+    payload && typeof payload === "object"
+      ? (payload.failures as Record<string, unknown> | undefined)
+      : undefined;
+  return {
+    status,
+    payload,
+    failures,
+    message: typeof raw.message === "string" ? raw.message : undefined,
+    raw: rawIn,
+  };
+}
+
 /** Look up the status of an async job we kicked off with createPost. */
 export async function getJobStatus(jobId: string): Promise<JobStatusResponse> {
-  return publerFetch<JobStatusResponse>(`/job_status/${jobId}`);
+  const raw = await publerFetch<unknown>(`/job_status/${jobId}`);
+  return normalizeJobStatus(raw);
 }
 
 /**
@@ -254,51 +368,68 @@ export async function waitForJob(
 }
 
 /**
- * Publish a post — for immediate publishing we schedule it for "right
- * now" with an explicit timestamp. Publer's API is much more reliable
- * when given a real scheduled_at than when expected to interpret
- * "publish immediately" from state alone.
+ * Publish a post immediately via POST /posts/schedule/publish.
  *
- * If Publer's wire format gives us trouble, all request/response data
- * is logged to Vercel function logs (PUBLER_DEBUG=1 captures even more).
+ * Wire format notes (verified against publer.com/docs, June 2026):
+ * - Network content lives DIRECTLY in the network object: { type, text,
+ *   media } — no `details` wrapper. `details` is only for reel/story
+ *   sub-options. A wrapped body is silently ignored: the job completes
+ *   with empty failures and no post is created.
+ * - `type` is the content type: "photo" | "status" | "story" | ... —
+ *   "feed" is not a valid value.
+ * - `accounts` is an array of OBJECTS: [{ id }], not bare id strings.
+ * - Media must be pre-uploaded (uploadImageFromUrl) and referenced by
+ *   { id, type: "image" } — external URLs in `path` are ignored.
  */
 export async function createPost(
   input: CreatePostInput
 ): Promise<CreatePostResponse> {
-  const media = input.imageUrl
-    ? [{ type: "image", path: input.imageUrl }]
-    : [];
+  // 1. Upload the image to Publer first (required to get a media id).
+  let media: Array<{ id: string; type: string }> = [];
+  if (input.imageUrl) {
+    const uploaded = await uploadImageFromUrl(input.imageUrl);
+    media = [{ id: uploaded.id, type: "image" }];
+  }
 
-  // Schedule for 60 seconds from now — gives Publer a buffer to fan out
-  // to platforms. Anything <30s in the past or future sometimes drops.
-  const scheduledAt = new Date(Date.now() + 60_000).toISOString();
+  const networkKey = networkKeyFor(input.provider);
 
-  const post: Record<string, unknown> = {
-    accounts: [input.accountId],
-    scheduled_at: scheduledAt,
-    networks: {
-      default: {
-        details: {
-          text: input.text,
-          media,
-          ...(input.link ? { link: input.link } : {}),
-        },
-        ...(input.postType ? { type: input.postType } : {}),
-      },
-    },
+  // Content type: story posts are "story"; with an image "photo";
+  // text-only is "status".
+  const contentType =
+    input.postType === "story" ? "story" : media.length > 0 ? "photo" : "status";
+
+  // Links: photo/status posts don't carry a separate link field, so
+  // append to text where links are useful and clickable (FB, X).
+  // Instagram captions don't render clickable links — skip there.
+  let text = input.text;
+  if (
+    input.link &&
+    networkKey !== "instagram" &&
+    !text.includes(input.link)
+  ) {
+    text = `${text}\n\n${input.link}`;
+  }
+
+  const content: Record<string, unknown> = {
+    type: contentType,
+    text,
+    ...(media.length > 0 ? { media } : {}),
   };
 
   const body = {
     bulk: {
       state: "scheduled",
-      scheduled_at: scheduledAt,
-      posts: [post],
+      posts: [
+        {
+          networks: { [networkKey]: content },
+          accounts: [{ id: input.accountId }],
+        },
+      ],
     },
   };
 
-  // Use /posts/schedule (no /publish suffix) — schedule-with-time is
-  // the canonical immediate-publish workflow in Publer's API.
-  const endpoint = "/posts/schedule";
+  // /posts/schedule/publish = publish immediately (no scheduled_at).
+  const endpoint = "/posts/schedule/publish";
   console.log(
     `[publer] POST ${endpoint} body:`,
     JSON.stringify(body, null, 2)
@@ -308,5 +439,10 @@ export async function createPost(
     body: JSON.stringify(body),
   });
   console.log(`[publer] response:`, JSON.stringify(response, null, 2));
+  // Some API versions wrap the job id: { success, data: { job_id } }.
+  const wrapped = (response as { data?: { job_id?: string } }).data;
+  if (!response.job_id && wrapped?.job_id) {
+    response.job_id = wrapped.job_id;
+  }
   return response;
 }
