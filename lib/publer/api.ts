@@ -211,6 +211,48 @@ export type CreatePostResponse = {
   [k: string]: unknown;
 };
 
+export type JobStatusResponse = {
+  /** Publer job lifecycle: "queued" → "working" → "complete" | "failed". */
+  status?: string;
+  /** Result payload when complete (contains post ids / urls) or error info on failure. */
+  payload?: unknown;
+  failures?: unknown;
+  message?: string;
+  [k: string]: unknown;
+};
+
+/** Look up the status of an async job we kicked off with createPost. */
+export async function getJobStatus(jobId: string): Promise<JobStatusResponse> {
+  return publerFetch<JobStatusResponse>(`/job_status/${jobId}`);
+}
+
+/**
+ * Poll a job until it reaches a terminal state (complete or failed).
+ * Returns the final JobStatusResponse, or the last one we saw if we
+ * timed out.
+ */
+export async function waitForJob(
+  jobId: string,
+  { intervalMs = 1500, timeoutMs = 40_000 }: { intervalMs?: number; timeoutMs?: number } = {}
+): Promise<JobStatusResponse> {
+  const deadline = Date.now() + timeoutMs;
+  let last: JobStatusResponse = {};
+  while (Date.now() < deadline) {
+    try {
+      last = await getJobStatus(jobId);
+      console.log(`[publer] job ${jobId} status:`, JSON.stringify(last));
+      const s = typeof last.status === "string" ? last.status.toLowerCase() : "";
+      if (s === "complete" || s === "completed" || s === "success") return last;
+      if (s === "failed" || s === "error") return last;
+    } catch (err) {
+      // If the status endpoint itself errors, log and keep trying
+      console.warn(`[publer] job_status poll failed`, err);
+    }
+    await new Promise((r) => setTimeout(r, intervalMs));
+  }
+  return last;
+}
+
 /**
  * Publish a post — for immediate publishing we schedule it for "right
  * now" with an explicit timestamp. Publer's API is much more reliable

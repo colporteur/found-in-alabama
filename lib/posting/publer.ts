@@ -12,6 +12,7 @@
 import {
   accountForChannel,
   createPost,
+  waitForJob,
   isConfigured as isPublerConfigured,
 } from "@/lib/publer/api";
 import type {
@@ -94,24 +95,45 @@ export const publerAdapter: PostingAdapter = {
         link: input.sourceUrl,
         postType,
       });
-      const postId =
-        (typeof created.id === "string" && created.id) ||
+      const jobId =
         (typeof created.job_id === "string" && created.job_id) ||
+        (typeof created.id === "string" && created.id) ||
         null;
-      // If Publer accepted the request (2xx) but returned no usable id,
-      // surface that as a soft failure — odds are the post landed in
-      // drafts or got silently dropped. The full response goes into the
-      // error so we can see exactly what Publer said.
-      if (!postId) {
+
+      // Publer creates posts asynchronously: the create call returns a
+      // job_id that we then poll to find out if the post actually got
+      // queued or if Publer's background worker rejected it.
+      if (!jobId) {
         return {
           ok: false,
-          error: `Publer accepted the request but returned no post id. Check Publer's Drafts and Scheduled views. Raw response: ${JSON.stringify(created).slice(0, 500)}`,
+          error: `Publer accepted the request but returned no job id. Raw response: ${JSON.stringify(created).slice(0, 500)}`,
         };
       }
+
+      const final = await waitForJob(jobId);
+      const status = (typeof final.status === "string" ? final.status : "").toLowerCase();
+      if (status === "complete" || status === "completed" || status === "success") {
+        // Try to extract the platform post id / url from the payload.
+        const payload = final.payload as
+          | { posts?: Array<{ id?: string; url?: string }> }
+          | undefined;
+        const first = payload?.posts?.[0];
+        return {
+          ok: true,
+          postId: first?.id ?? jobId,
+          postUrl: typeof first?.url === "string" ? first.url : null,
+        };
+      }
+      if (status === "failed" || status === "error") {
+        return {
+          ok: false,
+          error: `Publer job ${jobId} failed: ${JSON.stringify(final.failures ?? final.payload ?? final.message ?? final).slice(0, 800)}`,
+        };
+      }
+      // Timed out without a terminal status — could be still queued.
       return {
-        ok: true,
-        postId,
-        postUrl: typeof created.url === "string" ? created.url : null,
+        ok: false,
+        error: `Publer job ${jobId} did not finish within the poll timeout. Last status: "${final.status ?? "(unknown)"}". Check Publer's UI to see what happened, then re-arm if needed.`,
       };
     } catch (err) {
       return {
