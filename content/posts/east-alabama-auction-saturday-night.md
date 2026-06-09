@@ -2,6 +2,8 @@
 title: "Saturday Night at East Alabama Auction House"
 date: "2026-06-08"
 type: "haul"
+state: "Alabama"
+vagueLocation: "East Alabama"
 hero: "/photos/posts/east-alabama-auction-saturday-night-hero.jpg"
 excerpt: "A heavier-than-usual Saturday night auction run turned up milk glass, silverplate, board games, a Tennis Tudor, and more from an East Alabama sale floor."
 featured: true
