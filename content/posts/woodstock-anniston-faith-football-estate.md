@@ -2,6 +2,8 @@
 title: "Woodstock Avenue Estate, Anniston — Faith and Football"
 date: "2026-06-05"
 type: "haul"
+city: "Anniston"
+state: "Alabama"
 hero: "/photos/posts/woodstock-anniston-faith-football-estate-hero.jpg"
 excerpt: "A downtown Anniston estate yielded a deep run of Alabama football ephemera, signed player photos, religious study books, and a Bear Bryant memorial newspaper."
 featured: true
