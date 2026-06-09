@@ -2,6 +2,8 @@
 title: "Windsor Estate of a Clay County Preacher"
 date: "2026-06-06"
 type: "haul"
+city: "Lineville"
+state: "Alabama"
 hero: "/photos/posts/windsor-estate-clay-county-preacher-hero.jpg"
 gallery:
   - "/photos/posts/windsor-estate-clay-county-preacher-1.jpg"
