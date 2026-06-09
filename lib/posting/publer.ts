@@ -97,7 +97,17 @@ export const publerAdapter: PostingAdapter = {
       const postId =
         (typeof created.id === "string" && created.id) ||
         (typeof created.job_id === "string" && created.job_id) ||
-        "publer-unknown";
+        null;
+      // If Publer accepted the request (2xx) but returned no usable id,
+      // surface that as a soft failure — odds are the post landed in
+      // drafts or got silently dropped. The full response goes into the
+      // error so we can see exactly what Publer said.
+      if (!postId) {
+        return {
+          ok: false,
+          error: `Publer accepted the request but returned no post id. Check Publer's Drafts and Scheduled views. Raw response: ${JSON.stringify(created).slice(0, 500)}`,
+        };
+      }
       return {
         ok: true,
         postId,

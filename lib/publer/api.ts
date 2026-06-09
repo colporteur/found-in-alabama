@@ -212,11 +212,13 @@ export type CreatePostResponse = {
 };
 
 /**
- * Publish a post immediately to one account.
+ * Publish a post — for immediate publishing we schedule it for "right
+ * now" with an explicit timestamp. Publer's API is much more reliable
+ * when given a real scheduled_at than when expected to interpret
+ * "publish immediately" from state alone.
  *
- * Wire shape: this matches the documented Publer API as of writing. If
- * Publer's response shape changes, look at the error in the queue UI
- * (it surfaces the body) and tweak the payload here.
+ * If Publer's wire format gives us trouble, all request/response data
+ * is logged to Vercel function logs (PUBLER_DEBUG=1 captures even more).
  */
 export async function createPost(
   input: CreatePostInput
@@ -225,8 +227,13 @@ export async function createPost(
     ? [{ type: "image", path: input.imageUrl }]
     : [];
 
+  // Schedule for 60 seconds from now — gives Publer a buffer to fan out
+  // to platforms. Anything <30s in the past or future sometimes drops.
+  const scheduledAt = new Date(Date.now() + 60_000).toISOString();
+
   const post: Record<string, unknown> = {
     accounts: [input.accountId],
+    scheduled_at: scheduledAt,
     networks: {
       default: {
         details: {
@@ -241,15 +248,23 @@ export async function createPost(
 
   const body = {
     bulk: {
-      state: "scheduled", // immediate-publish "draft" is also accepted but "scheduled" + no time = publish now in some Publer versions
+      state: "scheduled",
+      scheduled_at: scheduledAt,
       posts: [post],
     },
   };
 
-  // Publer has both /posts/schedule and /posts/schedule/publish endpoints
-  // in different docs versions; the /publish suffix forces immediate.
-  return publerFetch<CreatePostResponse>("/posts/schedule/publish", {
+  // Use /posts/schedule (no /publish suffix) — schedule-with-time is
+  // the canonical immediate-publish workflow in Publer's API.
+  const endpoint = "/posts/schedule";
+  console.log(
+    `[publer] POST ${endpoint} body:`,
+    JSON.stringify(body, null, 2)
+  );
+  const response = await publerFetch<CreatePostResponse>(endpoint, {
     method: "POST",
     body: JSON.stringify(body),
   });
+  console.log(`[publer] response:`, JSON.stringify(response, null, 2));
+  return response;
 }
