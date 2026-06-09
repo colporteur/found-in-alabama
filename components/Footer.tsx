@@ -76,7 +76,13 @@ export default function Footer() {
             Text us: {contact.phone} →
           </a>
           <p className="text-xs text-brand-paper/50">
-            © {new Date().getFullYear()} Found in Alabama
+            © {new Date().getFullYear()} Found in Alabama ·{" "}
+            <a
+              href="/privacy"
+              className="hover:text-brand-yellow transition-colors"
+            >
+              Privacy
+            </a>
           </p>
         </div>
       </div>
