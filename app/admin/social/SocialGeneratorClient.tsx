@@ -44,6 +44,7 @@ type GenerateResponse = {
     sourceId: string;
     sourceTitle: string;
     sourceImage: string | null;
+    sourceUrl: string | null;
   };
   usage?: { inputTokens: number; outputTokens: number };
 };

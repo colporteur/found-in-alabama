@@ -38,11 +38,42 @@ export type Post = {
   // live-sale-only
   streamDate?: string;     // ISO datetime
   streamUrl?: string;
-  // travel-only
+  // travel-only OR haul precise location (Phase 3C)
   city?: string;
+  /** Spelled-out state name, e.g. "Alabama". */
+  state?: string;
+  /**
+   * Public-facing location override when Todd doesn't want to reveal a
+   * precise city. Examples: "central Alabama", "the Black Belt",
+   * "north of Birmingham". When set, displayLocation() uses this verbatim
+   * INSTEAD of city + state.
+   */
+  vagueLocation?: string;
+  // travel-only
   dateStart?: string;      // ISO yyyy-mm-dd
   dateEnd?: string;        // ISO yyyy-mm-dd
 };
+
+/**
+ * Public-facing location string for a post.
+ *
+ *   vagueLocation set → use it verbatim
+ *   else city + state → "City, State"
+ *   else just one of them → whichever exists
+ *   nothing → null
+ */
+export function displayLocation(
+  post: Pick<Post, "city" | "state" | "vagueLocation">
+): string | null {
+  const vague = post.vagueLocation?.trim();
+  if (vague) return vague;
+  const city = post.city?.trim();
+  const state = post.state?.trim();
+  if (city && state) return `${city}, ${state}`;
+  if (city) return city;
+  if (state) return state;
+  return null;
+}
 
 const TYPE_LABELS: Record<PostType, string> = {
   haul: "Haul",
@@ -76,6 +107,8 @@ export function getAllPosts(): Post[] {
       streamDate: data.streamDate,
       streamUrl: data.streamUrl,
       city: data.city,
+      state: data.state,
+      vagueLocation: data.vagueLocation,
       dateStart: data.dateStart,
       dateEnd: data.dateEnd,
     } as Post;

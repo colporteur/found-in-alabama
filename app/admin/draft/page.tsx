@@ -33,6 +33,10 @@ export default function DraftPage() {
   const [contextUrl, setContextUrl] = useState("");
   const [acquisitionContext, setAcquisitionContext] = useState("");
   const [photoNotes, setPhotoNotes] = useState("");
+  // Phase 3C — location fields
+  const [city, setCity] = useState("");
+  const [stateName, setStateName] = useState("Alabama");
+  const [vagueLocation, setVagueLocation] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<DraftResult | null>(null);
@@ -197,6 +201,9 @@ export default function DraftPage() {
             base64: i.base64,
             mediaType: i.mediaType,
           })),
+          city: city.trim() || undefined,
+          state: stateName.trim() || undefined,
+          vagueLocation: vagueLocation.trim() || undefined,
         }),
       });
       if (!res.ok) {
@@ -369,6 +376,84 @@ ${r.body}
               placeholder="https://www.estatesales.net/..."
               className="w-full px-4 py-3 border border-brand-ink/20 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow"
             />
+          </div>
+        </fieldset>
+
+        {/* ── Location ───────────────────────────────────────────────── */}
+        <fieldset className="border border-brand-ink/15 rounded-lg p-5 space-y-4">
+          <legend className="font-marker text-lg px-2">Location</legend>
+          <p className="text-xs text-brand-ink/60 -mt-2">
+            Shows on the haul page and starts product social posts as
+            &ldquo;Found in [location]&hellip;&rdquo;. Use vague location to
+            avoid revealing exact sourcing spots — it overrides city + state
+            when set.
+          </p>
+
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <label
+                htmlFor="city"
+                className="block text-sm font-medium mb-2"
+              >
+                City
+                <span className="text-brand-ink/50 font-normal ml-2">Optional</span>
+              </label>
+              <input
+                id="city"
+                type="text"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                placeholder="e.g. Anniston"
+                className="w-full px-4 py-3 border border-brand-ink/20 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow"
+              />
+            </div>
+            <div>
+              <label
+                htmlFor="state"
+                className="block text-sm font-medium mb-2"
+              >
+                State
+              </label>
+              <input
+                id="state"
+                type="text"
+                value={stateName}
+                onChange={(e) => setStateName(e.target.value)}
+                placeholder="Alabama"
+                className="w-full px-4 py-3 border border-brand-ink/20 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label
+              htmlFor="vague-location"
+              className="block text-sm font-medium mb-2"
+            >
+              Vague location
+              <span className="text-brand-ink/50 font-normal ml-2">
+                Overrides city + state when you don&rsquo;t want to reveal the source
+              </span>
+            </label>
+            <input
+              id="vague-location"
+              type="text"
+              value={vagueLocation}
+              onChange={(e) => setVagueLocation(e.target.value)}
+              placeholder="e.g. central Alabama, the Black Belt, north of Birmingham"
+              className="w-full px-4 py-3 border border-brand-ink/20 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow"
+            />
+            <p className="text-xs text-brand-ink/50 mt-1">
+              {vagueLocation.trim()
+                ? `Public display: "${vagueLocation.trim()}"`
+                : city.trim() && stateName.trim()
+                  ? `Public display: "${city.trim()}, ${stateName.trim()}"`
+                  : city.trim()
+                    ? `Public display: "${city.trim()}"`
+                    : stateName.trim()
+                      ? `Public display: "${stateName.trim()}"`
+                      : "Public display: (none — haul page won't show a location)"}
+            </p>
           </div>
         </fieldset>
 

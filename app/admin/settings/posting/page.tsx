@@ -12,16 +12,70 @@ import {
   type ChannelKey,
 } from "@/lib/social/channel-styles";
 import { isEbayStoreConfigured } from "@/lib/ebay/store-url";
+import {
+  getOAuthStatus as getPinterestStatus,
+  isConfigured as isPinterestConfigured,
+} from "@/lib/pinterest/oauth";
+import { listCachedBoards } from "@/lib/pinterest/api";
+import PinterestConnectionCard from "@/components/PinterestConnectionCard";
+import {
+  isConfigured as isPublerConfigured,
+  listCachedAccounts as listCachedPublerAccounts,
+} from "@/lib/publer/api";
+import PublerConnectionCard from "@/components/PublerConnectionCard";
 
 export const dynamic = "force-dynamic";
 
-export default async function PostingSettingsPage() {
+export default async function PostingSettingsPage({
+  searchParams,
+}: {
+  searchParams: { pinterest?: string; msg?: string };
+}) {
   const session = await auth();
   if (!session?.user) redirect("/api/auth/signin");
 
   const adapters = listAdapters();
   const coverage = channelCoverage();
   const channels = CHANNEL_ORDER;
+
+  // Pinterest details — needed by PinterestConnectionCard
+  const pinterestConfigured = isPinterestConfigured();
+  const pinterestStatus = pinterestConfigured
+    ? await getPinterestStatus()
+    : { connected: false };
+  const pinterestBoardRows = pinterestStatus.connected
+    ? await listCachedBoards()
+    : [];
+  const pinterestBoards = pinterestBoardRows.map((b) => ({
+    boardId: b.boardId,
+    name: b.name,
+    privacy: b.privacy ?? null,
+    pinCount: b.pinCount ?? null,
+    isDefault: b.isDefault,
+  }));
+
+  // Publer details
+  const publerConfigured = isPublerConfigured();
+  const publerAccountRows = publerConfigured
+    ? await listCachedPublerAccounts()
+    : [];
+  const publerAccountsForCard = publerAccountRows.map((a) => ({
+    accountId: a.accountId,
+    name: a.name,
+    provider: a.provider,
+    pictureUrl: a.pictureUrl ?? null,
+    mappedToChannel: a.mappedToChannel ?? null,
+  }));
+  // OAuth flash from the callback
+  const pinterestFlash =
+    searchParams.pinterest === "ok"
+      ? { kind: "ok" as const, msg: searchParams.msg ?? "Connected." }
+      : searchParams.pinterest === "error"
+        ? {
+            kind: "error" as const,
+            msg: searchParams.msg ?? "Connection failed.",
+          }
+        : null;
 
   return (
     <section className="container-content py-12">
@@ -141,10 +195,23 @@ export default async function PostingSettingsPage() {
         </div>
       </div>
 
+      {/* OAuth callback flash */}
+      {pinterestFlash && (
+        <div
+          className={`mb-6 rounded-md p-4 text-sm ${
+            pinterestFlash.kind === "error"
+              ? "bg-red-50 border border-red-200 text-red-900"
+              : "bg-emerald-50 border border-emerald-200 text-emerald-900"
+          }`}
+        >
+          <span className="font-medium">Pinterest:</span> {pinterestFlash.msg}
+        </div>
+      )}
+
       {/* Per-adapter detail cards */}
       <h2 className="font-marker text-xl mb-3">Adapters</h2>
       <div className="grid gap-4 md:grid-cols-2">
-        {adapters.map((a) => (
+        {adapters.filter((a) => a.id !== "pinterest" && a.id !== "publer").map((a) => (
           <div
             key={a.id}
             className="border border-brand-ink/15 rounded-lg p-5 bg-white"
@@ -207,16 +274,34 @@ export default async function PostingSettingsPage() {
           </div>
         ))}
 
-        {/* Placeholder cards for adapters coming in future phases */}
-        <ComingSoon
-          label="Pinterest"
-          phase="2D-3b"
-          handles="Pinterest pins"
+        {/* Pinterest gets its own card with OAuth + boards */}
+        <PinterestConnectionCard
+          configured={pinterestConfigured}
+          connected={pinterestStatus.connected}
+          username={pinterestStatus.pinterestUsername ?? null}
+          accessExpiresAt={
+            pinterestStatus.accessTokenExpiresAt?.toISOString() ?? null
+          }
+          refreshExpiresAt={
+            pinterestStatus.refreshTokenExpiresAt?.toISOString() ?? null
+          }
+          initialBoards={pinterestBoards}
+          oauthIssue={
+            !pinterestConfigured
+              ? "Set PINTEREST_CLIENT_ID, PINTEREST_CLIENT_SECRET, PINTEREST_REDIRECT_URI, and PINTEREST_OAUTH_STATE_SECRET in Vercel."
+              : null
+          }
         />
-        <ComingSoon
-          label="Publer"
-          phase="2D-3c"
-          handles="Instagram (feed + stories), Facebook, X"
+
+        {/* Publer — wide card with mapping table */}
+        <PublerConnectionCard
+          configured={publerConfigured}
+          initialAccounts={publerAccountsForCard}
+          oauthIssue={
+            !publerConfigured
+              ? "Set PUBLER_API_KEY and PUBLER_WORKSPACE_ID in Vercel env vars."
+              : null
+          }
         />
       </div>
     </section>

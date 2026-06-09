@@ -16,7 +16,7 @@ import { auth } from "@/auth";
 import { db, items } from "@/db";
 import { eq } from "drizzle-orm";
 import { getClaude } from "@/lib/claude";
-import { getPost } from "@/lib/posts";
+import { getPost, displayLocation } from "@/lib/posts";
 import {
   CHANNELS,
   type ChannelKey,
@@ -24,6 +24,7 @@ import {
 import {
   buildSystemPrompt,
   buildUserMessage,
+  sourceUrl as computeSourceUrl,
   type SocialContentType,
   type SocialSource,
 } from "@/lib/social/prompts";
@@ -142,6 +143,7 @@ async function loadHaulSource(slug: string): Promise<SocialSource | null> {
     body: plainBody,
     heroImage: post.hero ?? null,
     itemCount,
+    location: displayLocation(post),
   };
 }
 
@@ -150,15 +152,18 @@ async function loadItemSource(id: string): Promise<SocialSource | null> {
   if (!row) return null;
 
   // If the item is linked to a haul, include the haul's title/excerpt
+  // AND inherit the haul's location for the "Found in [location]" opener.
   let haulTitle: string | undefined;
   let haulSlug: string | undefined;
   let haulExcerpt: string | undefined;
+  let location: string | null = null;
   if (row.haulPostSlug) {
     const haul = getPost(row.haulPostSlug);
     if (haul) {
       haulTitle = haul.title;
       haulSlug = haul.slug;
       haulExcerpt = haul.excerpt;
+      location = displayLocation(haul);
     }
   }
 
@@ -172,6 +177,7 @@ async function loadItemSource(id: string): Promise<SocialSource | null> {
     haulTitle,
     haulSlug,
     haulExcerpt,
+    location,
   };
 }
 
@@ -313,7 +319,10 @@ export async function POST(req: NextRequest) {
     // the lot with a shared group id.
     const generationId = randomUUID();
 
-    // Denormalized source fields the client needs to save drafts
+    // Denormalized source fields the client needs to save drafts.
+    // sourceUrl is computed here (server-side) so the URL pattern lives
+    // in one place and doesn't drift between draft and post.
+    const computedUrl = computeSourceUrl(source);
     const sourcePayload =
       source.kind === "haul"
         ? {
@@ -321,12 +330,14 @@ export async function POST(req: NextRequest) {
             sourceId: source.slug,
             sourceTitle: source.title,
             sourceImage: source.heroImage,
+            sourceUrl: computedUrl,
           }
         : {
             sourceType: "item" as const,
             sourceId: body.sourceId,
             sourceTitle: source.title,
             sourceImage: source.heroImage,
+            sourceUrl: computedUrl,
           };
 
     return NextResponse.json({

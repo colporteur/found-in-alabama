@@ -370,6 +370,10 @@ export const socialDrafts = pgTable(
     sourceId: text("source_id").notNull(),
     sourceTitle: text("source_title").notNull(), // denormalized for list rendering
     sourceImage: text("source_image"),           // URL for thumbnail in queue
+    // Phase 2D-3b: destination URL that adapters can attach to the
+    // post (Pinterest's "link" field, etc.). Computed at draft-save time
+    // so it survives even if the source's URL pattern changes later.
+    sourceUrl: text("source_url"),
     // Generation grouping — all channels from one /generate call share this
     generationId: uuid("generation_id").notNull(),
     contentType: text("content_type", {
@@ -409,6 +413,74 @@ export const socialDrafts = pgTable(
     scheduledForIdx: index("social_drafts_scheduled_for_idx").on(t.scheduledFor),
     generationIdIdx: index("social_drafts_generation_idx").on(t.generationId),
     channelIdx: index("social_drafts_channel_idx").on(t.channel),
+  })
+);
+
+// ─── Phase 2D-3b — Pinterest OAuth + boards cache ────────────────────────────
+
+// Single-row table storing Pinterest's OAuth tokens. Same singleton
+// pattern as ebay_oauth_tokens — Todd's the only user.
+export const pinterestOAuthTokens = pgTable("pinterest_oauth_tokens", {
+  id: text("id").primaryKey(),
+  accessToken: text("access_token").notNull(),
+  refreshToken: text("refresh_token").notNull(),
+  accessTokenExpiresAt: timestamp("access_token_expires_at").notNull(),
+  refreshTokenExpiresAt: timestamp("refresh_token_expires_at").notNull(),
+  scope: text("scope").notNull(),
+  pinterestUsername: text("pinterest_username"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+// Cache of the user's Pinterest boards. Refreshed on demand from the
+// settings page. The adapter matches Claude's board_suggestion against
+// these names to pick where each pin goes.
+export const pinterestBoards = pgTable(
+  "pinterest_boards",
+  {
+    boardId: text("board_id").primaryKey(),
+    name: text("name").notNull(),
+    nameNormalized: text("name_normalized").notNull(), // lowercased for fuzzy match
+    privacy: text("privacy"), // "public" | "secret" | "protected"
+    pinCount: integer("pin_count"),
+    isDefault: boolean("is_default").default(false).notNull(),
+    lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    nameNormalizedIdx: index("pinterest_boards_name_normalized_idx").on(
+      t.nameNormalized
+    ),
+    isDefaultIdx: index("pinterest_boards_is_default_idx").on(t.isDefault),
+  })
+);
+
+// ─── Phase 2D-3c — Publer accounts cache + channel mapping ───────────────────
+//
+// Publer is a multi-channel scheduler we use for Instagram, Facebook, and
+// X. The API key + workspace id live in env vars. This table caches the
+// list of accounts the user has connected in Publer's UI, and records
+// which of OUR ChannelKey values each account maps to. The adapter
+// looks up the mapped account at post time.
+//
+// We don't unique the channel mapping at the DB level — the API code
+// clears any existing mapping for a channel before setting a new one.
+
+export const publerAccounts = pgTable(
+  "publer_accounts",
+  {
+    accountId: text("account_id").primaryKey(),
+    name: text("name").notNull(),
+    provider: text("provider").notNull(), // "instagram" | "facebook" | "twitter" | etc.
+    pictureUrl: text("picture_url"),
+    /** One of our ChannelKey values, or null if not mapped. */
+    mappedToChannel: text("mapped_to_channel"),
+    lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    providerIdx: index("publer_accounts_provider_idx").on(t.provider),
+    mappedToChannelIdx: index("publer_accounts_mapped_to_channel_idx").on(
+      t.mappedToChannel
+    ),
   })
 );
 

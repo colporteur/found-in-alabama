@@ -23,8 +23,21 @@ export type PostInput = {
   content: Record<string, unknown>;
   /** Source image, already loaded. May be null if the source had no image. */
   image: LoadedImage | null;
+  /**
+   * Absolute public URL to the source image, if there is one. Adapters
+   * like Publer that want to hand a URL to the platform (rather than
+   * uploading bytes) read this instead of `image`. Already-absolute http
+   * URLs are passed through; root-relative paths are joined to SITE_URL.
+   */
+  imageSrc: string | null;
   /** Source title (for fallback alt text). */
   sourceTitle: string;
+  /**
+   * Public URL to send the viewer to (haul page or product page). Used
+   * by Pinterest as the pin's destination link, and by future adapters
+   * that have a similar "click-through" concept.
+   */
+  sourceUrl: string | null;
 };
 
 /** What an adapter returns after publishing. */

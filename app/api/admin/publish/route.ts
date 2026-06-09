@@ -37,6 +37,10 @@ interface PublishRequest {
   // Legacy single-image shape — still accepted, equivalent to one-item haulImages.
   imageBase64?: string;
   imageMediaType?: ImageMediaType;
+  // Phase 3C — location fields (all optional)
+  city?: string;
+  state?: string;
+  vagueLocation?: string;
 }
 
 const EXT_FOR_MEDIA: Record<string, string> = {
@@ -62,16 +66,26 @@ function buildFrontmatter(fields: {
   gallery: string[];
   excerpt: string;
   featured: boolean;
+  city?: string;
+  state?: string;
+  vagueLocation?: string;
 }): string {
   const esc = (s: string) => s.replace(/"/g, '\\"');
   const galleryYaml = fields.gallery.length
     ? `gallery:\n${fields.gallery.map((g) => `  - "${g}"`).join("\n")}\n`
     : "";
+  // Location block — only include fields that are non-empty, so we don't
+  // pollute the frontmatter with empty strings.
+  let locationYaml = "";
+  if (fields.city?.trim()) locationYaml += `city: "${esc(fields.city.trim())}"\n`;
+  if (fields.state?.trim()) locationYaml += `state: "${esc(fields.state.trim())}"\n`;
+  if (fields.vagueLocation?.trim())
+    locationYaml += `vagueLocation: "${esc(fields.vagueLocation.trim())}"\n`;
   return `---
 title: "${esc(fields.title)}"
 date: "${fields.date}"
 type: "haul"
-hero: "${fields.hero}"
+${locationYaml}hero: "${fields.hero}"
 ${galleryYaml}excerpt: "${esc(fields.excerpt)}"
 featured: ${fields.featured ? "true" : "false"}
 items: []
@@ -190,6 +204,9 @@ export async function POST(req: NextRequest) {
     gallery: galleryUrls,
     excerpt: body.excerpt ?? "",
     featured: body.featured ?? true,
+    city: body.city,
+    state: body.state,
+    vagueLocation: body.vagueLocation,
   });
   const markdown = `${frontmatter}\n${body.body.trim()}\n`;
 

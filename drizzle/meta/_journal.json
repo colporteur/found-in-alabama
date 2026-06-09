@@ -71,6 +71,13 @@
       "when": 1780945978833,
       "tag": "0009_empty_marauders",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1781029706901,
+      "tag": "0010_strong_runaways",
+      "breakpoints": true
     }
   ]
 }

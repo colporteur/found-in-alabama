@@ -6,6 +6,7 @@ import {
   getPost,
   typeLabel,
   formatDate,
+  displayLocation,
   type ItemEntry,
 } from "@/lib/posts";
 import HaulItemsFromDb from "@/components/HaulItemsFromDb";
@@ -102,6 +103,11 @@ export default function PostPage({ params }: { params: { slug: string } }) {
           <span className="text-brand-ink/40 ml-2">
             · {formatDate(post.date)}
           </span>
+          {post.type === "haul" && displayLocation(post) && (
+            <span className="text-brand-ink/40 ml-2">
+              · Found in {displayLocation(post)}
+            </span>
+          )}
         </p>
         <h1 className="font-marker text-4xl md:text-5xl leading-tight">
           {post.title}

@@ -7,7 +7,10 @@
 // whose `handles` list includes the requested channel.
 
 import { blueskyAdapter } from "@/lib/posting/bluesky";
+import { pinterestAdapter } from "@/lib/posting/pinterest";
+import { publerAdapter } from "@/lib/posting/publer";
 import { loadImage } from "@/lib/posting/load-image";
+import { absolutizeImageSrc } from "@/lib/site";
 import type {
   PostingAdapter,
   PostResult,
@@ -17,8 +20,8 @@ import type { ChannelKey } from "@/lib/social/channel-styles";
 /** Registry of all known adapters. Order matters — first match wins. */
 const ADAPTERS: PostingAdapter[] = [
   blueskyAdapter,
-  // Pinterest adapter (Phase 2D-3b) added here later.
-  // Publer adapter (Phase 2D-3c) added here later.
+  pinterestAdapter,
+  publerAdapter,
 ];
 
 /** Find the adapter responsible for a channel, or null. */
@@ -63,11 +66,13 @@ export async function postDraft({
   content,
   sourceImage,
   sourceTitle,
+  sourceUrl,
 }: {
   channel: ChannelKey;
   content: Record<string, unknown>;
   sourceImage: string | null;
   sourceTitle: string;
+  sourceUrl: string | null;
 }): Promise<PostResult> {
   const adapter = adapterFor(channel);
   if (!adapter) {
@@ -85,6 +90,8 @@ export async function postDraft({
     channel,
     content,
     image,
+    imageSrc: absolutizeImageSrc(sourceImage),
     sourceTitle,
+    sourceUrl,
   });
 }

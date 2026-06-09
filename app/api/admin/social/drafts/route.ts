@@ -14,6 +14,7 @@ type SaveDraftInput = {
   sourceId: string;
   sourceTitle: string;
   sourceImage?: string | null;
+  sourceUrl?: string | null;
   generationId: string;
   contentType: "just-listed" | "new-haul" | "throwback" | "just-sold";
   channel: string;
@@ -48,6 +49,7 @@ export async function POST(req: NextRequest) {
           sourceId: d.sourceId,
           sourceTitle: d.sourceTitle,
           sourceImage: d.sourceImage ?? null,
+          sourceUrl: d.sourceUrl ?? null,
           generationId: d.generationId,
           contentType: d.contentType,
           channel: d.channel,

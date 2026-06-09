@@ -35,6 +35,12 @@ export type ItemSource = {
   haulTitle?: string;
   haulSlug?: string;
   haulExcerpt?: string;
+  /**
+   * Public-facing location string inherited from the haul this item came
+   * from, e.g. "Anniston, Alabama" or "central Alabama". Used by social
+   * prompts as the "Found in [location]" opener for product posts.
+   */
+  location?: string | null;
 };
 
 /** Source: a haul post (one journal post about a buying expedition). */
@@ -49,6 +55,8 @@ export type HaulSource = {
   heroImage: string | null;
   /** Total number of items captured from this haul, if known. */
   itemCount?: number;
+  /** Public-facing location string for the haul, if any. */
+  location?: string | null;
 };
 
 export type SocialSource = ItemSource | HaulSource;
@@ -101,6 +109,20 @@ DON'T:
 - Leading with the product name ("This bookcase…") — boring
 - Repeating the post title verbatim inside the body
 - Using the same opener hook across multiple channels in the same generation`;
+
+const LOCATION_RULES = `# Location handling
+
+If a source location is provided AND the content type is "just-listed", "throwback", or "just-sold" (item posts), open the post with "Found in [location]." as the very first phrase, then continue with the rest of the post. This replaces the hook variety rule for that opener. Examples:
+  "Found in Anniston, Alabama. This 1973 Polaroid SX-70 came with the original box…"
+  "Found in central Alabama. A pair of brass candlesticks that probably saw…"
+
+Exceptions:
+- pinterest: do NOT open the description with "Found in [location]" — Pinterest descriptions are keyword-dense for search, and the location can fit naturally later in the text (or be omitted). The Pinterest title should NEVER contain the location.
+- instagram_story: skip the location entirely — the overlay text is too short.
+
+For "new-haul" announcements (haul-sourced posts), don't lead with "Found in [location]" — the haul narrative naturally describes where it came from. Mention the location in the body if it adds color, but don't force the formula opener.
+
+If no location is provided, ignore this whole rule and use the normal hook variety.`;
 
 const HOOK_PATTERNS = `# Hook patterns (vary across channels)
 
@@ -173,6 +195,8 @@ Generate one post per requested channel as a single JSON object. Output ONLY the
 
 ${VOICE_RULES}
 
+${LOCATION_RULES}
+
 ${HOOK_PATTERNS}
 
 ${CHANNEL_RULES}
@@ -189,6 +213,9 @@ function describeSource(source: SocialSource): string {
   const urlLine = url
     ? `Source URL (include where the per-channel rules say to): ${url}`
     : "Source URL: (none — skip the URL block in every channel)";
+  const locationLine = source.location
+    ? `Location (use per the location rule): ${source.location}`
+    : "Location: (none — skip the \"Found in [location]\" opener)";
 
   if (source.kind === "item") {
     const marketplaceList = Object.keys(source.marketplaceUrls).join(", ");
@@ -201,6 +228,7 @@ ${
     ? `From the haul: "${source.haulTitle}"${source.haulExcerpt ? ` — ${source.haulExcerpt}` : ""}`
     : ""
 }
+${locationLine}
 ${urlLine}`.trim();
   }
   return `SOURCE: haul (multi-item journal post)
@@ -208,6 +236,7 @@ Title: ${source.title}
 Posted: ${source.date}
 ${source.excerpt ? `Excerpt: ${source.excerpt}` : ""}
 ${typeof source.itemCount === "number" ? `Items captured from this haul so far: ${source.itemCount}` : ""}
+${locationLine}
 ${urlLine}
 
 Full haul narrative:
