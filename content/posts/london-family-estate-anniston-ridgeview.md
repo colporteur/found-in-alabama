@@ -2,6 +2,8 @@
 title: "London Family Estate, Anniston's Ridgeview Drive"
 date: "2026-06-05"
 type: "haul"
+city: "Anniston"
+state: "Alabama"
 hero: "/photos/posts/london-family-estate-anniston-ridgeview-hero.jpg"
 excerpt: "A four-day Anniston estate sale on Ridgeview Drive turned up books, sheet music, bibles, and a cream-colored portable cassette radio still wearing its $10 tag."
 featured: true
