@@ -37,7 +37,9 @@ function requireEnv(name: string): string {
 }
 
 export function isConfigured(): boolean {
-  return !!process.env.PUBLER_API_KEY && !!process.env.PUBLER_WORKSPACE_ID;
+  // Workspace id is optional — accounts with a single workspace don't
+  // need to specify it; Publer infers from the API key.
+  return !!process.env.PUBLER_API_KEY;
 }
 
 async function publerFetch<T>(
@@ -45,15 +47,18 @@ async function publerFetch<T>(
   init: RequestInit = {}
 ): Promise<T> {
   const url = path.startsWith("http") ? path : `${API_BASE}${path}`;
+  // Workspace id is optional — only include the header when it's set.
+  const workspaceId = process.env.PUBLER_WORKSPACE_ID?.trim();
+  const headers: Record<string, string> = {
+    Authorization: `Bearer-API ${requireEnv("PUBLER_API_KEY")}`,
+    Accept: "application/json",
+    "Content-Type": "application/json",
+    ...((init.headers as Record<string, string>) ?? {}),
+  };
+  if (workspaceId) headers["Publer-Workspace-Id"] = workspaceId;
   const res = await fetch(url, {
     ...init,
-    headers: {
-      Authorization: `Bearer-API ${requireEnv("PUBLER_API_KEY")}`,
-      "Publer-Workspace-Id": requireEnv("PUBLER_WORKSPACE_ID"),
-      Accept: "application/json",
-      "Content-Type": "application/json",
-      ...(init.headers ?? {}),
-    },
+    headers,
   });
   const text = await res.text();
   if (!res.ok) {

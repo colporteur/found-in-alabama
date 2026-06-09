@@ -258,15 +258,19 @@ export default function PublerConnectionCard({
             generate an API token.
           </li>
           <li>
-            Copy your workspace id — it&rsquo;s the long hex string in your
-            workspace URL after <code>/workspaces/</code>.
+            Add to Vercel env vars (Production):
+            <pre className="bg-brand-paper text-brand-ink p-2 rounded mt-1 text-xs overflow-x-auto">{`PUBLER_API_KEY=...`}</pre>
           </li>
           <li>
-            Add to Vercel env vars (Production):
-            <pre className="bg-brand-paper text-brand-ink p-2 rounded mt-1 text-xs overflow-x-auto">{`PUBLER_API_KEY=...
-PUBLER_WORKSPACE_ID=...`}</pre>
+            Redeploy. Refresh this page. Click <strong>Test connection</strong>.
+            If the test errors with anything mentioning a workspace, you also
+            need to add{" "}
+            <code className="bg-brand-paper px-1 rounded">PUBLER_WORKSPACE_ID</code>{" "}
+            — find it by inspecting the network tab in Publer&rsquo;s web UI
+            (look for the <code>Publer-Workspace-Id</code> header on any API
+            request the page makes), then add that value as another env var and
+            redeploy.
           </li>
-          <li>Redeploy. Refresh this page. Click Test connection.</li>
           <li>Click Sync accounts. Then map each Publer account to one of our channels.</li>
         </ol>
       </details>
