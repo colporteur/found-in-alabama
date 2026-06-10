@@ -22,6 +22,7 @@ import { db, socialDrafts } from "@/db";
 import { and, asc, eq, gt, inArray, lte } from "drizzle-orm";
 import { postDraft } from "@/lib/posting";
 import { nextSlotFor, staggerFor } from "@/lib/social/schedule";
+import { runAutoGeneration } from "@/lib/social/auto-generate";
 import type { ChannelKey } from "@/lib/social/channel-styles";
 
 export const runtime = "nodejs";
@@ -48,6 +49,7 @@ export async function GET(req: NextRequest) {
 
   const now = new Date();
   const summary = {
+    generated: 0,
     scheduled: 0,
     published: 0,
     failed: 0,
@@ -202,6 +204,27 @@ export async function GET(req: NextRequest) {
     summary.errors.push(
       `Publish step failed: ${err instanceof Error ? err.message : "unknown"}`
     );
+  }
+
+  // ── Step 3: auto-generate drafts (Phase B) ───────────────────────────────
+  // Only when this run did no publishing — generation takes a Claude
+  // vision call (~15-25s) and we stay inside the 60s function budget.
+  // With 96 runs/day there are plenty of idle runs to generate in.
+  if (summary.published === 0 && summary.failed === 0) {
+    try {
+      const gen = await runAutoGeneration(now);
+      if (gen.generated) {
+        summary.generated = gen.draftsSaved ?? 0;
+      } else if (gen.error) {
+        summary.errors.push(`Auto-generate: ${gen.error}`);
+      }
+      // skippedReason (cap reached / nothing to do) is normal — not logged
+      // as an error.
+    } catch (err) {
+      summary.errors.push(
+        `Auto-generate step failed: ${err instanceof Error ? err.message : "unknown"}`
+      );
+    }
   }
 
   console.log(`[cron] run summary:`, JSON.stringify(summary));
