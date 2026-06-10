@@ -68,7 +68,13 @@ export const publerAdapter: PostingAdapter = {
       return { ok: false, error: "Draft has no postable text." };
     }
 
-    const acct = await accountForChannel(input.channel);
+    let acct = await accountForChannel(input.channel);
+    // Stories go to the same Instagram account as feed posts, and the
+    // settings UI maps each Publer account to a single channel — so when
+    // instagram_story has no explicit mapping, reuse the feed account.
+    if (!acct && input.channel === "instagram_story") {
+      acct = await accountForChannel("instagram_feed");
+    }
     if (!acct) {
       return {
         ok: false,

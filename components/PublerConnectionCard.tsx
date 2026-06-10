@@ -229,7 +229,9 @@ export default function PublerConnectionCard({
               </div>
               <p className="text-xs text-brand-ink/55 mt-2">
                 Each of our channels can only have one Publer account at a time;
-                picking it on one row clears it on any other.
+                picking it on one row clears it on any other. Instagram Stories
+                automatically use the account mapped to Instagram Feed unless
+                you map one separately.
               </p>
             </div>
           )}
