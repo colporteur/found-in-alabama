@@ -1,0 +1,34 @@
+# Social publishing heartbeat.
+#
+# Vercel's Hobby plan only allows once-daily crons, so the vercel.json
+# cron (daily, 13:00 UTC) is just a backstop. This workflow does the
+# real work: every 15 minutes it pings /api/cron/publish, which
+# auto-schedules new drafts and publishes anything due.
+#
+# Requires a repository secret named CRON_SECRET (GitHub repo →
+# Settings → Secrets and variables → Actions → New repository secret)
+# with the same value as the CRON_SECRET env var in Vercel.
+#
+# Notes:
+# - GitHub may delay scheduled runs a few minutes under load; the
+#   publish endpoint posts anything past due, so delays only shift
+#   posts slightly later, never drop them.
+# - Manual trigger: Actions tab → "Social publish cron" → Run workflow.
+
+name: Social publish cron
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping publish endpoint
+        run: |
+          curl --silent --show-error --fail --max-time 90 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://www.foundinalabama.com/api/cron/publish
