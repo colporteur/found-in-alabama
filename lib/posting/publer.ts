@@ -121,12 +121,24 @@ export const publerAdapter: PostingAdapter = {
       const status = (typeof final.status === "string" ? final.status : "").toLowerCase();
       if (status === "complete" || status === "completed" || status === "success") {
         // "complete" only means the job ran — individual accounts can
-        // still fail. Non-empty payload.failures = our post failed.
+        // still fail. Non-empty failures = our post failed.
         const failures = final.failures;
-        if (failures && Object.keys(failures).length > 0) {
+        if (Array.isArray(failures) && failures.length > 0) {
+          // Pull human-readable messages when present, e.g.
+          // {failure: {message: "Post type is not valid", ...}}
+          const messages = failures
+            .map((f) => {
+              const entry = f as { failure?: { message?: string }; message?: string };
+              return entry.failure?.message ?? entry.message;
+            })
+            .filter((m): m is string => typeof m === "string");
           return {
             ok: false,
-            error: `Publer job ${jobId} completed with failures: ${JSON.stringify(failures).slice(0, 800)}`,
+            error: `Publer job ${jobId} completed with failures: ${
+              messages.length > 0
+                ? messages.join("; ")
+                : JSON.stringify(failures).slice(0, 800)
+            }`,
           };
         }
         // Try to extract the platform post id / url from the payload.

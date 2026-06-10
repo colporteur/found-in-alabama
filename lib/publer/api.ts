@@ -292,8 +292,8 @@ export type JobStatusResponse = {
   status?: string;
   /** Result payload when complete (contains post ids / urls) or error info on failure. */
   payload?: unknown;
-  /** payload.failures — non-empty means at least one account's post failed. */
-  failures?: Record<string, unknown>;
+  /** Per-account failure entries — non-empty means the post failed even if status is "complete". */
+  failures?: unknown[];
   message?: string;
   /** The raw, unnormalized response, for logging. */
   raw?: unknown;
@@ -318,13 +318,23 @@ function normalizeJobStatus(rawIn: unknown): JobStatusResponse {
         : typeof raw.status === "string"
           ? raw.status
           : undefined;
-  const payload = (result.payload ?? data.payload ?? raw.payload) as
-    | Record<string, unknown>
-    | undefined;
-  const failures =
-    payload && typeof payload === "object"
-      ? (payload.failures as Record<string, unknown> | undefined)
-      : undefined;
+  const payload = result.payload ?? data.payload ?? raw.payload;
+  // Failures come in two shapes:
+  //  - array payload: [{type:"error", status:"failed", failure:{message,...}}]
+  //  - object payload: { failures: {...} }
+  let failures: unknown[] = [];
+  if (Array.isArray(payload)) {
+    failures = payload.filter((e) => {
+      if (!e || typeof e !== "object") return false;
+      const entry = e as Record<string, unknown>;
+      return entry.status === "failed" || entry.type === "error";
+    });
+  } else if (payload && typeof payload === "object") {
+    const f = (payload as Record<string, unknown>).failures;
+    if (f && typeof f === "object" && Object.keys(f).length > 0) {
+      failures = [f];
+    }
+  }
   return {
     status,
     payload,
@@ -393,10 +403,13 @@ export async function createPost(
 
   const networkKey = networkKeyFor(input.provider);
 
-  // Content type: story posts are "story"; with an image "photo";
-  // text-only is "status".
-  const contentType =
-    input.postType === "story" ? "story" : media.length > 0 ? "photo" : "status";
+  // Content type: `type` is the MEDIA format ("photo"/"status"); stories
+  // are flagged via details.type. Sending top-level type:"story" (as the
+  // docs' content-type table suggests) gets rejected with "Post type is
+  // not valid" — the OpenAPI schema's details.type enum is the real
+  // convention.
+  const isStory = input.postType === "story";
+  const contentType = media.length > 0 ? "photo" : "status";
 
   // Links: photo/status posts don't carry a separate link field, so
   // append to text where links are useful and clickable (FB, X).
@@ -414,6 +427,7 @@ export async function createPost(
     type: contentType,
     text,
     ...(media.length > 0 ? { media } : {}),
+    ...(isStory ? { details: { type: "story" } } : {}),
   };
 
   const body = {
