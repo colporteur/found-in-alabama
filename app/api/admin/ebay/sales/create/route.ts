@@ -69,6 +69,22 @@ export async function POST(req: NextRequest) {
       { status: 400 }
     );
   }
+  // eBay constraints (EBAY_US): a markdown must run at least 24 hours
+  // and at most 45 days. Violations come back as opaque 500s, so
+  // validate here with readable messages.
+  const durationMs = endDate.getTime() - startDate.getTime();
+  if (durationMs < 24 * 3600_000) {
+    return NextResponse.json(
+      { ok: false, error: "eBay requires sales to run at least 24 hours." },
+      { status: 400 }
+    );
+  }
+  if (durationMs > 45 * 86_400_000) {
+    return NextResponse.json(
+      { ok: false, error: "eBay caps sales at 45 days." },
+      { status: 400 }
+    );
+  }
 
   if (body.saleType !== "MARKDOWN_CATEGORY") {
     return NextResponse.json(
@@ -117,51 +133,50 @@ export async function POST(req: NextRequest) {
     })
     .returning({ id: ebaySales.id });
 
-  // Body for POST /sell/marketing/v1/item_price_markdown/ (the markdown
-  // promotion endpoint, distinct from /item_promotion). Earlier 500
-  // "Internal error" was caused by including applyDiscountToSingleItemOnly
-  // (that's an ItemPromotion field, not valid here) and missing markdown-
-  // specific fields. ItemPriceMarkdown's actual fields:
-  //   applyFreeShipping, autoSelectFutureInventory, blockPriceIncreaseInItemRevision,
-  //   description, discountRules, endDate, inventoryCriterion, marketplaceId,
-  //   name, priority (PRIORITY_1|PRIORITY_2|PRIORITY_3), promotionImageUrl,
-  //   promotionStatus, startDate.
-  // eBay requires the promotion image to be at least 500x500 pixels, JPEG
-  // or PNG, under 12MB. The site's logo.png is too small (smaller icons
-  // typically sit around 200-300px on the long edge), which triggers an
-  // opaque "Internal error" 500 from eBay rather than a clear validation
-  // error. Default to one of the haul photos in public/photos which are
-  // already well above the size cutoff. Override with EBAY_PROMOTION_IMAGE_URL.
+  // Body for POST /sell/marketing/v1/item_price_markdown — built to the
+  // CURRENT documented schema (verified June 2026 against
+  // developer.ebay.com/api-docs/sell/marketing/resources/item_price_markdown/
+  // methods/createItemPriceMarkdownPromotion):
+  //
+  //   - The discount + inventory selection live INSIDE
+  //     selectedInventoryDiscounts[] — NOT at the top level. (Our old
+  //     top-level inventoryCriterion/discountRules shape was silently
+  //     ignored, leaving a promotion with no discounts → eBay's opaque
+  //     2003 "Internal error".)
+  //   - selectionRules sit under inventoryCriterion.ruleCriteria, and
+  //     each selectionRules container may hold only ONE category ID —
+  //     multiple categories become multiple containers (all with the
+  //     same categoryScope).
+  //   - description is required.
+  //   - promotionImageUrl is required for markdown sales: JPEG/PNG,
+  //     ≥500x500px, ≤12MB. The site logo is too small; default to a haul
+  //     photo. Override with EBAY_PROMOTION_IMAGE_URL.
   const promotionImageUrl =
     process.env.EBAY_PROMOTION_IMAGE_URL ||
     "https://www.foundinalabama.com/photos/bookshelf.jpg";
 
-  // Minimal body — only fields the docs mark as required. We've been
-  // hitting opaque 2003 "Internal error" on SCHEDULED and DRAFT alike
-  // even with everything filled in. Stripping optional fields
-  // (description, applyFreeShipping, autoSelectFutureInventory,
-  // blockPriceIncreaseInItemRevision, priority) to see if one of them
-  // is silently breaking things.
   const ebayPayload = {
     name: body.name.slice(0, 90),
+    description: (body.description?.trim() || body.name).slice(0, 250),
     marketplaceId: "EBAY_US",
     promotionStatus: "DRAFT",
     startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
     promotionImageUrl,
-    inventoryCriterion: {
-      inventoryCriterionType: "INVENTORY_BY_RULE",
-      selectionRules: [
-        {
-          categoryIds: body.categoryIds,
-          categoryScope: "STORE",
-        },
-      ],
-    },
-    discountRules: [
+    selectedInventoryDiscounts: [
       {
+        inventoryCriterion: {
+          inventoryCriterionType: "INVENTORY_BY_RULE",
+          ruleCriteria: {
+            // One category per container, per eBay's selectionRules guide.
+            selectionRules: body.categoryIds.map((id) => ({
+              categoryIds: [id],
+              categoryScope: "STORE",
+            })),
+          },
+        },
         discountBenefit: {
-          percentageOffItem: body.discountPercent.toFixed(2),
+          percentageOffItem: String(Math.round(body.discountPercent)),
         },
       },
     ],
@@ -173,10 +188,13 @@ export async function POST(req: NextRequest) {
       { method: "POST", body: ebayPayload }
     );
 
+    // We create the eBay promotion as DRAFT (safe — drafts never run);
+    // record the same locally. Activating happens in Seller Hub or a
+    // later "activate" round.
     await db
       .update(ebaySales)
       .set({
-        status: "SCHEDULED",
+        status: "DRAFT",
         ebayPromotionId: resp.promotionId ?? null,
         updatedAt: new Date(),
       })
