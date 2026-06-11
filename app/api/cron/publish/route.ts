@@ -29,9 +29,11 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-// Publishing can take up to ~40s per Publer draft (job polling), so keep
-// the per-run batch small; the cron's 15-minute cadence provides volume.
-const PUBLISH_BATCH = 2;
+// Publishing can take up to ~40s per Publer draft (media upload + job
+// polling), and Vercel kills the function at 60s — so publish exactly
+// ONE draft per run. The 15-minute cadence provides ample volume
+// (~96 posts/day of capacity).
+const PUBLISH_BATCH = 1;
 const SCHEDULE_BATCH = 24;
 
 async function authorized(req: NextRequest): Promise<boolean> {

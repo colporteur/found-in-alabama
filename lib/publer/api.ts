@@ -357,7 +357,7 @@ export async function getJobStatus(jobId: string): Promise<JobStatusResponse> {
  */
 export async function waitForJob(
   jobId: string,
-  { intervalMs = 1500, timeoutMs = 40_000 }: { intervalMs?: number; timeoutMs?: number } = {}
+  { intervalMs = 1500, timeoutMs = 30_000 }: { intervalMs?: number; timeoutMs?: number } = {}
 ): Promise<JobStatusResponse> {
   const deadline = Date.now() + timeoutMs;
   let last: JobStatusResponse = {};
