@@ -134,6 +134,9 @@ export const ebayListings = pgTable(
     quantity: integer("quantity"),
     price: numeric("price", { precision: 10, scale: 2 }),
     description: text("description"),
+    // Listing start date from GetSellerList ListingDetails.StartTime —
+    // the age reference for stale-inventory sale tiers.
+    startTime: timestamp("start_time"),
     lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
   },
   (t) => ({

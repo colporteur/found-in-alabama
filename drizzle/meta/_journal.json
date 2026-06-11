@@ -85,6 +85,13 @@
       "when": 1781194416126,
       "tag": "0011_aberrant_doomsday",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1781196340660,
+      "tag": "0012_fuzzy_chronomancer",
+      "breakpoints": true
     }
   ]
 }

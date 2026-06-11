@@ -1,0 +1,1 @@
+ALTER TABLE "ebay_listings" ADD COLUMN "start_time" timestamp;

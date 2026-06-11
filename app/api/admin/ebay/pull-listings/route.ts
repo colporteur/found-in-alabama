@@ -36,6 +36,12 @@ interface PullBody {
    * when matched count is zero unexpectedly.
    */
   debug?: boolean;
+  /**
+   * If true, upsert EVERY active listing on the page (no Other-bucket
+   * filter). Used to build the full local inventory mirror that powers
+   * the stale-inventory sale tiers and age chart.
+   */
+  full?: boolean;
 }
 
 interface PullResponse {
@@ -73,7 +79,7 @@ export async function POST(req: NextRequest) {
       .where(eq(ebayStoreCategories.isOtherBucket, true))
       .limit(1);
 
-    if (!other) {
+    if (!other && !body.full) {
       return NextResponse.json(
         {
           ok: false,
@@ -175,14 +181,14 @@ export async function POST(req: NextRequest) {
         withSecondStoreCat: normalized.filter((l) => l.storeCategory2Id != null).length,
         wouldMatchCurrentFilter: normalized.filter(
           (l) =>
-            l.storeCategory1Id === other.categoryId && !l.storeCategory2Id
+            l.storeCategory1Id === other?.categoryId && !l.storeCategory2Id
         ).length,
       };
       return NextResponse.json({
         ok: true,
         debug: true,
-        otherCategoryId: other.categoryId,
-        otherCategoryName: other.name,
+        otherCategoryId: other?.categoryId,
+        otherCategoryName: other?.name,
         pageNumber,
         totalPages,
         stats,
@@ -192,15 +198,17 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Filter to "Other" with no second category, and skip zero-quantity
-    // listings — eBay leaves sold-out items in active state for up to 90
-    // days, but they don't need recategorizing.
-    const matched = normalized.filter(
-      (l) =>
-        l.storeCategory1Id === other.categoryId &&
-        !l.storeCategory2Id &&
-        (l.quantity ?? 0) > 0
-    );
+    // Default (categorizer) mode: filter to "Other" with no second
+    // category, skipping zero-quantity listings. Full mode mirrors the
+    // whole store — every listing on the page gets upserted.
+    const matched = body.full
+      ? normalized.filter((l) => l.itemId)
+      : normalized.filter(
+          (l) =>
+            l.storeCategory1Id === other?.categoryId &&
+            !l.storeCategory2Id &&
+            (l.quantity ?? 0) > 0
+        );
 
     if (matched.length > 0) {
       const rows = matched.map((l) => ({
@@ -216,6 +224,7 @@ export async function POST(req: NextRequest) {
         quantity: l.quantity,
         price: l.price,
         description: null,
+        startTime: l.startTime,
         lastSyncedAt: new Date(),
       }));
 
@@ -235,6 +244,7 @@ export async function POST(req: NextRequest) {
             listingType: sql`excluded.listing_type`,
             quantity: sql`excluded.quantity`,
             price: sql`excluded.price`,
+            startTime: sql`excluded.start_time`,
             lastSyncedAt: sql`excluded.last_synced_at`,
           },
         });
@@ -245,7 +255,8 @@ export async function POST(req: NextRequest) {
       success: true,
       itemCount: matched.length,
       details: {
-        otherCategoryId: other.categoryId,
+        otherCategoryId: other?.categoryId ?? null,
+        full: !!body.full,
         pageNumber,
         totalPages,
         scanned: arr.length,
@@ -262,8 +273,8 @@ export async function POST(req: NextRequest) {
       hasMore: pageNumber < totalPages,
       scannedThisPage: arr.length,
       matchedThisPage: matched.length,
-      otherCategoryId: other.categoryId,
-      otherCategoryName: other.name,
+      otherCategoryId: other?.categoryId,
+      otherCategoryName: other?.name,
       durationMs: Date.now() - start,
     };
     return NextResponse.json(response);
@@ -304,6 +315,8 @@ interface NormalizedListing {
   listingType: string | null;
   quantity: number | null;
   price: string | null;
+  /** ListingDetails.StartTime — when the listing first went live. */
+  startTime: Date | null;
 }
 
 function nullIfZero(v: unknown): string | null {
@@ -322,6 +335,13 @@ function normalizeListing(item: unknown): NormalizedListing {
   const pictureDetails =
     (i.PictureDetails as Record<string, unknown> | undefined) ?? {};
   const pictureUrl = pictureDetails.PictureURL;
+  const listingDetails =
+    (i.ListingDetails as Record<string, unknown> | undefined) ?? {};
+  let startTime: Date | null = null;
+  if (listingDetails.StartTime != null) {
+    const d = new Date(String(listingDetails.StartTime));
+    if (!Number.isNaN(d.getTime())) startTime = d;
+  }
 
   return {
     itemId: String(i.ItemID ?? ""),
@@ -349,5 +369,6 @@ function normalizeListing(item: unknown): NormalizedListing {
               sellingStatus.CurrentPrice
           )
         : null,
+    startTime,
   };
 }

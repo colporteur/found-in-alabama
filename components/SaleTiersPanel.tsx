@@ -2,12 +2,15 @@
 
 // Stale-inventory auto-sale configuration on /admin/ebay/sales.
 //
-// Top: a bar chart of active inventory by age quarter (with how many of
-// each bucket have a usable eBay listing id). Below: the discount tiers
-// — age threshold, percent off, enabled toggle. The weekly cron reads
-// these and maintains one live markdown sale per enabled tier.
+// Top: "Sync all listings" pulls the ENTIRE active eBay store into the
+// local ebay_listings mirror page by page (the client drives the loop so
+// no single request risks the serverless timeout). Middle: a bar chart
+// of active inventory by age quarter, based on each listing's eBay
+// StartTime. Bottom: the discount tiers — age threshold, percent off,
+// enabled toggle. The weekly cron reads these and maintains one live
+// markdown sale per enabled tier.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type SaleTier = {
   key: string;
@@ -21,7 +24,6 @@ type AgeBucket = {
   minDays: number;
   maxDays: number | null;
   itemCount: number;
-  withEbayListing: number;
 };
 
 function tierLabel(minAgeDays: number): string {
@@ -32,17 +34,21 @@ function tierLabel(minAgeDays: number): string {
 export default function SaleTiersPanel() {
   const [tiers, setTiers] = useState<SaleTier[] | null>(null);
   const [distribution, setDistribution] = useState<AgeBucket[] | null>(null);
+  const [syncedListings, setSyncedListings] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const [syncProgress, setSyncProgress] = useState<string | null>(null);
   const [flash, setFlash] = useState<{ kind: "ok" | "error"; msg: string } | null>(
     null
   );
 
-  useEffect(() => {
-    fetch("/api/admin/ebay/sales/tiers")
+  const loadData = useCallback(() => {
+    return fetch("/api/admin/ebay/sales/tiers")
       .then((r) => r.json())
       .then((data) => {
         if (data.tiers) setTiers(data.tiers);
         if (data.distribution) setDistribution(data.distribution);
+        if (typeof data.syncedListings === "number")
+          setSyncedListings(data.syncedListings);
         if (data.error) setFlash({ kind: "error", msg: data.error });
       })
       .catch((err) =>
@@ -53,10 +59,52 @@ export default function SaleTiersPanel() {
       );
   }, []);
 
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
   function patchTier(key: string, patch: Partial<SaleTier>) {
     setTiers((prev) =>
       prev ? prev.map((t) => (t.key === key ? { ...t, ...patch } : t)) : prev
     );
+  }
+
+  async function syncAllListings() {
+    setSyncProgress("Starting…");
+    setFlash(null);
+    let page = 1;
+    let totalSynced = 0;
+    try {
+      // Client-driven pagination: one serverless call per page so no
+      // single request can hit the 60s function limit. ~7000 listings at
+      // 200/page ≈ 35 requests.
+      for (;;) {
+        const res = await fetch("/api/admin/ebay/pull-listings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ pageNumber: page, entriesPerPage: 200, full: true }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+          throw new Error(data.error ?? `HTTP ${res.status} on page ${page}`);
+        }
+        totalSynced += data.matchedThisPage ?? 0;
+        setSyncProgress(
+          `Page ${data.pageNumber}/${data.totalPages} — ${totalSynced} listings synced`
+        );
+        if (!data.hasMore) break;
+        page += 1;
+      }
+      setSyncProgress(null);
+      setFlash({ kind: "ok", msg: `Synced ${totalSynced} listings from eBay.` });
+      await loadData();
+    } catch (err) {
+      setSyncProgress(null);
+      setFlash({
+        kind: "error",
+        msg: `Sync stopped on page ${page}: ${err instanceof Error ? err.message : "unknown"}. Re-run to continue — already-synced pages are saved.`,
+      });
+    }
   }
 
   async function save() {
@@ -92,12 +140,29 @@ export default function SaleTiersPanel() {
 
   return (
     <div className="border border-brand-ink/15 rounded-lg p-5 bg-white mb-8">
-      <h2 className="font-marker text-xl mb-1">Automatic stale-inventory sales</h2>
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-1">
+        <h2 className="font-marker text-xl">Automatic stale-inventory sales</h2>
+        <div className="flex items-center gap-3">
+          {syncedListings !== null && (
+            <span className="text-xs text-brand-ink/55">
+              {syncedListings.toLocaleString()} listings in local mirror
+            </span>
+          )}
+          <button
+            onClick={syncAllListings}
+            disabled={!!syncProgress}
+            className="text-sm px-3 py-1.5 border border-brand-ink/20 rounded hover:bg-brand-ink/5 transition-colors disabled:opacity-50"
+          >
+            {syncProgress ?? "Sync all listings"}
+          </button>
+        </div>
+      </div>
       <p className="text-sm text-brand-ink/70 mb-4 max-w-prose">
-        Active inventory by age. Items older than an enabled tier go into a
-        rolling 30-day markdown at that tier&rsquo;s discount — refreshed
-        weekly, fully automatic. Only items with an eBay listing link can be
-        included (darker bar portion).
+        Active inventory by listing age (from each listing&rsquo;s eBay start
+        date). Listings older than an enabled tier go into a rolling 30-day
+        markdown at that tier&rsquo;s discount — refreshed weekly, fully
+        automatic. Run a sync periodically so the mirror tracks new and sold
+        listings.
       </p>
 
       {flash && (
@@ -124,20 +189,15 @@ export default function SaleTiersPanel() {
                 <div
                   key={b.label}
                   className="flex-1 flex flex-col items-center justify-end h-full"
-                  title={`${b.itemCount} items (${b.withEbayListing} with eBay listing)`}
+                  title={`${b.itemCount} listings`}
                 >
                   <span className="text-xs font-medium text-brand-ink/80 mb-1">
-                    {b.itemCount}
+                    {b.itemCount.toLocaleString()}
                   </span>
                   <div
-                    className="w-full max-w-16 rounded-t bg-brand-yellow/40 relative"
+                    className="w-full max-w-16 rounded-t bg-brand-yellow"
                     style={{ height: `${Math.max(h, 2)}%` }}
-                  >
-                    <div
-                      className="absolute bottom-0 left-0 right-0 rounded-t bg-brand-yellow"
-                      style={{ height: `${b.itemCount > 0 ? (b.withEbayListing / b.itemCount) * 100 : 0}%` }}
-                    />
-                  </div>
+                  />
                 </div>
               );
             })}
@@ -191,7 +251,7 @@ export default function SaleTiersPanel() {
                   <span className="text-brand-ink/60">% off</span>
                 </div>
                 <span className="text-xs text-brand-ink/50 ml-auto">
-                  items {t.minAgeDays}–
+                  listings {t.minAgeDays}–
                   {tiers.find((n) => n.minAgeDays > t.minAgeDays)
                     ? `${tiers.find((n) => n.minAgeDays > t.minAgeDays)!.minAgeDays} days`
                     : "∞"}

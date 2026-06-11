@@ -5,6 +5,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import {
+  countSyncedListings,
   getAgeDistribution,
   getTiers,
   saveTiers,
@@ -20,11 +21,12 @@ export async function GET() {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
-    const [tiers, distribution] = await Promise.all([
+    const [tiers, distribution, syncedListings] = await Promise.all([
       getTiers(),
       getAgeDistribution(),
+      countSyncedListings(),
     ]);
-    return NextResponse.json({ tiers, distribution });
+    return NextResponse.json({ tiers, distribution, syncedListings });
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : "Failed to load" },
