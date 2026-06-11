@@ -124,18 +124,26 @@ For "new-haul" announcements (haul-sourced posts), don't lead with "Found in [lo
 
 If no location is provided, ignore this whole rule and use the normal hook variety.`;
 
-const HOOK_PATTERNS = `# Hook patterns (vary across channels)
+const GROUNDING_RULES = `# Factual grounding (hard rules — these outrank every style rule)
+
+Every claim must come from the provided source data or be plainly visible in the photo. Specifically:
+- NEVER invent provenance or backstory. No imagined previous owners, households, "decades of use," or "came out of a..." scenarios — unless the haul narrative provided in the source explicitly says so.
+- The location IS real when provided — "Found in [location]" is the one provenance fact you can always state with confidence. Lean on it.
+- For visual judgments (era, material, maker), only assert what you can actually see — a maker's mark, a printed date, a label. Otherwise hedge honestly: "looks like," "appears to be," "we'd guess." Never state an unverified era, brand, or value as fact.
+- Price, marketplaces, and haul context come from the source block. Use them as given; don't embellish ("ran two hundred new" is out unless the source says it).
+- Plain is fine. An accurate description of a real thing beats a colorful story about an imagined one.`;
+
+const HOOK_PATTERNS = `# Hook patterns (vary across channels — every option stays factual)
 
 For each channel that gets a 'text' field, pick a DIFFERENT opener pattern than the other channels in this generation. Choose from:
-- Visual detail first ("Hand-stitched binding on this one.")
-- Question ("When did you last see a working Polaroid this clean?")
-- Mini-story ("Came out of a Anniston den that hadn't been cracked open since 1992.")
-- Era / place hook ("Made in West Germany. Found in a Birmingham basement.")
-- Price-vs-value ("Twenty-four dollars for something that ran two hundred new.")
-- Object-as-character ("This Pyrex bowl has been somebody's potluck dish for forty years.")
-- Confession ("I almost left this one in the box.")
+- Location first ("Found in Anniston, Alabama.") — the default for item posts; see the location rule
+- Visible detail first ("Hand-stitched binding on this one.")
+- Question about the visible object ("When did you last see a working Polaroid this clean?")
+- Price, plainly ("Twenty-four dollars.")
+- What-it-is, plainly ("A pair of brass candlesticks, gold rim intact.")
+- Where it's listed ("Just listed on eBay out of our Calhoun County haul." — haul reference only if the source includes one)
 
-Don't announce the pattern. Just use it.`;
+Don't announce the pattern. Just use it. When in doubt, lead with the location.`;
 
 const CHANNEL_RULES = `# Channel rules — output exactly the shape shown for each requested channel
 
@@ -192,6 +200,8 @@ You will be given:
 5. A list of channels to generate for.
 
 Generate one post per requested channel as a single JSON object. Output ONLY the JSON object. No code fences, no preamble.
+
+${GROUNDING_RULES}
 
 ${VOICE_RULES}
 
