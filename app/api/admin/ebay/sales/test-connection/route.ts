@@ -22,8 +22,11 @@ export async function POST() {
 
   const start = Date.now();
   try {
+    // No promotion_status filter — eBay rejects comma-separated status
+    // lists with errorId 38240 ("Invalid input for the 'promotionStatus'
+    // field"), and the test only needs to prove the OAuth chain works.
     const res = await sellApi<PromotionListResponse>(
-      "/sell/marketing/v1/promotion?marketplace_id=EBAY_US&promotion_status=DRAFT,SCHEDULED,RUNNING,PAUSED&limit=10"
+      "/sell/marketing/v1/promotion?marketplace_id=EBAY_US&limit=10"
     );
     const promotionsCount =
       typeof res.total === "number"
