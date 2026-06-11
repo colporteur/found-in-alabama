@@ -1,0 +1,24 @@
+# Weekly stale-inventory sale maintenance.
+#
+# Pings /api/cron/ebay-sales every Monday at 14:00 UTC (~8-9am Central).
+# The endpoint creates/refreshes one live markdown sale per enabled
+# discount tier (configured at /admin/ebay/sales). Uses the same
+# CRON_SECRET repository secret as the social cron.
+
+name: eBay sales cron
+
+on:
+  schedule:
+    - cron: "0 14 * * 1"
+  workflow_dispatch: {}
+
+jobs:
+  maintain-sales:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping ebay-sales endpoint
+        run: |
+          curl --silent --show-error --fail --max-time 120 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://www.foundinalabama.com/api/cron/ebay-sales

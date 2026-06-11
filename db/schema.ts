@@ -200,12 +200,15 @@ export const ebaySales = pgTable(
     discountPercent: numeric("discount_percent", { precision: 5, scale: 2 }),
     minSpendAmount: numeric("min_spend_amount", { precision: 10, scale: 2 }),
     // Scope holds the type-specific selection: store category IDs for
-    // MARKDOWN_CATEGORY, SKU list for MARKDOWN_SKU, etc.
+    // MARKDOWN_CATEGORY, SKU list for MARKDOWN_SKU, etc. listingIds +
+    // autoTierKey are used by the automated stale-inventory sales.
     scope: jsonb("scope")
       .$type<{
         categoryIds?: string[];
         skus?: string[];
+        listingIds?: string[];
         appliesToAll?: boolean;
+        autoTierKey?: string;
       }>()
       .default({})
       .notNull(),
@@ -233,6 +236,16 @@ export const ebaySaleAuditLog = pgTable("ebay_sale_audit_log", {
   details: jsonb("details").$type<Record<string, unknown>>(),
   errorMessage: text("error_message"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+// Generic key-value settings store. First consumer: "ebaySaleTiers" —
+// the configurable age-tier discounts for automated stale-inventory
+// sales. Values are JSON; shape is owned by the reading module.
+
+export const appSettings = pgTable("app_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").$type<unknown>().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 // OAuth tokens for the eBay Sell APIs (Marketing, Account, etc.). These

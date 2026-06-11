@@ -78,6 +78,13 @@
       "when": 1781029706901,
       "tag": "0010_strong_runaways",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1781194416126,
+      "tag": "0011_aberrant_doomsday",
+      "breakpoints": true
     }
   ]
 }

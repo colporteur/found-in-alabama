@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { ebaySales } from "@/db/schema";
 import { desc } from "drizzle-orm";
 import { getOAuthStatus } from "@/lib/ebay/oauth";
+import SaleTiersPanel from "@/components/SaleTiersPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -57,25 +58,21 @@ export default async function SalesDashboardPage() {
         Schedule percentage-off sales by store category.
       </p>
 
-      <div className="border-l-4 border-amber-400 bg-amber-50 p-4 text-sm rounded mb-8 max-w-prose">
-        <p className="font-medium mb-1">Sale creation paused</p>
-        <p className="text-brand-ink/80">
-          eBay&rsquo;s Marketing API is returning an opaque &ldquo;Internal
-          error&rdquo; on every markdown-create attempt — likely an
-          undocumented account-side prerequisite. eBay&rsquo;s own Seller
-          Hub UI works fine for creating sales (
-          <a
-            href="https://www.ebay.com/sh/marketing"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="underline decoration-brand-yellow decoration-2 underline-offset-2"
-          >
-            ebay.com/sh/marketing
-          </a>
-          ). Use that for now; we may revisit the API later if it becomes
-          worth filing a developer support ticket.
-        </p>
-      </div>
+      <p className="text-sm text-brand-ink/60 mb-8 max-w-prose">
+        Manual sales are created as <strong>drafts</strong> on eBay — review
+        and activate them in{" "}
+        <a
+          href="https://www.ebay.com/sh/marketing"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline decoration-brand-yellow decoration-2 underline-offset-2"
+        >
+          Seller Hub → Marketing → Discounts
+        </a>
+        . Automatic tier sales below go live on their own.
+      </p>
+
+      <SaleTiersPanel />
 
       {sales.length === 0 ? (
         <div className="bg-white border border-dashed border-brand-ink/20 rounded-lg p-12 text-center">
