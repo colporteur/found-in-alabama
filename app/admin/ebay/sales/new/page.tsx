@@ -9,6 +9,7 @@ import { ebayStoreCategories } from "@/db/schema";
 import { asc } from "drizzle-orm";
 import { getOAuthStatus } from "@/lib/ebay/oauth";
 import NewSaleForm from "./NewSaleForm";
+import MonthlySaleWizard from "@/components/MonthlySaleWizard";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +55,8 @@ export default async function NewSalePage() {
         runs on eBay between your start and end dates; you can edit or end
         it early from the sales list.
       </p>
+
+      <MonthlySaleWizard />
 
       <NewSaleForm categories={eligible} />
 

@@ -381,8 +381,9 @@ export const socialDrafts = pgTable(
   "social_drafts",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    // Source — what this post is about
-    sourceType: text("source_type", { enum: ["haul", "item"] }).notNull(),
+    // Source — what this post is about. "sale" = a store-wide sale
+    // announcement (monthly sale wizard), not tied to one item/haul.
+    sourceType: text("source_type", { enum: ["haul", "item", "sale"] }).notNull(),
     sourceId: text("source_id").notNull(),
     sourceTitle: text("source_title").notNull(), // denormalized for list rendering
     sourceImage: text("source_image"),           // URL for thumbnail in queue
@@ -393,7 +394,13 @@ export const socialDrafts = pgTable(
     // Generation grouping — all channels from one /generate call share this
     generationId: uuid("generation_id").notNull(),
     contentType: text("content_type", {
-      enum: ["just-listed", "new-haul", "throwback", "just-sold"],
+      enum: [
+        "just-listed",
+        "new-haul",
+        "throwback",
+        "just-sold",
+        "sale-announcement",
+      ],
     }).notNull(),
     channel: text("channel").notNull(), // ChannelKey ("instagram_feed", etc.)
     // Per-channel JSON content from Claude. Shape varies by channel:

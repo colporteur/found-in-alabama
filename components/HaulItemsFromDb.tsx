@@ -4,7 +4,12 @@
 
 import Link from "next/link";
 import { db, items as itemsTable } from "@/db";
-import { and, eq, desc } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
+import {
+  ebayListingIdFromUrl,
+  getOnSaleLookup,
+  type SaleBadge,
+} from "@/lib/ebay/active-sales";
 
 const MARKETPLACE_LABEL: Record<string, string> = {
   ebay: "eBay",
@@ -42,6 +47,23 @@ export default async function HaulItemsFromDb({
   const active = rows.filter((r) => r.status !== "sold");
   const sold = rows.filter((r) => r.status === "sold");
   const total = rows.length;
+
+  // Live sale badges: match by eBay listing id (tier sales) or store
+  // category (monthly wizard sales).
+  const onSale = await getOnSaleLookup();
+  function badgeFor(row: (typeof rows)[number]): SaleBadge | null {
+    const urls = (row.marketplaceUrls as Record<string, string>) ?? {};
+    const listingId = ebayListingIdFromUrl(urls.ebay);
+    if (listingId) {
+      const b = onSale.byListingId.get(listingId);
+      if (b) return b;
+    }
+    if (row.ebayStoreCategoryId) {
+      const b = onSale.byCategoryId.get(row.ebayStoreCategoryId);
+      if (b) return b;
+    }
+    return null;
+  }
 
   return (
     <section className="mt-12 pt-8 border-t border-brand-ink/10">
@@ -81,7 +103,7 @@ export default async function HaulItemsFromDb({
           </h2>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
             {active.map((item) => (
-              <ActiveCard key={item.id} item={item} />
+              <ActiveCard key={item.id} item={item} saleBadge={badgeFor(item)} />
             ))}
           </div>
         </>
@@ -135,7 +157,17 @@ function formatPrice(p: string | null | undefined): string | null {
   return `$${n.toFixed(2)}`;
 }
 
-function ActiveCard({ item }: { item: ItemRow }) {
+function saleEndsLabel(endsAt: Date): string {
+  return endsAt.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function ActiveCard({
+  item,
+  saleBadge,
+}: {
+  item: ItemRow;
+  saleBadge: SaleBadge | null;
+}) {
   const urls = getUrls(item);
   const price = formatPrice(item.price);
   const href = productHref(item);
@@ -159,6 +191,12 @@ function ActiveCard({ item }: { item: ItemRow }) {
         <span className="absolute top-2 right-2 bg-brand-yellow text-brand-ink text-xs uppercase tracking-wider font-medium px-2 py-1 rounded shadow-sm">
           Available
         </span>
+        {saleBadge && (
+          <span className="absolute top-2 left-2 bg-red-700 text-white text-xs uppercase tracking-wider font-medium px-2 py-1 rounded shadow-sm">
+            {Math.round(saleBadge.discountPercent)}% off on eBay thru{" "}
+            {saleEndsLabel(saleBadge.endsAt)}
+          </span>
+        )}
       </Link>
       <div className="p-3 flex-1 flex flex-col">
         <Link href={href} className="block group/title">
