@@ -59,17 +59,23 @@ export const socials: LinkEntry[] = [
     handle: "@foundinalabama",
   },
   {
+    name: "Facebook",
+    url: "https://www.facebook.com/profile.php?id=61590344686773",
+    handle: "Found in Alabama",
+  },
+  {
+    name: "Pinterest",
+    url: "https://www.pinterest.com/FoundInAlabama/",
+    handle: "@FoundInAlabama",
+  },
+  {
     name: "Bluesky",
     url: "https://bsky.app/profile/foundinalabama.bsky.social",
     handle: "@foundinalabama.bsky.social",
   },
 ];
 
-export const comingSoonSocials: string[] = [
-  "TikTok",
-  "Facebook",
-  "Pinterest",
-];
+export const comingSoonSocials: string[] = [];
 
 export const contact = {
   phone: "256-684-1253",
