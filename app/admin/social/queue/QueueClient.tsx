@@ -12,7 +12,7 @@ import {
 
 export type DraftRow = {
   id: string;
-  sourceType: "haul" | "item";
+  sourceType: "haul" | "item" | "sale";
   sourceId: string;
   sourceTitle: string;
   sourceImage: string | null;
