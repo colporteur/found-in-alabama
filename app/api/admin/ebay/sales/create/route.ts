@@ -159,7 +159,8 @@ export async function POST(req: NextRequest) {
     name: body.name.slice(0, 90),
     description: (body.description?.trim() || body.name).slice(0, 250),
     marketplaceId: "EBAY_US",
-    promotionStatus: "DRAFT",
+    // SCHEDULED = goes live on its start date with no Seller Hub step.
+    promotionStatus: "SCHEDULED",
     startDate: startDate.toISOString(),
     endDate: endDate.toISOString(),
     promotionImageUrl,
@@ -188,13 +189,11 @@ export async function POST(req: NextRequest) {
       { method: "POST", body: ebayPayload }
     );
 
-    // We create the eBay promotion as DRAFT (safe — drafts never run);
-    // record the same locally. Activating happens in Seller Hub or a
-    // later "activate" round.
+    // Created SCHEDULED — it goes live on its start date automatically.
     await db
       .update(ebaySales)
       .set({
-        status: "DRAFT",
+        status: "SCHEDULED",
         ebayPromotionId: resp.promotionId ?? null,
         updatedAt: new Date(),
       })

@@ -8,6 +8,7 @@ import { ebaySales } from "@/db/schema";
 import { desc } from "drizzle-orm";
 import { getOAuthStatus } from "@/lib/ebay/oauth";
 import SaleTiersPanel from "@/components/SaleTiersPanel";
+import SaleStatusSyncButton from "@/components/SaleStatusSyncButton";
 
 export const dynamic = "force-dynamic";
 
@@ -47,12 +48,15 @@ export default async function SalesDashboardPage() {
             Sales &amp; promotions
           </h1>
         </div>
-        <Link
-          href="/admin/ebay/sales/new"
-          className="bg-brand-ink text-brand-paper text-sm px-4 py-2 rounded hover:bg-brand-ink/90"
-        >
-          New sale
-        </Link>
+        <div className="flex items-center gap-2">
+          <SaleStatusSyncButton />
+          <Link
+            href="/admin/ebay/sales/new"
+            className="bg-brand-ink text-brand-paper text-sm px-4 py-2 rounded hover:bg-brand-ink/90"
+          >
+            New sale
+          </Link>
+        </div>
       </div>
       <p className="text-brand-ink/70 mb-4 max-w-prose">
         Schedule percentage-off sales by store category.
