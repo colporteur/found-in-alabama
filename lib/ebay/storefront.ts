@@ -1,0 +1,181 @@
+// Public storefront data — a browse-by-category view over the local
+// ebay_listings mirror (synced from the eBay store). Powers /shop and
+// /shop/[category].
+//
+// Categories come from ebay_store_categories; item membership and counts
+// come from ebay_listings (a listing belongs to a category if either of
+// its two store-category slots matches). The "Other" bucket — items the
+// categorizer hasn't sorted yet — is surfaced as "New Arrivals" (they
+// genuinely are the newest, uncategorized stock).
+//
+// Every "Buy" link points at the real eBay listing; this is a discovery
+// layer, not a checkout. On-sale badges reuse lib/ebay/active-sales.
+
+import { and, desc, eq, gt, or } from "drizzle-orm";
+import { db } from "@/db";
+import { ebayListings, ebayStoreCategories } from "@/db/schema";
+import { getOnSaleLookup, type SaleBadge } from "@/lib/ebay/active-sales";
+
+export const NEW_ARRIVALS_SLUG = "new-arrivals";
+export const NEW_ARRIVALS_NAME = "New Arrivals";
+
+export type StorefrontCategory = {
+  categoryId: string;
+  name: string;
+  slug: string;
+  count: number;
+  isNewArrivals: boolean;
+};
+
+/** URL-safe slug from a category name. */
+export function slugifyCategory(name: string): string {
+  return name
+    .toLowerCase()
+    .replace(/&/g, "and")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+}
+
+/** In-stock listings only (quantity > 0). */
+function inStock() {
+  return gt(ebayListings.quantity, 0);
+}
+
+/**
+ * All categories that currently have at least one in-stock listing,
+ * with counts. New Arrivals (the Other bucket) is always last.
+ */
+export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
+  const [cats, listingCats] = await Promise.all([
+    db
+      .select({
+        categoryId: ebayStoreCategories.categoryId,
+        name: ebayStoreCategories.name,
+        order: ebayStoreCategories.order,
+        isOtherBucket: ebayStoreCategories.isOtherBucket,
+      })
+      .from(ebayStoreCategories),
+    db
+      .select({
+        itemId: ebayListings.itemId,
+        cat1: ebayListings.storeCategory1Id,
+        cat2: ebayListings.storeCategory2Id,
+      })
+      .from(ebayListings)
+      .where(inStock()),
+  ]);
+
+  // Count distinct in-stock listings per category (either slot).
+  const countById = new Map<string, number>();
+  for (const l of listingCats) {
+    const seen = new Set<string>();
+    if (l.cat1) seen.add(l.cat1);
+    if (l.cat2) seen.add(l.cat2);
+    for (const c of seen) countById.set(c, (countById.get(c) ?? 0) + 1);
+  }
+  const otherId = cats.find((c) => c.isOtherBucket)?.categoryId ?? null;
+
+  // Slug uniqueness: append the id if two categories slugify the same.
+  const slugSeen = new Map<string, number>();
+  const result: StorefrontCategory[] = [];
+  for (const cat of cats) {
+    const isNewArrivals = cat.isOtherBucket;
+    const count = countById.get(cat.categoryId) ?? 0;
+    if (count === 0) continue; // hide empty categories
+    let slug = isNewArrivals ? NEW_ARRIVALS_SLUG : slugifyCategory(cat.name);
+    const seen = slugSeen.get(slug) ?? 0;
+    slugSeen.set(slug, seen + 1);
+    if (seen > 0 && !isNewArrivals) slug = `${slug}-${cat.categoryId}`;
+    result.push({
+      categoryId: cat.categoryId,
+      name: isNewArrivals ? NEW_ARRIVALS_NAME : cat.name,
+      slug,
+      count,
+      isNewArrivals,
+    });
+  }
+
+  // Named categories alphabetical; New Arrivals pinned last.
+  result.sort((a, b) => {
+    if (a.isNewArrivals) return 1;
+    if (b.isNewArrivals) return -1;
+    return a.name.localeCompare(b.name);
+  });
+  // Defensive: if the Other bucket exists but somehow wasn't counted by
+  // category slot, surface it anyway when it has stock.
+  if (otherId && !result.some((r) => r.isNewArrivals)) {
+    const n = countById.get(otherId) ?? 0;
+    if (n > 0) {
+      result.push({
+        categoryId: otherId,
+        name: NEW_ARRIVALS_NAME,
+        slug: NEW_ARRIVALS_SLUG,
+        count: n,
+        isNewArrivals: true,
+      });
+    }
+  }
+  return result;
+}
+
+/** Resolve a URL slug to its category, or null. */
+export async function resolveCategorySlug(
+  slug: string
+): Promise<StorefrontCategory | null> {
+  const cats = await getStorefrontCategories();
+  return cats.find((c) => c.slug === slug) ?? null;
+}
+
+export type StorefrontItem = {
+  itemId: string;
+  title: string;
+  price: string | null;
+  imageUrl: string | null;
+  ebayUrl: string;
+  sale: SaleBadge | null;
+};
+
+/** Listings in one category, newest first, with on-sale badges. */
+export async function getCategoryItems(
+  category: StorefrontCategory,
+  limit = 240
+): Promise<StorefrontItem[]> {
+  const rows = await db
+    .select({
+      itemId: ebayListings.itemId,
+      title: ebayListings.title,
+      price: ebayListings.price,
+      imageUrl: ebayListings.primaryImageUrl,
+      cat1: ebayListings.storeCategory1Id,
+      cat2: ebayListings.storeCategory2Id,
+    })
+    .from(ebayListings)
+    .where(
+      and(
+        inStock(),
+        or(
+          eq(ebayListings.storeCategory1Id, category.categoryId),
+          eq(ebayListings.storeCategory2Id, category.categoryId)
+        )
+      )
+    )
+    .orderBy(desc(ebayListings.startTime))
+    .limit(limit);
+
+  const onSale = await getOnSaleLookup();
+  return rows.map((r) => {
+    const sale =
+      onSale.byListingId.get(r.itemId) ??
+      onSale.byCategoryId.get(category.categoryId) ??
+      null;
+    return {
+      itemId: r.itemId,
+      title: r.title,
+      price: r.price,
+      imageUrl: r.imageUrl,
+      ebayUrl: `https://www.ebay.com/itm/${r.itemId}`,
+      sale,
+    };
+  });
+}

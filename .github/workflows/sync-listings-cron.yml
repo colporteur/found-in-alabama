@@ -1,0 +1,35 @@
+# Weekly storefront inventory sync.
+#
+# Walks the full eBay store into the local listings mirror that powers
+# /shop. The endpoint is budgeted + resumable, so we call it several
+# times in a row (with pauses) to cover the whole store; once a sweep
+# completes the endpoint no-ops, so extra calls are harmless.
+#
+# Uses the same CRON_SECRET repository secret as the other crons.
+
+name: Sync listings cron
+
+on:
+  schedule:
+    - cron: "0 9 * * 1" # Mondays ~3-4am Central
+  workflow_dispatch: {}
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Walk the store in budgeted slices
+        run: |
+          for i in $(seq 1 8); do
+            echo "Sync pass $i"
+            body=$(curl --silent --show-error --fail --max-time 70 \
+              -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+              https://www.foundinalabama.com/api/cron/sync-listings)
+            echo "$body"
+            echo "$body" | grep -q '"sweepComplete":true' && {
+              echo "Sweep complete."
+              break
+            }
+            sleep 5
+          done
