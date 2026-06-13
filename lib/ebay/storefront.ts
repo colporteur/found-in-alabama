@@ -27,6 +27,21 @@ export type StorefrontCategory = {
   isNewArrivals: boolean;
 };
 
+/**
+ * Decode the HTML entities eBay's XML leaves in category names
+ * (e.g. "Books &amp; Ephemera" → "Books & Ephemera") so they render
+ * as real characters.
+ */
+export function decodeEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&apos;/g, "'");
+}
+
 /** URL-safe slug from a category name. */
 export function slugifyCategory(name: string): string {
   return name
@@ -83,13 +98,16 @@ export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
     const isNewArrivals = cat.isOtherBucket;
     const count = countById.get(cat.categoryId) ?? 0;
     if (count === 0) continue; // hide empty categories
-    let slug = isNewArrivals ? NEW_ARRIVALS_SLUG : slugifyCategory(cat.name);
+    const displayName = isNewArrivals
+      ? NEW_ARRIVALS_NAME
+      : decodeEntities(cat.name);
+    let slug = isNewArrivals ? NEW_ARRIVALS_SLUG : slugifyCategory(displayName);
     const seen = slugSeen.get(slug) ?? 0;
     slugSeen.set(slug, seen + 1);
     if (seen > 0 && !isNewArrivals) slug = `${slug}-${cat.categoryId}`;
     result.push({
       categoryId: cat.categoryId,
-      name: isNewArrivals ? NEW_ARRIVALS_NAME : cat.name,
+      name: displayName,
       slug,
       count,
       isNewArrivals,
