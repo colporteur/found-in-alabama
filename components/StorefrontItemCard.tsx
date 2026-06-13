@@ -85,6 +85,22 @@ export default function StorefrontItemCard({ item }: { item: StorefrontItem }) {
           </div>
         </div>
       </a>
+      {item.marketplaceLinks.length > 0 && (
+        <div className="px-3 py-2 border-t border-brand-ink/10 flex flex-wrap items-center gap-1.5">
+          <span className="text-[11px] text-brand-ink/45 mr-0.5">Also on</span>
+          {item.marketplaceLinks.map((m) => (
+            <a
+              key={m.label}
+              href={m.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[11px] px-2 py-0.5 rounded-full bg-brand-paper hover:bg-brand-yellow/30 text-brand-ink/75 hover:text-brand-ink transition-colors"
+            >
+              {m.label}
+            </a>
+          ))}
+        </div>
+      )}
       {item.haulSlug && (
         <Link
           href={`/journal/${item.haulSlug}`}

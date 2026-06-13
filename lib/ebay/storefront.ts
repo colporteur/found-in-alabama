@@ -11,11 +11,22 @@
 // Every "Buy" link points at the real eBay listing; this is a discovery
 // layer, not a checkout. On-sale badges reuse lib/ebay/active-sales.
 
-import { and, desc, eq, gt, isNotNull, or } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { ebayListings, ebayStoreCategories, items } from "@/db/schema";
 import { getOnSaleLookup, type SaleBadge } from "@/lib/ebay/active-sales";
 import { ebayItemIdFromUrl } from "@/lib/ebay/store-url";
+
+/** Other marketplaces we cross-link to (eBay is the card's main link). */
+const OTHER_MARKETPLACES: { key: string; label: string }[] = [
+  { key: "etsy", label: "Etsy" },
+  { key: "poshmark", label: "Poshmark" },
+  { key: "mercari", label: "Mercari" },
+  { key: "depop", label: "Depop" },
+  { key: "whatnot", label: "Whatnot" },
+];
+
+export type MarketplaceLink = { label: string; url: string };
 
 export const NEW_ARRIVALS_SLUG = "new-arrivals";
 export const NEW_ARRIVALS_NAME = "New Arrivals";
@@ -238,27 +249,49 @@ export type StorefrontItem = {
   sale: SaleBadge | null;
   /** Journal post slug when this item came from a documented haul. */
   haulSlug: string | null;
+  /** Links to the same item on other marketplaces (Etsy, Poshmark, …). */
+  marketplaceLinks: MarketplaceLink[];
 };
 
+type ItemMeta = { haulSlug: string | null; marketplaceLinks: MarketplaceLink[] };
+
 /**
- * Map of eBay listing id → haul post slug, for items we captured from a
- * haul. Lets the storefront link a listing back to its "how we got it"
- * story. Built from the items table's marketplaceUrls.ebay.
+ * Map of eBay listing id → { haulSlug, other-marketplace links }, built
+ * from the items table (captured by the Nifty extension). Lets the
+ * storefront link a listing back to its haul story AND show where else
+ * the same item is for sale. Keyed by the eBay item id parsed from each
+ * item's marketplaceUrls.ebay.
+ *
+ * Filtered in SQL to only items that actually carry a haul link or a
+ * non-eBay marketplace, so we don't load the whole table.
  */
-async function getHaulSlugByEbayId(): Promise<Map<string, string>> {
+async function getItemMetaByEbayId(): Promise<Map<string, ItemMeta>> {
   const rows = await db
     .select({
       marketplaceUrls: items.marketplaceUrls,
       haulPostSlug: items.haulPostSlug,
     })
     .from(items)
-    .where(isNotNull(items.haulPostSlug));
-  const map = new Map<string, string>();
+    .where(
+      or(
+        isNotNull(items.haulPostSlug),
+        sql`jsonb_exists_any(${items.marketplaceUrls}, array['etsy','poshmark','mercari','depop','whatnot'])`
+      )
+    );
+  const map = new Map<string, ItemMeta>();
   for (const r of rows) {
-    if (!r.haulPostSlug) continue;
     const urls = (r.marketplaceUrls as Record<string, string>) ?? {};
     const ebayId = ebayItemIdFromUrl(urls.ebay);
-    if (ebayId) map.set(ebayId, r.haulPostSlug);
+    if (!ebayId) continue;
+    const links: MarketplaceLink[] = [];
+    for (const mp of OTHER_MARKETPLACES) {
+      const url = urls[mp.key];
+      if (url) links.push({ label: mp.label, url });
+    }
+    map.set(ebayId, {
+      haulSlug: r.haulPostSlug ?? null,
+      marketplaceLinks: links,
+    });
   }
   return map;
 }
@@ -290,15 +323,16 @@ export async function getCategoryItems(
     .orderBy(desc(ebayListings.startTime))
     .limit(limit);
 
-  const [onSale, haulByEbayId] = await Promise.all([
+  const [onSale, metaByEbayId] = await Promise.all([
     getOnSaleLookup(),
-    getHaulSlugByEbayId(),
+    getItemMetaByEbayId(),
   ]);
   return rows.map((r) => {
     const sale =
       onSale.byListingId.get(r.itemId) ??
       onSale.byCategoryId.get(category.categoryId) ??
       null;
+    const meta = metaByEbayId.get(r.itemId);
     return {
       itemId: r.itemId,
       title: r.title,
@@ -306,7 +340,8 @@ export async function getCategoryItems(
       imageUrl: r.imageUrl,
       ebayUrl: `https://www.ebay.com/itm/${r.itemId}`,
       sale,
-      haulSlug: haulByEbayId.get(r.itemId) ?? null,
+      haulSlug: meta?.haulSlug ?? null,
+      marketplaceLinks: meta?.marketplaceLinks ?? [],
     };
   });
 }
