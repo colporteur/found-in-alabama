@@ -7,28 +7,28 @@ export default function HomePage() {
   const recentPosts = getRecentPosts(3);
   return (
     <>
-      {/* Hero — condensed */}
-      <section className="container-content py-12 md:py-16">
-        <h1 className="font-marker text-5xl md:text-7xl leading-tight mb-5">
+      {/* Hero — compact, lets the journal sit higher */}
+      <section className="container-content pt-8 pb-6 md:pt-10 md:pb-8">
+        <h1 className="font-marker text-3xl md:text-4xl leading-tight mb-3">
           Estate finds, books, and small antiques —{" "}
           <span className="marker-highlight">found in Alabama.</span>
         </h1>
-        <p className="text-xl md:text-2xl font-medium text-brand-ink leading-snug mb-7 max-w-3xl">
+        <p className="text-base md:text-lg text-brand-ink/75 leading-snug mb-5 max-w-2xl">
           If you collect it, we sell it. Come check out what we&rsquo;ve found.
         </p>
         <div className="flex flex-wrap gap-3">
-          <Link href="/we-buy" className="btn-primary">
-            We buy estates &amp; collections →
+          <Link href="/shop" className="btn-primary">
+            Shop the inventory →
           </Link>
-          <Link href="/find-me" className="btn-secondary">
-            Shop the inventory
+          <Link href="/we-buy" className="btn-secondary">
+            We buy estates &amp; collections
           </Link>
         </div>
       </section>
 
       {/* Latest from the journal */}
       {recentPosts.length > 0 && (
-        <section className="container-content py-16">
+        <section className="container-content pt-6 pb-16">
           <div className="flex flex-wrap items-baseline justify-between gap-3 mb-8">
             <div>
               <p className="text-xs uppercase tracking-wider text-brand-earth mb-3">
