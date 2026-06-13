@@ -95,11 +95,13 @@ function renderReadyToSync({ tab, lastSync }) {
   $("#main").innerHTML = `
     <h2>Ready to sync</h2>
     <p>You're viewing the <span class="badge ${filterMode === "sold" ? "sold" : "listed"}">${filterMode}</span> filter.</p>
-    <p class="muted">Click below to scan every item on this page, capture title + marketplace links + private notes, and send the batch to Found in Alabama.</p>
+    <p class="muted">Capture this page, or walk every page of this filter automatically and capture all of them.</p>
     <div class="row" style="margin-top:12px">
-      <button class="primary" id="sync">Sync this page</button>
+      <button class="primary" id="sync-all">Sync ALL pages</button>
       <div class="spacer"></div>
+      <button class="secondary tiny" id="sync">This page only</button>
     </div>
+    <div id="progress" class="muted" style="margin-top:10px"></div>
     <div id="result"></div>
     ${
       lastSync
@@ -108,6 +110,7 @@ function renderReadyToSync({ tab, lastSync }) {
     }
   `;
   $("#sync").addEventListener("click", () => doSync(tab));
+  $("#sync-all").addEventListener("click", () => doSyncAll(tab));
   setFooter(true);
 }
 
@@ -206,7 +209,171 @@ async function doSync(tab) {
 
 function resetButton(btn) {
   btn.disabled = false;
-  btn.textContent = "Sync this page";
+  btn.textContent = "This page only";
+}
+
+// ─── Bulk sync: walk every page of the current filter ────────────────────────
+//
+// Loop: scrape current page → POST → if there's a next page, click it,
+// wait for the grid to swap in new rows, pace, repeat. Gentle pacing
+// keeps it human-ish across ~240 pages.
+
+const PAGE_PACING_MS = 1800; // pause between pages
+const PAGE_CHANGE_TIMEOUT_MS = 12000; // max wait for a page to re-render
+
+async function doSyncAll(tab) {
+  const allBtn = $("#sync-all");
+  const pageBtn = $("#sync");
+  allBtn.disabled = true;
+  pageBtn.disabled = true;
+  $("#result").innerHTML = "";
+
+  const { apiKey, endpoint } = await chrome.storage.local.get([
+    "apiKey",
+    "endpoint",
+  ]);
+  const url = (endpoint || DEFAULT_ENDPOINT) + "/api/admin/items/capture";
+
+  const totals = { pages: 0, upserted: 0, linkedToHaul: 0, markedSold: 0, errors: 0 };
+  let cancelled = false;
+  const onCancel = () => {
+    cancelled = true;
+  };
+
+  function setProgress(msg) {
+    $("#progress").innerHTML = `${escapeHtml(msg)} <a id="cancel-all" style="margin-left:8px">Stop</a>`;
+    const c = document.getElementById("cancel-all");
+    if (c) c.addEventListener("click", onCancel);
+  }
+
+  try {
+    for (let page = 1; page <= 400; page++) {
+      if (cancelled) break;
+
+      // 1. Scrape the current page.
+      let scrape;
+      try {
+        const [res] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: "MAIN",
+          func: scrapeNiftyInventoryPage,
+        });
+        scrape = res?.result;
+      } catch (err) {
+        renderError(`Scraper failed on page ${page}: ${err.message}`);
+        break;
+      }
+
+      const items = scrape?.items ?? [];
+      const pageInfo = scrape?.pageInfo ?? {};
+      setProgress(
+        `Page ${page}${pageInfo.label ? " · " + pageInfo.label : ""} — ${items.length} items… (${totals.upserted} captured so far)`
+      );
+
+      // 2. POST this page's items.
+      if (items.length > 0) {
+        try {
+          const res = await fetch(url, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({ filterMode: scrape.filterMode, items }),
+          });
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body.error ?? `HTTP ${res.status}`);
+          }
+          const r = await res.json();
+          totals.pages += 1;
+          totals.upserted += r.upserted ?? 0;
+          totals.linkedToHaul += r.linkedToHaul ?? 0;
+          totals.markedSold += r.markedSold ?? 0;
+          totals.errors += (r.errors?.length ?? 0);
+        } catch (err) {
+          renderError(`Upload failed on page ${page}: ${err.message}. Captured ${totals.upserted} before stopping.`);
+          break;
+        }
+      }
+
+      // 3. Advance to the next page, or finish.
+      if (!pageInfo.hasNext) {
+        break;
+      }
+      const prevFirstId = pageInfo.firstId ?? null;
+      let clicked;
+      try {
+        const [res] = await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: "MAIN",
+          func: clickNextNiftyPage,
+        });
+        clicked = res?.result;
+      } catch (err) {
+        renderError(`Could not click next page after page ${page}: ${err.message}`);
+        break;
+      }
+      if (!clicked?.clicked) break;
+
+      // 4. Wait for the grid to actually swap to the next page.
+      const changed = await waitForPageChange(tab, prevFirstId);
+      if (!changed) {
+        renderError(`Page ${page + 1} didn't load in time. Captured ${totals.upserted} items. Re-run to continue.`);
+        break;
+      }
+
+      // 5. Gentle pacing.
+      await sleep(PAGE_PACING_MS);
+    }
+  } finally {
+    await chrome.storage.local.set({
+      lastSync: {
+        at: new Date().toISOString(),
+        upserted: totals.upserted,
+        linkedToHaul: totals.linkedToHaul,
+        markedSold: totals.markedSold,
+      },
+    });
+    $("#progress").innerHTML = "";
+    renderResult({
+      upserted: totals.upserted,
+      linkedToHaul: totals.linkedToHaul,
+      markedSold: totals.markedSold,
+      errors: totals.errors ? [{ error: `${totals.errors} item(s) had issues` }] : [],
+    });
+    const note = document.createElement("p");
+    note.className = "muted";
+    note.style.marginTop = "8px";
+    note.textContent = `${cancelled ? "Stopped" : "Finished"} after ${totals.pages} page(s).`;
+    $("#result").appendChild(note);
+    allBtn.disabled = false;
+    pageBtn.disabled = false;
+  }
+}
+
+/** Poll the page until the first row id differs from prevFirstId. */
+async function waitForPageChange(tab, prevFirstId) {
+  const deadline = Date.now() + PAGE_CHANGE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await sleep(400);
+    try {
+      const [res] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN",
+        func: scrapeNiftyInventoryPage,
+      });
+      const firstId = res?.result?.pageInfo?.firstId ?? null;
+      if (firstId && firstId !== prevFirstId) return true;
+    } catch {
+      // keep polling
+    }
+  }
+  return false;
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
 // ─── Scraper (runs in MAIN world) ────────────────────────────────────────────
@@ -310,10 +477,60 @@ function scrapeNiftyInventoryPage() {
     return null;
   }
 
+  // Pagination signature: the MUI pager's "x–y of z" label, whether a
+  // next page exists, and the first row's id (so the popup can detect
+  // when a page-change has actually rendered).
+  function readPageInfo() {
+    let label = null;
+    const displayedRows = document.querySelector(".MuiTablePagination-displayedRows");
+    if (displayedRows) label = displayedRows.textContent.trim();
+
+    // The "next page" button: MUI uses aria-label/title "Go to next page".
+    let nextBtn =
+      document.querySelector('button[aria-label="Go to next page"]') ||
+      document.querySelector('button[title="Go to next page"]') ||
+      document.querySelector('[data-testid="KeyboardArrowRightIcon"]')?.closest("button");
+    const hasNext = !!nextBtn && !nextBtn.disabled;
+
+    const firstRow = document.querySelector("tr.MuiTableRow-root");
+    let firstId = null;
+    if (firstRow) {
+      const fb = findFiber(firstRow);
+      let f = fb;
+      let d = 0;
+      while (f && d < 12) {
+        const p = f.memoizedProps;
+        const c = p?.row?.row ?? p?.row ?? p?.item ?? p?.listing;
+        if (c && typeof c.id === "string") {
+          firstId = c.id;
+          break;
+        }
+        f = f.return;
+        d++;
+      }
+    }
+    return { label, hasNext, firstId };
+  }
+
   return {
     filterMode,
     items: Array.from(byId.values()),
+    pageInfo: readPageInfo(),
   };
+}
+
+// Click Nifty's "next page" button (MAIN world, self-contained).
+function clickNextNiftyPage() {
+  const btn =
+    document.querySelector('button[aria-label="Go to next page"]') ||
+    document.querySelector('button[title="Go to next page"]') ||
+    (document.querySelector('[data-testid="KeyboardArrowRightIcon"]') &&
+      document
+        .querySelector('[data-testid="KeyboardArrowRightIcon"]')
+        .closest("button"));
+  if (!btn || btn.disabled) return { clicked: false };
+  btn.click();
+  return { clicked: true };
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
