@@ -361,7 +361,18 @@ function normalizeListing(item: unknown): NormalizedListing {
     siteCategoryName:
       primaryCat.CategoryName != null ? String(primaryCat.CategoryName) : null,
     listingType: i.ListingType != null ? String(i.ListingType) : null,
-    quantity: i.Quantity != null ? Number(i.Quantity) : null,
+    // Available = Quantity − QuantitySold, so sold-out-but-still-active
+    // listings read as 0 and drop out of storefront/categorizer filters.
+    quantity:
+      i.Quantity != null
+        ? Math.max(
+            0,
+            Number(i.Quantity) -
+              (sellingStatus.QuantitySold != null
+                ? Number(sellingStatus.QuantitySold)
+                : 0)
+          )
+        : null,
     price:
       sellingStatus.CurrentPrice != null
         ? String(

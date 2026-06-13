@@ -26,6 +26,16 @@ export type StorefrontCategory = {
   slug: string;
   count: number;
   isNewArrivals: boolean;
+  parentCategoryId: string | null;
+  /** In-stock items in this category currently on sale. */
+  onSaleCount: number;
+  /** True when an active sale covers the whole category. */
+  wholeCategoryOnSale: boolean;
+};
+
+/** A top-level category plus any child categories nested under it. */
+export type StorefrontCategoryGroup = StorefrontCategory & {
+  children: StorefrontCategory[];
 };
 
 /**
@@ -63,12 +73,13 @@ function inStock() {
  * with counts. New Arrivals (the Other bucket) is always last.
  */
 export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
-  const [cats, listingCats] = await Promise.all([
+  const [cats, listingCats, onSale] = await Promise.all([
     db
       .select({
         categoryId: ebayStoreCategories.categoryId,
         name: ebayStoreCategories.name,
         order: ebayStoreCategories.order,
+        parentCategoryId: ebayStoreCategories.parentCategoryId,
         isOtherBucket: ebayStoreCategories.isOtherBucket,
       })
       .from(ebayStoreCategories),
@@ -80,15 +91,25 @@ export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
       })
       .from(ebayListings)
       .where(inStock()),
+    getOnSaleLookup(),
   ]);
 
-  // Count distinct in-stock listings per category (either slot).
+  // Count distinct in-stock listings per category (either slot), and how
+  // many of those are currently on sale (by listing id, or because the
+  // whole category is on sale).
   const countById = new Map<string, number>();
+  const onSaleCountById = new Map<string, number>();
   for (const l of listingCats) {
     const seen = new Set<string>();
     if (l.cat1) seen.add(l.cat1);
     if (l.cat2) seen.add(l.cat2);
-    for (const c of seen) countById.set(c, (countById.get(c) ?? 0) + 1);
+    const itemOnSaleByListing = onSale.byListingId.has(l.itemId);
+    for (const c of seen) {
+      countById.set(c, (countById.get(c) ?? 0) + 1);
+      if (itemOnSaleByListing || onSale.byCategoryId.has(c)) {
+        onSaleCountById.set(c, (onSaleCountById.get(c) ?? 0) + 1);
+      }
+    }
   }
   const otherId = cats.find((c) => c.isOtherBucket)?.categoryId ?? null;
 
@@ -112,6 +133,9 @@ export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
       slug,
       count,
       isNewArrivals,
+      parentCategoryId: cat.parentCategoryId,
+      onSaleCount: onSaleCountById.get(cat.categoryId) ?? 0,
+      wholeCategoryOnSale: onSale.byCategoryId.has(cat.categoryId),
     });
   }
 
@@ -132,10 +156,52 @@ export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
         slug: NEW_ARRIVALS_SLUG,
         count: n,
         isNewArrivals: true,
+        parentCategoryId: null,
+        onSaleCount: onSaleCountById.get(otherId) ?? 0,
+        wholeCategoryOnSale: onSale.byCategoryId.has(otherId),
       });
     }
   }
   return result;
+}
+
+/**
+ * Categories nested into top-level groups with their children. A parent
+ * with no direct stock still appears if any child has stock. New
+ * Arrivals is pinned last.
+ */
+export async function getStorefrontCategoryTree(): Promise<
+  StorefrontCategoryGroup[]
+> {
+  const flat = await getStorefrontCategories();
+  const byId = new Map(flat.map((c) => [c.categoryId, c]));
+  const childrenByParent = new Map<string, StorefrontCategory[]>();
+  const topLevel: StorefrontCategory[] = [];
+
+  for (const cat of flat) {
+    const parentExists =
+      cat.parentCategoryId != null && byId.has(cat.parentCategoryId);
+    if (parentExists) {
+      const arr = childrenByParent.get(cat.parentCategoryId!) ?? [];
+      arr.push(cat);
+      childrenByParent.set(cat.parentCategoryId!, arr);
+    } else {
+      topLevel.push(cat);
+    }
+  }
+
+  const groups: StorefrontCategoryGroup[] = topLevel.map((cat) => ({
+    ...cat,
+    children: (childrenByParent.get(cat.categoryId) ?? []).sort((a, b) =>
+      a.name.localeCompare(b.name)
+    ),
+  }));
+  groups.sort((a, b) => {
+    if (a.isNewArrivals) return 1;
+    if (b.isNewArrivals) return -1;
+    return a.name.localeCompare(b.name);
+  });
+  return groups;
 }
 
 /** Resolve a URL slug to its category, or null. */

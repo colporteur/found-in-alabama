@@ -103,6 +103,18 @@ function normalizeListing(item: unknown): NormalizedListing {
     if (!Number.isNaN(d.getTime())) startTime = d;
   }
 
+  // Available quantity = listed Quantity − QuantitySold. eBay keeps a
+  // sold-out single-quantity listing "active" until its end time, so
+  // storing AVAILABLE (not total) quantity lets the storefront's
+  // quantity>0 filter drop sold items.
+  const totalQty = i.Quantity != null ? Number(i.Quantity) : null;
+  const qtySold =
+    sellingStatus.QuantitySold != null
+      ? Number(sellingStatus.QuantitySold)
+      : 0;
+  const available =
+    totalQty != null ? Math.max(0, totalQty - qtySold) : null;
+
   return {
     itemId: String(i.ItemID ?? ""),
     sku: i.SKU != null ? String(i.SKU) : null,
@@ -119,7 +131,7 @@ function normalizeListing(item: unknown): NormalizedListing {
     siteCategoryName:
       primaryCat.CategoryName != null ? String(primaryCat.CategoryName) : null,
     listingType: i.ListingType != null ? String(i.ListingType) : null,
-    quantity: i.Quantity != null ? Number(i.Quantity) : null,
+    quantity: available,
     price:
       sellingStatus.CurrentPrice != null
         ? String(

@@ -1,9 +1,13 @@
-// Storefront index — browse the eBay store by category. Each category
-// links to its item grid; counts come from the local listings mirror.
+// Storefront index — browse the eBay store by category, grouped into
+// parent/child sections. Counts and live-sale indicators come from the
+// local listings mirror + active sales.
 
 import type { Metadata } from "next";
 import Link from "next/link";
-import { getStorefrontCategories } from "@/lib/ebay/storefront";
+import {
+  getStorefrontCategoryTree,
+  type StorefrontCategory,
+} from "@/lib/ebay/storefront";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,9 +18,30 @@ export const metadata: Metadata = {
     "Browse Found in Alabama's estate finds, vintage, books, ephemera, and small antiques by category. Every item links straight to its eBay listing.",
 };
 
+function SaleNote({ cat }: { cat: StorefrontCategory }) {
+  if (cat.wholeCategoryOnSale) {
+    return (
+      <span className="inline-block mt-1 text-xs font-medium text-red-700">
+        Entire category on sale now
+      </span>
+    );
+  }
+  if (cat.onSaleCount > 0) {
+    return (
+      <span className="inline-block mt-1 text-xs font-medium text-red-700">
+        {cat.onSaleCount} {cat.onSaleCount === 1 ? "item" : "items"} on sale now
+      </span>
+    );
+  }
+  return null;
+}
+
 export default async function ShopIndexPage() {
-  const categories = await getStorefrontCategories();
-  const totalItems = categories.reduce((sum, c) => sum + c.count, 0);
+  const groups = await getStorefrontCategoryTree();
+  const totalItems = groups.reduce(
+    (sum, g) => sum + g.count + g.children.reduce((s, c) => s + c.count, 0),
+    0
+  );
 
   return (
     <section className="container-content py-16">
@@ -28,11 +53,11 @@ export default async function ShopIndexPage() {
       </h1>
       <p className="text-lg text-brand-ink/80 max-w-prose leading-relaxed mb-10">
         {totalItems > 0
-          ? `${totalItems.toLocaleString()} pieces across ${categories.length} categories. Pick a shelf to dig through — every item links straight to its eBay listing.`
+          ? `${totalItems.toLocaleString()} pieces across the shelves. Pick a category to dig through — every item links straight to its eBay listing.`
           : "Inventory is syncing — check back shortly."}
       </p>
 
-      {categories.length === 0 ? (
+      {groups.length === 0 ? (
         <div className="bg-white border border-dashed border-brand-ink/20 rounded-lg p-12 text-center">
           <p className="font-marker text-2xl text-brand-ink/40 mb-1">
             Nothing to show yet.
@@ -43,24 +68,66 @@ export default async function ShopIndexPage() {
         </div>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {categories.map((cat) => (
-            <Link
-              key={cat.categoryId}
-              href={`/shop/${cat.slug}`}
-              className="group block border border-brand-ink/15 rounded-lg p-5 hover:border-brand-yellow hover:bg-brand-yellow/10 transition-colors"
+          {groups.map((group) => (
+            <div
+              key={group.categoryId}
+              className="border border-brand-ink/15 rounded-lg p-5 bg-white"
             >
-              <div className="flex items-baseline justify-between gap-3">
-                <p className="font-marker text-2xl leading-tight">{cat.name}</p>
-                <span className="text-sm text-brand-ink/60 group-hover:text-brand-ink transition-colors whitespace-nowrap">
-                  {cat.count} →
+              {group.count > 0 ? (
+                <Link
+                  href={`/shop/${group.slug}`}
+                  className="group/cat block hover:text-brand-yellow-dark transition-colors"
+                >
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="font-sans font-semibold text-lg leading-tight tracking-tight">
+                      {group.name}
+                    </span>
+                    <span className="text-sm text-brand-ink/55 whitespace-nowrap">
+                      {group.count} →
+                    </span>
+                  </div>
+                  <SaleNote cat={group} />
+                </Link>
+              ) : (
+                <span className="font-sans font-semibold text-lg leading-tight tracking-tight text-brand-ink/70">
+                  {group.name}
                 </span>
-              </div>
-              {cat.isNewArrivals && (
-                <p className="text-sm text-brand-ink/60 mt-1">
-                  Freshly listed, not yet sorted into a category.
+              )}
+
+              {group.isNewArrivals && (
+                <p className="text-sm text-brand-ink/55 mt-1">
+                  Freshly listed, not yet sorted.
                 </p>
               )}
-            </Link>
+
+              {group.children.length > 0 && (
+                <ul className="mt-3 pt-3 border-t border-brand-ink/10 space-y-1.5">
+                  {group.children.map((child) => (
+                    <li key={child.categoryId}>
+                      <Link
+                        href={`/shop/${child.slug}`}
+                        className="flex items-baseline justify-between gap-3 text-sm text-brand-ink/80 hover:text-brand-yellow-dark transition-colors"
+                      >
+                        <span>
+                          {child.name}
+                          {(child.wholeCategoryOnSale ||
+                            child.onSaleCount > 0) && (
+                            <span className="ml-2 text-xs font-medium text-red-700">
+                              {child.wholeCategoryOnSale
+                                ? "· on sale"
+                                : `· ${child.onSaleCount} on sale`}
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-brand-ink/45 whitespace-nowrap">
+                          {child.count}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
           ))}
         </div>
       )}
