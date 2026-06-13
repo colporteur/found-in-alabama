@@ -11,10 +11,11 @@
 // Every "Buy" link points at the real eBay listing; this is a discovery
 // layer, not a checkout. On-sale badges reuse lib/ebay/active-sales.
 
-import { and, desc, eq, gt, or } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, or } from "drizzle-orm";
 import { db } from "@/db";
-import { ebayListings, ebayStoreCategories } from "@/db/schema";
+import { ebayListings, ebayStoreCategories, items } from "@/db/schema";
 import { getOnSaleLookup, type SaleBadge } from "@/lib/ebay/active-sales";
+import { ebayItemIdFromUrl } from "@/lib/ebay/store-url";
 
 export const NEW_ARRIVALS_SLUG = "new-arrivals";
 export const NEW_ARRIVALS_NAME = "New Arrivals";
@@ -152,7 +153,32 @@ export type StorefrontItem = {
   imageUrl: string | null;
   ebayUrl: string;
   sale: SaleBadge | null;
+  /** Journal post slug when this item came from a documented haul. */
+  haulSlug: string | null;
 };
+
+/**
+ * Map of eBay listing id → haul post slug, for items we captured from a
+ * haul. Lets the storefront link a listing back to its "how we got it"
+ * story. Built from the items table's marketplaceUrls.ebay.
+ */
+async function getHaulSlugByEbayId(): Promise<Map<string, string>> {
+  const rows = await db
+    .select({
+      marketplaceUrls: items.marketplaceUrls,
+      haulPostSlug: items.haulPostSlug,
+    })
+    .from(items)
+    .where(isNotNull(items.haulPostSlug));
+  const map = new Map<string, string>();
+  for (const r of rows) {
+    if (!r.haulPostSlug) continue;
+    const urls = (r.marketplaceUrls as Record<string, string>) ?? {};
+    const ebayId = ebayItemIdFromUrl(urls.ebay);
+    if (ebayId) map.set(ebayId, r.haulPostSlug);
+  }
+  return map;
+}
 
 /** Listings in one category, newest first, with on-sale badges. */
 export async function getCategoryItems(
@@ -181,7 +207,10 @@ export async function getCategoryItems(
     .orderBy(desc(ebayListings.startTime))
     .limit(limit);
 
-  const onSale = await getOnSaleLookup();
+  const [onSale, haulByEbayId] = await Promise.all([
+    getOnSaleLookup(),
+    getHaulSlugByEbayId(),
+  ]);
   return rows.map((r) => {
     const sale =
       onSale.byListingId.get(r.itemId) ??
@@ -194,6 +223,7 @@ export async function getCategoryItems(
       imageUrl: r.imageUrl,
       ebayUrl: `https://www.ebay.com/itm/${r.itemId}`,
       sale,
+      haulSlug: haulByEbayId.get(r.itemId) ?? null,
     };
   });
 }
