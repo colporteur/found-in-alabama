@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 
 type DraftResult = {
@@ -43,6 +43,20 @@ export default function DraftPage() {
   const [copied, setCopied] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+
+  // Prefill from Sale Finder's "Send to FIA" button (query params on /admin/draft)
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const ctx = p.get("context");
+    if (ctx) setAcquisitionContext(ctx);
+    const c = p.get("city");
+    if (c) setCity(c);
+    const st = p.get("state");
+    if (st) setStateName(st);
+    const u = p.get("url");
+    if (u) setContextUrl(u);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   function readImageFile(file: File): Promise<ImageData> {
     return new Promise((resolve, reject) => {
