@@ -31,6 +31,8 @@ export type StorefrontCategory = {
   onSaleCount: number;
   /** True when an active sale covers the whole category. */
   wholeCategoryOnSale: boolean;
+  /** Representative thumbnail (newest in-stock item in the category). */
+  imageUrl: string | null;
 };
 
 /** A top-level category plus any child categories nested under it. */
@@ -88,26 +90,33 @@ export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
         itemId: ebayListings.itemId,
         cat1: ebayListings.storeCategory1Id,
         cat2: ebayListings.storeCategory2Id,
+        imageUrl: ebayListings.primaryImageUrl,
+        startTime: ebayListings.startTime,
       })
       .from(ebayListings)
       .where(inStock()),
     getOnSaleLookup(),
   ]);
 
-  // Count distinct in-stock listings per category (either slot), and how
-  // many of those are currently on sale (by listing id, or because the
-  // whole category is on sale).
+  // Per category: count, on-sale count, and a representative image
+  // (newest in-stock item that has a photo).
   const countById = new Map<string, number>();
   const onSaleCountById = new Map<string, number>();
+  const repImageById = new Map<string, { t: number; url: string }>();
   for (const l of listingCats) {
     const seen = new Set<string>();
     if (l.cat1) seen.add(l.cat1);
     if (l.cat2) seen.add(l.cat2);
     const itemOnSaleByListing = onSale.byListingId.has(l.itemId);
+    const t = l.startTime ? new Date(l.startTime).getTime() : 0;
     for (const c of seen) {
       countById.set(c, (countById.get(c) ?? 0) + 1);
       if (itemOnSaleByListing || onSale.byCategoryId.has(c)) {
         onSaleCountById.set(c, (onSaleCountById.get(c) ?? 0) + 1);
+      }
+      if (l.imageUrl) {
+        const cur = repImageById.get(c);
+        if (!cur || t > cur.t) repImageById.set(c, { t, url: l.imageUrl });
       }
     }
   }
@@ -123,6 +132,9 @@ export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
     const displayName = isNewArrivals
       ? NEW_ARRIVALS_NAME
       : decodeEntities(cat.name);
+    // The Other bucket owns the "New Arrivals" name — never show a second
+    // real category by that name (e.g. a stale, since-deleted eBay one).
+    if (!isNewArrivals && displayName === NEW_ARRIVALS_NAME) continue;
     let slug = isNewArrivals ? NEW_ARRIVALS_SLUG : slugifyCategory(displayName);
     const seen = slugSeen.get(slug) ?? 0;
     slugSeen.set(slug, seen + 1);
@@ -136,6 +148,7 @@ export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
       parentCategoryId: cat.parentCategoryId,
       onSaleCount: onSaleCountById.get(cat.categoryId) ?? 0,
       wholeCategoryOnSale: onSale.byCategoryId.has(cat.categoryId),
+      imageUrl: repImageById.get(cat.categoryId)?.url ?? null,
     });
   }
 
@@ -159,6 +172,7 @@ export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
         parentCategoryId: null,
         onSaleCount: onSaleCountById.get(otherId) ?? 0,
         wholeCategoryOnSale: onSale.byCategoryId.has(otherId),
+        imageUrl: repImageById.get(otherId)?.url ?? null,
       });
     }
   }
@@ -190,12 +204,15 @@ export async function getStorefrontCategoryTree(): Promise<
     }
   }
 
-  const groups: StorefrontCategoryGroup[] = topLevel.map((cat) => ({
-    ...cat,
-    children: (childrenByParent.get(cat.categoryId) ?? []).sort((a, b) =>
+  const groups: StorefrontCategoryGroup[] = topLevel.map((cat) => {
+    const children = (childrenByParent.get(cat.categoryId) ?? []).sort((a, b) =>
       a.name.localeCompare(b.name)
-    ),
-  }));
+    );
+    // A parent with no direct photo borrows its first child's.
+    const imageUrl =
+      cat.imageUrl ?? children.find((c) => c.imageUrl)?.imageUrl ?? null;
+    return { ...cat, imageUrl, children };
+  });
   groups.sort((a, b) => {
     if (a.isNewArrivals) return 1;
     if (b.isNewArrivals) return -1;
