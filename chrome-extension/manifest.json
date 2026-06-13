@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Found in Alabama — Nifty Sync",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Captures items from your Nifty.ai inventory — one page or all pages automatically — and links them to Found in Alabama haul posts via the private-notes haul-slug convention.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": [

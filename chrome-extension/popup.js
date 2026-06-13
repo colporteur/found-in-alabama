@@ -477,26 +477,44 @@ function scrapeNiftyInventoryPage() {
     return null;
   }
 
-  // Pagination signature: the MUI pager's "x–y of z" label, whether a
-  // next page exists, and the first row's id (so the popup can detect
-  // when a page-change has actually rendered).
+  // Pagination signature for Nifty's custom pager: a 3-button group
+  //   [‹ prev] [ "N of M" ] [next ›]
+  // The arrow buttons have no aria-label/title/text, so we anchor on the
+  // middle "N of M" indicator button and read its siblings. Returns the
+  // "Viewing x-y of z" label, whether a next page exists, and the first
+  // DATA row's id (so the popup can tell when the page actually changed).
   function readPageInfo() {
     let label = null;
-    const displayedRows = document.querySelector(".MuiTablePagination-displayedRows");
-    if (displayedRows) label = displayedRows.textContent.trim();
+    const viewing = Array.from(
+      document.querySelectorAll("p, span, div")
+    ).find(
+      (e) => /Viewing\s+\d+/.test(e.textContent || "") && e.children.length === 0
+    );
+    if (viewing) label = viewing.textContent.trim();
 
-    // The "next page" button: MUI uses aria-label/title "Go to next page".
-    let nextBtn =
-      document.querySelector('button[aria-label="Go to next page"]') ||
-      document.querySelector('button[title="Go to next page"]') ||
-      document.querySelector('[data-testid="KeyboardArrowRightIcon"]')?.closest("button");
-    const hasNext = !!nextBtn && !nextBtn.disabled;
+    const indicator = Array.from(document.querySelectorAll("button")).find((b) =>
+      /^\s*\d+\s+of\s+\d+\s*$/.test((b.textContent || "").trim())
+    );
+    let hasNext = false;
+    if (indicator) {
+      if (!label) label = indicator.textContent.trim();
+      const m = indicator.textContent.trim().match(/^(\d+)\s+of\s+(\d+)$/);
+      const sibs = Array.from(indicator.parentElement.querySelectorAll("button"));
+      const idx = sibs.indexOf(indicator);
+      const next = sibs[idx + 1] || null;
+      const nextEnabled =
+        !!next &&
+        !next.disabled &&
+        next.getAttribute("aria-disabled") !== "true";
+      hasNext = m
+        ? nextEnabled && parseInt(m[1], 10) < parseInt(m[2], 10)
+        : nextEnabled;
+    }
 
-    const firstRow = document.querySelector("tr.MuiTableRow-root");
+    // First data row's id (skip header / id-less rows).
     let firstId = null;
-    if (firstRow) {
-      const fb = findFiber(firstRow);
-      let f = fb;
+    for (const tr of document.querySelectorAll("tr.MuiTableRow-root")) {
+      let f = findFiber(tr);
       let d = 0;
       while (f && d < 12) {
         const p = f.memoizedProps;
@@ -508,6 +526,7 @@ function scrapeNiftyInventoryPage() {
         f = f.return;
         d++;
       }
+      if (firstId) break;
     }
     return { label, hasNext, firstId };
   }
@@ -519,17 +538,19 @@ function scrapeNiftyInventoryPage() {
   };
 }
 
-// Click Nifty's "next page" button (MAIN world, self-contained).
+// Click Nifty's next-page button (MAIN world, self-contained). The next
+// button is the one immediately after the "N of M" indicator button.
 function clickNextNiftyPage() {
-  const btn =
-    document.querySelector('button[aria-label="Go to next page"]') ||
-    document.querySelector('button[title="Go to next page"]') ||
-    (document.querySelector('[data-testid="KeyboardArrowRightIcon"]') &&
-      document
-        .querySelector('[data-testid="KeyboardArrowRightIcon"]')
-        .closest("button"));
-  if (!btn || btn.disabled) return { clicked: false };
-  btn.click();
+  const indicator = Array.from(document.querySelectorAll("button")).find((b) =>
+    /^\s*\d+\s+of\s+\d+\s*$/.test((b.textContent || "").trim())
+  );
+  if (!indicator) return { clicked: false, reason: "no-indicator" };
+  const sibs = Array.from(indicator.parentElement.querySelectorAll("button"));
+  const next = sibs[sibs.indexOf(indicator) + 1] || null;
+  if (!next || next.disabled || next.getAttribute("aria-disabled") === "true") {
+    return { clicked: false, reason: "no-next" };
+  }
+  next.click();
   return { clicked: true };
 }
 
