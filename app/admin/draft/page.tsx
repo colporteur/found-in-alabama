@@ -58,42 +58,91 @@ export default function DraftPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function readImageFile(file: File): Promise<ImageData> {
+  // Read the file as a data URL — used as the first step for both the
+  // compression path AND the GIF passthrough.
+  function readAsDataUrl(file: File): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
-      reader.onerror = () => {
+      reader.onerror = () =>
         reject(
           new Error(
             "Could not read the selected image. Try again, and don't switch apps between picking the file and the read finishing."
           )
         );
-      };
-      reader.onload = () => {
-        const dataUrl = reader.result as string;
-        const match = dataUrl.match(/^data:(.+);base64,(.+)$/);
-        if (!match) {
-          reject(new Error("Could not parse the image data."));
-          return;
-        }
-        const [, mediaType, base64] = match;
-        const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
-        if (!allowedTypes.includes(mediaType)) {
-          reject(
-            new Error(
-              `Image type ${mediaType} not supported. Use JPG, PNG, WebP, or GIF.`
-            )
-          );
-          return;
-        }
-        resolve({
-          base64,
-          mediaType,
-          previewUrl: dataUrl,
-          fileName: file.name,
-        });
-      };
+      reader.onload = () => resolve(reader.result as string);
       reader.readAsDataURL(file);
     });
+  }
+
+  // Load a data URL into an HTMLImageElement so we can draw it onto a
+  // canvas for compression.
+  function dataUrlToImage(dataUrl: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => reject(new Error("Image decode failed."));
+      img.src = dataUrl;
+    });
+  }
+
+  // Resize + re-encode a photo to keep Vercel's 4.5 MB request body
+  // limit happy. Phone photos arrive at 4–12 MB; after this they're
+  // ~200–400 KB at 1280px long edge and JPEG quality 0.82. GIFs are
+  // preserved as-is so we don't lose animation.
+  async function readImageFile(file: File): Promise<ImageData> {
+    const dataUrl = await readAsDataUrl(file);
+    const match = dataUrl.match(/^data:(.+);base64,(.+)$/);
+    if (!match) throw new Error("Could not parse the image data.");
+    const [, srcMediaType] = match;
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+    if (!allowedTypes.includes(srcMediaType)) {
+      throw new Error(
+        `Image type ${srcMediaType} not supported. Use JPG, PNG, WebP, or GIF.`
+      );
+    }
+    // GIFs: skip canvas re-encode so animated frames survive.
+    if (srcMediaType === "image/gif") {
+      const [, , base64] = match;
+      return {
+        base64,
+        mediaType: srcMediaType,
+        previewUrl: dataUrl,
+        fileName: file.name,
+      };
+    }
+
+    const img = await dataUrlToImage(dataUrl);
+    const MAX_DIM = 1280;
+    const scale = Math.min(1, MAX_DIM / Math.max(img.width, img.height));
+    const w = Math.max(1, Math.round(img.width * scale));
+    const h = Math.max(1, Math.round(img.height * scale));
+
+    const canvas = document.createElement("canvas");
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) {
+      // Canvas unavailable — fall back to original (better than failing
+      // outright; user may still squeak under the 413 limit).
+      const [, , base64] = match;
+      return {
+        base64,
+        mediaType: srcMediaType,
+        previewUrl: dataUrl,
+        fileName: file.name,
+      };
+    }
+    ctx.drawImage(img, 0, 0, w, h);
+    const newDataUrl = canvas.toDataURL("image/jpeg", 0.82);
+    const newMatch = newDataUrl.match(/^data:(.+);base64,(.+)$/);
+    if (!newMatch) throw new Error("Could not encode compressed image.");
+    const [, mediaType, base64] = newMatch;
+    return {
+      base64,
+      mediaType,
+      previewUrl: newDataUrl,
+      fileName: file.name,
+    };
   }
 
   async function appendFiles(
@@ -142,6 +191,23 @@ export default function DraftPage() {
     const [moved] = next.splice(index, 1);
     next.unshift(moved);
     setter(next);
+  }
+
+  // Move a context photo into the hero list at position 0 (so it becomes
+  // the public hero image). The hero cap still applies — if we're at max,
+  // surface an error instead of dropping anything.
+  function promoteContextToHero(index: number) {
+    const picked = contextImages[index];
+    if (!picked) return;
+    if (heroImages.length >= MAX_HERO_IMAGES) {
+      setError(
+        `You already have the maximum of ${MAX_HERO_IMAGES} haul photos. Remove one before promoting a context photo.`
+      );
+      return;
+    }
+    setError(null);
+    setContextImages(contextImages.filter((_, i) => i !== index));
+    setHeroImages([picked, ...heroImages]);
   }
 
   async function handleGenerate(e: React.FormEvent) {
@@ -365,10 +431,14 @@ ${r.body}
                 onRemove={(i) =>
                   removeAt(i, contextImages, setContextImages)
                 }
+                onPromoteToHero={promoteContextToHero}
               />
             )}
             <p className="text-xs text-brand-ink/50 mt-2">
-              Not saved with the post — used only to help Claude understand the source.
+              Claude reads these for source context. Hover any thumbnail and click
+              &ldquo;Use as hero →&rdquo; to publish it as the displayed photo instead
+              (useful when the estate sign or pre-pack-out room makes a better lead
+              than the haul photo).
             </p>
           </div>
 
@@ -698,11 +768,16 @@ function ThumbnailGrid({
   images,
   onRemove,
   onMakeHero,
+  onPromoteToHero,
   heroLabel,
 }: {
   images: ImageData[];
   onRemove: (i: number) => void;
+  /** Reorder within the hero list. Shown on non-first hero thumbnails. */
   onMakeHero?: (i: number) => void;
+  /** Move a context photo into the hero list at position 0. Shown on
+   *  context thumbnails when set. */
+  onPromoteToHero?: (i: number) => void;
   heroLabel?: boolean;
 }) {
   return (
@@ -731,6 +806,132 @@ function ThumbnailGrid({
               title="Make this the hero photo"
             >
               Make hero
+            </button>
+          )}
+          {onPromoteToHero && (
+            <button
+              type="button"
+              onClick={() => onPromoteToHero(i)}
+              className="absolute bottom-1 left-1 right-1 bg-brand-yellow hover:bg-brand-yellow-dark text-brand-ink text-[10px] uppercase tracking-wider font-medium py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Move this photo to the haul section as the displayed hero"
+            >
+              Use as hero →
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => onRemove(i)}
+            className="absolute top-1 right-1 bg-white/90 hover:bg-white text-brand-ink rounded-full w-6 h-6 flex items-center justify-center text-sm shadow-sm leading-none"
+            title="Remove"
+            aria-label="Remove image"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium mb-1">{label}</label>
+      {hint && <p className="text-xs text-brand-ink/50 mb-2">{hint}</p>}
+      {children}
+    </div>
+  );
+}
+inter text-brand-ink/70">
+              Manual publish fallback (if &ldquo;Publish to site&rdquo; fails)
+            </summary>
+            <ol className="mt-3 text-sm text-brand-ink/80 space-y-1 list-decimal list-inside">
+              <li>Click &quot;Copy markdown&quot; above</li>
+              <li>
+                Create a new file at{" "}
+                <code className="bg-white px-1 rounded">
+                  content/posts/{result.slug || "your-slug"}.md
+                </code>{" "}
+                and paste
+              </li>
+              <li>
+                Drop your hero photo at{" "}
+                <code className="bg-white px-1 rounded">
+                  public/photos/posts/{result.slug || "your-slug"}-hero.jpg
+                </code>{" "}
+                (additional photos as <code className="bg-white px-1 rounded">-1.jpg</code>, <code className="bg-white px-1 rounded">-2.jpg</code>, etc.)
+              </li>
+              <li>
+                <code className="bg-white px-1 rounded">git add . &amp;&amp; git commit -m &quot;Add {result.slug || "post"}&quot; &amp;&amp; git push</code>
+              </li>
+            </ol>
+          </details>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ThumbnailGrid({
+  images,
+  onRemove,
+  onMakeHero,
+  onPromoteToHero,
+  heroLabel,
+}: {
+  images: ImageData[];
+  onRemove: (i: number) => void;
+  /** Reorder within the hero list. Shown on non-first hero thumbnails. */
+  onMakeHero?: (i: number) => void;
+  /** Move a context photo into the hero list at position 0. Shown on
+   *  context thumbnails when set. */
+  onPromoteToHero?: (i: number) => void;
+  heroLabel?: boolean;
+}) {
+  return (
+    <div className="mt-3 grid grid-cols-3 sm:grid-cols-4 gap-2">
+      {images.map((img, i) => (
+        <div
+          key={`${img.fileName}-${i}`}
+          className="relative group border border-brand-ink/15 rounded-md overflow-hidden bg-white"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={img.previewUrl}
+            alt={img.fileName}
+            className="w-full aspect-square object-cover"
+          />
+          {heroLabel && i === 0 && (
+            <span className="absolute top-1 left-1 bg-brand-yellow text-brand-ink text-[10px] uppercase tracking-wider font-medium px-1.5 py-0.5 rounded shadow-sm">
+              Hero
+            </span>
+          )}
+          {heroLabel && i !== 0 && onMakeHero && (
+            <button
+              type="button"
+              onClick={() => onMakeHero(i)}
+              className="absolute bottom-1 left-1 right-1 bg-brand-ink/70 hover:bg-brand-ink text-white text-[10px] uppercase tracking-wider font-medium py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Make this the hero photo"
+            >
+              Make hero
+            </button>
+          )}
+          {onPromoteToHero && (
+            <button
+              type="button"
+              onClick={() => onPromoteToHero(i)}
+              className="absolute bottom-1 left-1 right-1 bg-brand-yellow hover:bg-brand-yellow-dark text-brand-ink text-[10px] uppercase tracking-wider font-medium py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity"
+              title="Move this photo to the haul section as the displayed hero"
+            >
+              Use as hero →
             </button>
           )}
           <button
