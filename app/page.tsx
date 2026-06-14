@@ -4,7 +4,7 @@ import { getRecentPosts } from "@/lib/posts";
 import PostCard from "@/components/PostCard";
 
 export default function HomePage() {
-  const recentPosts = getRecentPosts(3);
+  const recentPosts = getRecentPosts(6);
   return (
     <>
       {/* Hero — compact, lets the journal sit higher */}
