@@ -3,6 +3,9 @@ import Link from "next/link";
 import { getAllPosts, type PostType } from "@/lib/posts";
 import PostCard from "@/components/PostCard";
 
+// PostCard queries live item counts. Match the per-haul page's behavior.
+export const dynamic = "force-dynamic";
+
 export const metadata: Metadata = {
   title: "Journal",
   description:
