@@ -200,7 +200,7 @@ export type SyncResult = {
  * eBay reports it, so the storefront naturally drops sold-out items.
  */
 export async function syncListingsBudgeted(
-  budgetMs = 45_000
+  budgetMs = 40_000
 ): Promise<SyncResult> {
   const deadline = Date.now() + budgetMs;
   let cursor = await loadCursor();

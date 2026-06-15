@@ -2,8 +2,14 @@
 #
 # Walks the full eBay store into the local listings mirror that powers
 # /shop. The endpoint is budgeted + resumable, so we call it several
-# times in a row (with pauses) to cover the whole store; once a sweep
+# times in a row (with pauses) to cover the whole store. Once a sweep
 # completes the endpoint no-ops, so extra calls are harmless.
+#
+# Each call may legitimately hit a Vercel 504 if the eBay API is
+# briefly slow — we don't bail on that, we just wait longer and retry.
+# Worst case: we run out of passes before the sweep finishes, and
+# next week's run picks up where this one left off (the cursor is
+# persisted in app_settings).
 #
 # Uses the same CRON_SECRET repository secret as the other crons.
 
@@ -17,19 +23,44 @@ on:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - name: Walk the store in budgeted slices
+        # NB: this script must not exit non-zero on individual curl
+        # failures. We tolerate transient 5xx and keep retrying so a
+        # single 504 doesn't doom the whole sweep.
+        shell: bash
         run: |
-          for i in $(seq 1 8); do
-            echo "Sync pass $i"
-            body=$(curl --silent --show-error --fail --max-time 70 \
+          set +e
+          done=0
+          for i in $(seq 1 15); do
+            echo "::group::Sync pass $i"
+            body=$(curl --silent --show-error --max-time 75 \
+              -w "\nHTTP_STATUS=%{http_code}" \
               -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
               https://www.foundinalabama.com/api/cron/sync-listings)
-            echo "$body"
-            echo "$body" | grep -q '"sweepComplete":true' && {
-              echo "Sweep complete."
+            status=$(echo "$body" | grep -oE 'HTTP_STATUS=[0-9]+$' | cut -d= -f2)
+            payload=$(echo "$body" | sed '$d')
+            echo "status: ${status:-unknown}"
+            echo "$payload"
+            echo "::endgroup::"
+
+            if echo "$payload" | grep -q '"sweepComplete":true'; then
+              echo "Sweep complete on pass $i."
+              done=1
               break
-            }
-            sleep 5
+            fi
+
+            # 4xx is structural (auth, body shape) — no point retrying
+            if [ -n "$status" ] && [ "$status" -ge 400 ] && [ "$status" -lt 500 ]; then
+              echo "Hard failure with HTTP $status — stopping."
+              exit 1
+            fi
+
+            # 5xx, network error, or progress-without-complete — wait and try again
+            sleep 10
           done
+
+          if [ "$done" -ne 1 ]; then
+            echo "Sweep didn't complete in 15 passes. The cursor is persisted; next week will resume."
+          fi
