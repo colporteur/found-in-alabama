@@ -18,9 +18,10 @@ import { db } from "@/db";
 import {
   ebayAutoCategorizations,
   ebayAutoCategorizeRuns,
+  ebayListings,
   ebayStoreCategories,
 } from "@/db/schema";
-import { and, desc, eq, isNotNull, lt, ne, sql } from "drizzle-orm";
+import { and, desc, eq, gt, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 import { fetchStoreCategoryTree, flattenCategoryTree, iterateActiveListings, reviseStoreCategories } from "./calls";
 import { suggestCategoryForListing } from "./categorize";
 
@@ -71,63 +72,57 @@ export async function collectEligibleItems(
   phase: RunPhase,
   otherCategoryId: string
 ): Promise<QueueItem[]> {
-  const out: QueueItem[] = [];
-
-  // Primary phase: any active listing whose Category 1 is Other. We don't
-  // care whether Category 2 is set — many items inherited a Cat 2 from
-  // the old tool but are still stuck in Other for Cat 1. When we apply
-  // the fix below, we pass null for Cat 2 to leave the existing value
-  // unchanged (per reviseStoreCategories docs).
-  let totalScanned = 0;
-  let withOtherCat1 = 0;
+  // Query the local ebay_listings mirror (maintained by the weekly
+  // sync-listings cron) instead of walking eBay's API live. A live walk
+  // hits Vercel's 60s gateway on stores ~5k+ items; the mirror is one
+  // indexed SELECT and finishes in ~100ms.
+  //
+  // Caveat: items listed since the last sync won't appear here. They'll
+  // be picked up on the next run. For maximum freshness, trigger
+  // .github/workflows/sync-listings-cron.yml via workflow_dispatch before
+  // starting a categorize run.
 
   console.log(
-    `[auto-cat:collect] phase=${phase} otherCategoryId=${otherCategoryId}`
+    `[auto-cat:collect] phase=${phase} otherCategoryId=${otherCategoryId} (mirror)`
   );
 
+  const baseSelect = {
+    itemId: ebayListings.itemId,
+    title: ebayListings.title,
+    primaryImageUrl: ebayListings.primaryImageUrl,
+    price: ebayListings.price,
+    storeCategory1Id: ebayListings.storeCategory1Id,
+    storeCategory2Id: ebayListings.storeCategory2Id,
+  };
+
+  let rows: QueueItem[];
   if (phase === "primary") {
-    for await (const page of iterateActiveListings({})) {
-      for (const item of page) {
-        totalScanned += 1;
-        if (item.storeCategory1Id === otherCategoryId) {
-          withOtherCat1 += 1;
-          out.push({
-            itemId: item.itemId,
-            title: item.title,
-            primaryImageUrl: item.primaryImageUrl,
-            price: item.price,
-            storeCategory1Id: item.storeCategory1Id,
-            storeCategory2Id: item.storeCategory2Id,
-          });
-        }
-      }
-    }
-    console.log(
-      `[auto-cat:collect] PRIMARY scanned=${totalScanned} matched=${withOtherCat1}`
-    );
+    rows = await db
+      .select(baseSelect)
+      .from(ebayListings)
+      .where(
+        and(
+          eq(ebayListings.storeCategory1Id, otherCategoryId),
+          gt(ebayListings.quantity, 0)
+        )
+      );
+    console.log(`[auto-cat:collect] PRIMARY matched=${rows.length}`);
   } else {
     // secondary: has a primary store cat that's NOT Other, but no second cat
-    for await (const page of iterateActiveListings()) {
-      for (const item of page) {
-        if (
-          item.storeCategory1Id &&
-          item.storeCategory1Id !== otherCategoryId &&
-          !item.storeCategory2Id
-        ) {
-          out.push({
-            itemId: item.itemId,
-            title: item.title,
-            primaryImageUrl: item.primaryImageUrl,
-            price: item.price,
-            storeCategory1Id: item.storeCategory1Id,
-            storeCategory2Id: item.storeCategory2Id,
-          });
-        }
-      }
-    }
+    rows = await db
+      .select(baseSelect)
+      .from(ebayListings)
+      .where(
+        and(
+          ne(ebayListings.storeCategory1Id, otherCategoryId),
+          isNull(ebayListings.storeCategory2Id),
+          gt(ebayListings.quantity, 0)
+        )
+      );
+    console.log(`[auto-cat:collect] SECONDARY matched=${rows.length}`);
   }
 
-  return out;
+  return rows;
 }
 
 /**
