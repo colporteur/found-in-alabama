@@ -43,6 +43,8 @@ export default function DraftEditor({ initial }: { initial: InitialDraft }) {
     remaining: number;
     lastError?: string;
   } | null>(null);
+  const sent = initial.status === "sent";
+
   const [failedRows, setFailedRows] = useState<
     Array<{ email: string; error: string | null; attemptedAt: string }>
   >([]);
@@ -68,8 +70,6 @@ export default function DraftEditor({ initial }: { initial: InitialDraft }) {
       cancelled = true;
     };
   }, [sent, initial.id]);
-
-  const sent = initial.status === "sent";
 
   const dirty =
     label !== initial.label ||
