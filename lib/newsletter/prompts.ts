@@ -1,15 +1,14 @@
-// System + user prompts for the newsletter draft generator. One Claude
-// call returns BOTH flavors (cross-marketplace + eBay-only) so they
-// share voice without two round-trips.
+// Per-flavor newsletter prompts. Two separate Claude calls (one per
+// flavor) run in parallel from the generate route. This halves
+// per-call output size which keeps each call well under Vercel's 60s
+// gateway timeout.
 //
-// Strict fact-grounding: Claude is told to use ONLY the supplied data,
-// to omit any section without facts, and never invent details. Voice
-// samples come from the most recent haul bodies — same approach as the
-// social copy work.
+// Both flavors share the same fact-grounding philosophy and voice;
+// they differ in link strategy and image policy.
 
 import type { NewsletterFacts } from "@/lib/newsletter/data";
 
-const VOICE_RULES = `# Voice
+const SHARED_VOICE = `# Voice
 
 You are writing for "Found in Alabama," a small Alabama-based reseller of estate finds, vintage, books, ephemera, and small antiques. The voice is warm, matter-of-fact, lightly editorial, with a hint of curator's pride. Like a thoughtful shopkeeper writing once a month to people who care what walked in the door.
 
@@ -26,73 +25,81 @@ DON'T:
 - Repeat the same opener pattern across sections.
 - Write sections about content that has zero supplied facts — just omit those sections.`;
 
-const STRUCTURE_RULES = `# Newsletter structure
+const SHARED_STRUCTURE = `# Section structure
 
-Both flavors share the same section structure but link readers to different places. The sections, in order:
+Sections, in order. If a section's data array is empty, OMIT the section entirely. Do not write filler text or apologies.
 
-1. Recent hauls — when there are recent hauls in the data
-2. Now available — when there are featured active items
-3. Recently sold — when there are recently sold items (a "look what found a home" tone, never gloating)
-4. Active sales — when ebay_sales status=RUNNING are present
-5. Upcoming sales — when ebay_sales status=SCHEDULED are present
+1. Recent hauls
+2. Now available (featured active items)
+3. Recently sold (a "look what found a home" tone — never gloating)
+4. Active sales (status=RUNNING in the data)
+5. Upcoming sales (status=SCHEDULED in the data)`;
 
-If a section's data array is empty, OMIT that section entirely. Do not write filler text or apologies.`;
+const SHARED_MARKDOWN = `# Output format
 
-const LINK_RULES = `# Per-flavor link rules
-
-You'll produce TWO flavors of the same newsletter:
-
-## email flavor (for subscribers on our own list)
-- Item links go to the product page URL on foundinalabama.com (data.productUrl). On that page buyers can see all marketplace options.
-- Haul links go to the journal URL on foundinalabama.com (data.url).
-- Mention the marketplaces an item is on by name in body text (eBay, Etsy, Poshmark, Mercari, Depop, Whatnot) — but the actual hyperlink is the product page.
-- IMAGES: include the haul hero image once per haul, immediately after the haul's heading. Use markdown image syntax: ![haul title](heroImage URL from the data). Skip a haul's image only if its heroImage field is null. Do NOT embed images for individual items — too many images make the email feel like an ad.
-
-## ebay flavor (paste into eBay Seller Hub email tool)
-- Item links: use the eBay marketplace URL only (data.marketplaceUrls.ebay). If an item has NO eBay URL, omit it from this flavor entirely.
-- Haul links: skip them. eBay subscribers want listings, not journal posts. You may mention a haul in passing for context.
-- Do NOT link to foundinalabama.com or to other marketplaces. eBay's email tool rejects external links to competitors.
-- IMAGES: do NOT include any markdown images in the ebay flavor. The Seller Hub email tool handles images via its own interface, not pasted markdown.`;
-
-const MARKDOWN_RULES = `# Output format
-
-Return a single JSON object with these exact keys:
+Return a single JSON object with EXACTLY these keys, nothing else:
 
 {
-  "emailSubject": "...",      // <= 70 chars, intriguing not clickbait
-  "ebaySubject": "...",       // <= 70 chars, item/sale focused
-  "emailBody": "...",         // markdown
-  "ebayBody": "..."           // markdown
+  "subject": "...",  // <= 70 chars
+  "body": "..."      // markdown
 }
 
 Markdown rules:
-- Use ## for section headings (e.g. "## Recent hauls")
-- Use - for bulleted item lists
+- Use ## for section headings
+- Use - for bulleted lists
 - Use [text](url) for links — never bare URLs
 - Keep paragraphs short (2–3 sentences max)
-- No HTML
-- Images: only allowed in the email flavor per the per-flavor rules above. Never in the ebay flavor.
-- No tables
+- No HTML, no tables
 
-Return ONLY the JSON. No code fences, no preamble.`;
+Return ONLY the JSON object. No code fences, no preamble.`;
 
-export function buildSystemPrompt(): string {
-  return `You draft monthly newsletters for "Found in Alabama," a small reseller. Your only job is to take the supplied data and write a tight, factual newsletter in two flavors. You do not invent.
+// ─── Email flavor ──────────────────────────────────────────────────────
 
-${VOICE_RULES}
+const EMAIL_LINKS_AND_IMAGES = `# Link + image rules (email flavor)
 
-${STRUCTURE_RULES}
+- Item links go to the product page URL on foundinalabama.com (data.productUrl). On that page buyers can see all marketplace options. Mention the marketplaces by name in body text (eBay, Etsy, Poshmark, Mercari, Depop, Whatnot).
+- Haul links go to the journal URL on foundinalabama.com (data.url).
+- IMAGES: include the haul hero image once per haul, immediately after the haul's heading. Use markdown image syntax: ![haul title](heroImage URL from the data). Skip a haul's image only if its heroImage field is null. Do NOT embed images for individual items.`;
 
-${LINK_RULES}
+export function buildEmailSystemPrompt(): string {
+  return `You write the email flavor of a small reseller's monthly newsletter for "Found in Alabama." Use ONLY the supplied facts.
 
-${MARKDOWN_RULES}`;
+${SHARED_VOICE}
+
+${SHARED_STRUCTURE}
+
+${EMAIL_LINKS_AND_IMAGES}
+
+${SHARED_MARKDOWN}`;
 }
+
+// ─── eBay flavor ───────────────────────────────────────────────────────
+
+const EBAY_LINKS_NO_IMAGES = `# Link + image rules (eBay flavor — pasted into eBay Seller Hub email tool)
+
+- Item links: use the eBay marketplace URL ONLY (data.marketplaceUrls.ebay). If an item has NO eBay URL in the data, omit it from this flavor entirely.
+- Haul links: skip them. eBay subscribers want listings, not journal posts. You may mention a haul in passing for context.
+- Do NOT link to foundinalabama.com or to any non-eBay marketplace. eBay's email tool rejects external links to competitors.
+- IMAGES: do NOT include any markdown images. The Seller Hub email tool handles images via its own UI.`;
+
+export function buildEbaySystemPrompt(): string {
+  return `You write the eBay-Seller-Hub flavor of a small reseller's monthly newsletter for "Found in Alabama." Use ONLY the supplied facts.
+
+${SHARED_VOICE}
+
+${SHARED_STRUCTURE}
+
+${EBAY_LINKS_NO_IMAGES}
+
+${SHARED_MARKDOWN}`;
+}
+
+// ─── User message (shared facts payload) ───────────────────────────────
 
 function fmt(n: number | null | undefined): string {
   if (n == null) return "(unknown)";
   return String(n);
 }
-
 function fmtPrice(p: string | null | undefined): string {
   if (!p) return "(price not recorded)";
   return `$${p}`;
@@ -105,14 +112,13 @@ export function buildUserMessage(facts: NewsletterFacts): string {
     `This newsletter covers activity from the last ${facts.windowDays} days. Default location hint for "Found in ..." phrasing: ${facts.defaultLocationHint ?? "Alabama"}.`
   );
 
-  // Recent hauls
   if (facts.recentHauls.length > 0) {
     sections.push(
       `## Recent hauls (${facts.recentHauls.length})\n` +
         facts.recentHauls
           .map(
             (h, i) =>
-              `### Haul ${i + 1}\nTitle: ${h.title}\nDate: ${h.date}\nLocation: ${h.location ?? "(none)"}\nItems captured: ${h.itemCount} (${h.activeCount} available, ${h.soldCount} sold)\nJournal URL: ${h.url}\nExcerpt: ${h.excerpt || "(none)"}\nBody (first 1200 chars):\n${h.body}`
+              `### Haul ${i + 1}\nTitle: ${h.title}\nDate: ${h.date}\nLocation: ${h.location ?? "(none)"}\nItems captured: ${h.itemCount} (${h.activeCount} available, ${h.soldCount} sold)\nJournal URL: ${h.url}\nHero image URL: ${h.heroImage ?? "(none)"}\nExcerpt: ${h.excerpt || "(none)"}\nBody (first 1200 chars):\n${h.body}`
           )
           .join("\n\n")
     );
@@ -120,7 +126,6 @@ export function buildUserMessage(facts: NewsletterFacts): string {
     sections.push(`## Recent hauls\n(none in the window — omit this section in the newsletter)`);
   }
 
-  // Featured active items
   if (facts.featuredActiveItems.length > 0) {
     sections.push(
       `## Featured active items (${facts.featuredActiveItems.length})\n` +
@@ -136,7 +141,6 @@ export function buildUserMessage(facts: NewsletterFacts): string {
     sections.push(`## Featured active items\n(none — omit this section)`);
   }
 
-  // Recently sold items
   if (facts.recentlySoldItems.length > 0) {
     sections.push(
       `## Recently sold items (${facts.recentlySoldItems.length})\n` +
@@ -152,7 +156,6 @@ export function buildUserMessage(facts: NewsletterFacts): string {
     sections.push(`## Recently sold items\n(none — omit this section)`);
   }
 
-  // Active sales
   if (facts.activeSales.length > 0) {
     sections.push(
       `## Active sales (${facts.activeSales.length})\n` +
@@ -165,7 +168,6 @@ export function buildUserMessage(facts: NewsletterFacts): string {
     );
   }
 
-  // Upcoming sales
   if (facts.upcomingSales.length > 0) {
     sections.push(
       `## Upcoming sales (${facts.upcomingSales.length})\n` +
@@ -179,7 +181,7 @@ export function buildUserMessage(facts: NewsletterFacts): string {
   }
 
   sections.push(
-    `\nGenerate both flavors of the newsletter as the JSON object specified. Use ONLY the facts above; do not invent items, prices, dates, or stories.`
+    `\nUse ONLY the facts above. Do not invent items, prices, dates, or stories.`
   );
 
   return sections.join("\n\n");
