@@ -46,11 +46,13 @@ You'll produce TWO flavors of the same newsletter:
 - Item links go to the product page URL on foundinalabama.com (data.productUrl). On that page buyers can see all marketplace options.
 - Haul links go to the journal URL on foundinalabama.com (data.url).
 - Mention the marketplaces an item is on by name in body text (eBay, Etsy, Poshmark, Mercari, Depop, Whatnot) — but the actual hyperlink is the product page.
+- IMAGES: include the haul hero image once per haul, immediately after the haul's heading. Use markdown image syntax: ![haul title](heroImage URL from the data). Skip a haul's image only if its heroImage field is null. Do NOT embed images for individual items — too many images make the email feel like an ad.
 
 ## ebay flavor (paste into eBay Seller Hub email tool)
 - Item links: use the eBay marketplace URL only (data.marketplaceUrls.ebay). If an item has NO eBay URL, omit it from this flavor entirely.
 - Haul links: skip them. eBay subscribers want listings, not journal posts. You may mention a haul in passing for context.
-- Do NOT link to foundinalabama.com or to other marketplaces. eBay's email tool rejects external links to competitors.`;
+- Do NOT link to foundinalabama.com or to other marketplaces. eBay's email tool rejects external links to competitors.
+- IMAGES: do NOT include any markdown images in the ebay flavor. The Seller Hub email tool handles images via its own interface, not pasted markdown.`;
 
 const MARKDOWN_RULES = `# Output format
 
@@ -69,7 +71,7 @@ Markdown rules:
 - Use [text](url) for links — never bare URLs
 - Keep paragraphs short (2–3 sentences max)
 - No HTML
-- No images (the data passed to you includes hero image URLs but readers will see those rendered separately; do not embed image markdown)
+- Images: only allowed in the email flavor per the per-flavor rules above. Never in the ebay flavor.
 - No tables
 
 Return ONLY the JSON. No code fences, no preamble.`;

@@ -5,7 +5,7 @@
 // committing). Sending is wired up in Phase 4C — that button is
 // disabled here.
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
 export type InitialDraft = {
@@ -43,6 +43,31 @@ export default function DraftEditor({ initial }: { initial: InitialDraft }) {
     remaining: number;
     lastError?: string;
   } | null>(null);
+  const [failedRows, setFailedRows] = useState<
+    Array<{ email: string; error: string | null; attemptedAt: string }>
+  >([]);
+
+  // Pull failed-send rows when the draft is in sent state, so we can
+  // surface them for retry.
+  useEffect(() => {
+    if (!sent) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `/api/admin/newsletter/drafts/${initial.id}/failed`
+        );
+        const data = await res.json();
+        if (cancelled) return;
+        if (Array.isArray(data.failed)) setFailedRows(data.failed);
+      } catch {
+        /* non-blocking */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [sent, initial.id]);
 
   const sent = initial.status === "sent";
 
@@ -128,6 +153,47 @@ export default function DraftEditor({ initial }: { initial: InitialDraft }) {
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Send failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleRetryFailed() {
+    if (!confirm(`Retry the ${failedRows.length} failed send${failedRows.length === 1 ? "" : "s"}? Successful sends will not be re-emailed.`)) return;
+    setBusy("send");
+    setError(null);
+    try {
+      // Wipe failed log rows so /send will queue them again
+      const wipe = await fetch(
+        `/api/admin/newsletter/drafts/${initial.id}/retry-failed`,
+        { method: "POST" }
+      );
+      if (!wipe.ok) {
+        const data = await wipe.json().catch(() => ({}));
+        throw new Error(data.error ?? `HTTP ${wipe.status}`);
+      }
+      setFailedRows([]);
+      // Re-use the same polling loop as the initial send
+      for (let pass = 0; pass < 30; pass++) {
+        const res = await fetch(
+          `/api/admin/newsletter/drafts/${initial.id}/send`,
+          { method: "POST" }
+        );
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+        setSendProgress(data);
+        if (data.done) break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      // Reload failed list to show whatever's still broken
+      const res = await fetch(
+        `/api/admin/newsletter/drafts/${initial.id}/failed`
+      );
+      const data = await res.json();
+      if (Array.isArray(data.failed)) setFailedRows(data.failed);
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Retry failed");
     } finally {
       setBusy(null);
     }
@@ -232,6 +298,32 @@ export default function DraftEditor({ initial }: { initial: InitialDraft }) {
           {sendProgress.lastError && (
             <p className="text-xs">Most recent error: {sendProgress.lastError}</p>
           )}
+        </div>
+      )}
+
+      {sent && failedRows.length > 0 && (
+        <div className="rounded-md p-3 border bg-red-50 border-red-200 text-red-900">
+          <div className="flex flex-wrap items-baseline justify-between gap-2 mb-2">
+            <p className="font-medium text-sm">
+              {failedRows.length} send{failedRows.length === 1 ? "" : "s"} failed
+            </p>
+            <button
+              type="button"
+              onClick={handleRetryFailed}
+              disabled={busy === "send"}
+              className="text-xs px-3 py-1.5 bg-brand-ink text-brand-paper rounded hover:bg-brand-ink/90 transition-colors disabled:opacity-50"
+            >
+              {busy === "send" ? "Retrying…" : "Retry failed sends"}
+            </button>
+          </div>
+          <ul className="text-xs space-y-1 max-h-48 overflow-y-auto">
+            {failedRows.map((f, i) => (
+              <li key={i} className="border-t border-red-200 pt-1 first:border-t-0 first:pt-0">
+                <span className="font-medium">{f.email}</span>
+                {f.error ? <span className="text-red-700"> — {f.error}</span> : null}
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 

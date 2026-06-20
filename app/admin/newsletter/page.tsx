@@ -66,6 +66,13 @@ export default async function NewsletterAdminPage() {
         >
           Drafts →
         </Link>
+        <a
+          href="/api/admin/newsletter/subscribers/export"
+          download
+          className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+        >
+          Export CSV ↓
+        </a>
         <Link
           href="/admin"
           className="text-sm text-brand-ink/60 hover:text-brand-ink"

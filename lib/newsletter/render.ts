@@ -73,6 +73,17 @@ function wrapHtml(bodyHtml: string, unsubscribeHref: string, preheader: string):
     </div>
   </td></tr>
 
+  <tr><td style="padding:0 32px 24px;">
+    <div style="background:#f4c430; border-radius:6px; padding:16px 18px; color:#1c1a17;">
+      <p style="margin:0 0 6px; font-weight:600; font-size:15px;">
+        Got something to sell?
+      </p>
+      <p style="margin:0; font-size:14px; line-height:1.5;">
+        We&rsquo;re always on the lookout for new inventory — estates, collections, one-off boxes you’re ready to move. Text photos to <a href="sms:+12566841253" style="color:#1c1a17; text-decoration:underline;">256-684-1253</a> and we’ll take a look.
+      </p>
+    </div>
+  </td></tr>
+
   <tr><td style="padding:24px 32px 32px; font-size:13px; line-height:1.55; color:#857f72;">
     <p style="margin:0 0 12px;">${escapeHtml(businessAddress())}</p>
     <p style="margin:0 0 4px;">
@@ -109,7 +120,8 @@ function inlineMarkdownStyles(html: string): string {
     .replace(/<a\b/g, '<a style="color:#1c1a17; text-decoration:underline; text-decoration-color:#f4c430; text-decoration-thickness:2px;"')
     .replace(/<strong\b/g, '<strong style="font-weight:600;"')
     .replace(/<em\b/g, '<em style="font-style:italic;"')
-    .replace(/<blockquote\b/g, '<blockquote style="border-left:3px solid #f4c430; padding-left:14px; margin:14px 0; color:#65615a;"');
+    .replace(/<blockquote\b/g, '<blockquote style="border-left:3px solid #f4c430; padding-left:14px; margin:14px 0; color:#65615a;"')
+    .replace(/<img\b/g, '<img style="display:block; width:100%; max-width:536px; height:auto; border-radius:6px; margin:8px auto 18px;"');
 }
 
 export type RenderedEmail = {
