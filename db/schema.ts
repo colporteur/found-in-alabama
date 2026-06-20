@@ -546,6 +546,46 @@ export const newsletterSubscribers = pgTable(
   })
 );
 
+
+// ─── Phase 4B — Newsletter drafts ───────────────────────────────
+//
+// One row per monthly newsletter Todd works on. Claude generates two
+// markdown flavors of each draft (email subscribers → cross-marketplace
+// links; eBay subscribers → only eBay links for Seller Hub paste). The
+// admin editor lets him refine subject + body for both flavors. Sending
+// (Phase 4C) flips the status to "sent" and stamps sentAt.
+
+export const newsletterDrafts = pgTable(
+  "newsletter_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    status: text("status", { enum: ["draft", "sent"] })
+      .default("draft")
+      .notNull(),
+    /** Human-readable label, e.g. "June 2026 newsletter". */
+    label: text("label").notNull(),
+    /** Subject lines per flavor. */
+    emailSubject: text("email_subject").notNull(),
+    ebaySubject: text("ebay_subject").notNull(),
+    /** Markdown body for each flavor; rendered to HTML at send time. */
+    emailBody: text("email_body").notNull(),
+    ebayBody: text("ebay_body").notNull(),
+    /** Snapshot of the facts Claude was given so we can re-render or audit. */
+    factsSnapshot: jsonb("facts_snapshot").$type<Record<string, unknown>>(),
+    /** Counts surfaced to admin UI. */
+    emailRecipientCount: integer("email_recipient_count"),
+    generatedAt: timestamp("generated_at").defaultNow().notNull(),
+    sentAt: timestamp("sent_at"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    statusIdx: index("newsletter_drafts_status_idx").on(t.status),
+    generatedAtIdx: index("newsletter_drafts_generated_at_idx").on(
+      t.generatedAt
+    ),
+  })
+);
+
 // ─── NextAuth tables (shape required by @auth/drizzle-adapter) ────────────────
 
 export const users = pgTable("user", {

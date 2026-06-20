@@ -1,0 +1,262 @@
+"use client";
+
+// Two-flavor newsletter editor. Subject + body for each. PATCHes on
+// "Save" — no autosave yet (deliberate; lets you experiment without
+// committing). Sending is wired up in Phase 4C — that button is
+// disabled here.
+
+import { useState } from "react";
+import { useRouter } from "next/navigation";
+
+export type InitialDraft = {
+  id: string;
+  label: string;
+  status: "draft" | "sent";
+  emailSubject: string;
+  ebaySubject: string;
+  emailBody: string;
+  ebayBody: string;
+  emailRecipientCount: number | null;
+  generatedAt: string;
+  sentAt: string | null;
+};
+
+type Flavor = "email" | "ebay";
+
+export default function DraftEditor({ initial }: { initial: InitialDraft }) {
+  const router = useRouter();
+  const [label, setLabel] = useState(initial.label);
+  const [emailSubject, setEmailSubject] = useState(initial.emailSubject);
+  const [ebaySubject, setEbaySubject] = useState(initial.ebaySubject);
+  const [emailBody, setEmailBody] = useState(initial.emailBody);
+  const [ebayBody, setEbayBody] = useState(initial.ebayBody);
+  const [active, setActive] = useState<Flavor>("email");
+  const [busy, setBusy] = useState<"save" | "delete" | "copy" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
+
+  const sent = initial.status === "sent";
+
+  const dirty =
+    label !== initial.label ||
+    emailSubject !== initial.emailSubject ||
+    ebaySubject !== initial.ebaySubject ||
+    emailBody !== initial.emailBody ||
+    ebayBody !== initial.ebayBody;
+
+  async function handleSave() {
+    setBusy("save");
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/newsletter/drafts/${initial.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          label,
+          emailSubject,
+          ebaySubject,
+          emailBody,
+          ebayBody,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? `HTTP ${res.status}`);
+      setSavedAt(new Date().toLocaleTimeString());
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function handleDelete() {
+    if (!confirm("Delete this draft? This cannot be undone.")) return;
+    setBusy("delete");
+    setError(null);
+    try {
+      const res = await fetch(`/api/admin/newsletter/drafts/${initial.id}`, {
+        method: "DELETE",
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+      router.push("/admin/newsletter/drafts");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed");
+      setBusy(null);
+    }
+  }
+
+  async function copyEbayBody() {
+    try {
+      await navigator.clipboard.writeText(ebayBody);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setError("Could not copy to clipboard — select manually instead.");
+    }
+  }
+
+  return (
+    <div className="space-y-6 max-w-4xl">
+      {/* Header — label + global actions */}
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div className="flex-1 min-w-[200px] max-w-md">
+          <label className="block text-xs uppercase tracking-wider text-brand-ink/55 mb-1">
+            Internal label
+          </label>
+          <input
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            className="w-full px-3 py-2 border border-brand-ink/20 rounded-md text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow"
+          />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={busy === "save" || !dirty || sent}
+            className="px-4 py-2 bg-brand-yellow text-brand-ink font-medium rounded-md hover:bg-brand-yellow-dark transition-colors disabled:opacity-50 text-sm"
+            title={sent ? "Already sent — read-only" : ""}
+          >
+            {busy === "save"
+              ? "Saving…"
+              : sent
+                ? "Sent (read-only)"
+                : dirty
+                  ? "Save changes"
+                  : "Saved"}
+          </button>
+          <button
+            type="button"
+            disabled
+            title="Sending lands in Phase 4C"
+            className="px-4 py-2 bg-emerald-700 text-white font-medium rounded-md text-sm opacity-50 cursor-not-allowed"
+          >
+            Send (Phase 4C)
+          </button>
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={busy === "delete"}
+            className="px-3 py-2 text-sm border border-red-200 text-red-700 rounded-md hover:bg-red-50 transition-colors disabled:opacity-50"
+          >
+            {busy === "delete" ? "Deleting…" : "Delete"}
+          </button>
+        </div>
+      </div>
+
+      {savedAt && !dirty && (
+        <p className="text-xs text-emerald-700">Saved at {savedAt}</p>
+      )}
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-900">
+          {error}
+        </div>
+      )}
+
+      {/* Flavor tabs */}
+      <div className="border-b border-brand-ink/15 flex gap-1">
+        {(["email", "ebay"] as Flavor[]).map((f) => (
+          <button
+            key={f}
+            type="button"
+            onClick={() => setActive(f)}
+            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              active === f
+                ? "border-brand-yellow text-brand-ink"
+                : "border-transparent text-brand-ink/60 hover:text-brand-ink"
+            }`}
+          >
+            {f === "email" ? "Email subscribers (cross-marketplace)" : "eBay Seller Hub (eBay-only)"}
+          </button>
+        ))}
+      </div>
+
+      {/* Flavor body */}
+      {active === "email" ? (
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs uppercase tracking-wider text-brand-ink/55 mb-1">
+              Email subject
+            </label>
+            <input
+              type="text"
+              value={emailSubject}
+              onChange={(e) => setEmailSubject(e.target.value)}
+              className="w-full px-3 py-2 border border-brand-ink/20 rounded-md font-medium bg-white focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow"
+            />
+            <p className="text-xs text-brand-ink/55 mt-1">
+              {emailSubject.length} chars
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs uppercase tracking-wider text-brand-ink/55 mb-1">
+              Body (markdown) · {emailBody.length} chars
+            </label>
+            <textarea
+              value={emailBody}
+              onChange={(e) => setEmailBody(e.target.value)}
+              rows={24}
+              className="w-full px-3 py-2 border border-brand-ink/20 rounded-md text-sm leading-relaxed bg-white focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow font-mono resize-y"
+            />
+            <p className="text-xs text-brand-ink/55 mt-1">
+              Markdown. Will be rendered to HTML at send time. Links go to product pages on foundinalabama.com so buyers can pick their preferred marketplace.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <div className="space-y-4">
+          <div className="bg-amber-50 border border-amber-200 rounded-md p-3 text-sm text-amber-900">
+            <p className="font-medium">
+              eBay flavor — for Seller Hub paste, not for sending to your list.
+            </p>
+            <p className="mt-1">
+              Edit if needed, then click <strong>Copy eBay body</strong> below
+              and paste into eBay&rsquo;s Seller Hub email tool. All links
+              here point only to eBay listings (Seller Hub rejects external
+              links to competitors).
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs uppercase tracking-wider text-brand-ink/55 mb-1">
+              eBay subject
+            </label>
+            <input
+              type="text"
+              value={ebaySubject}
+              onChange={(e) => setEbaySubject(e.target.value)}
+              className="w-full px-3 py-2 border border-brand-ink/20 rounded-md font-medium bg-white focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow"
+            />
+            <p className="text-xs text-brand-ink/55 mt-1">
+              {ebaySubject.length} chars
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs uppercase tracking-wider text-brand-ink/55 mb-1">
+              Body (markdown) · {ebayBody.length} chars
+            </label>
+            <textarea
+              value={ebayBody}
+              onChange={(e) => setEbayBody(e.target.value)}
+              rows={24}
+              className="w-full px-3 py-2 border border-brand-ink/20 rounded-md text-sm leading-relaxed bg-white focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow font-mono resize-y"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={copyEbayBody}
+            disabled={busy === "copy"}
+            className="inline-flex items-center px-4 py-2 bg-brand-ink text-brand-paper font-medium rounded-md hover:bg-brand-ink/90 transition-colors text-sm"
+          >
+            {copied ? "Copied!" : "Copy eBay body"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

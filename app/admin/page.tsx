@@ -110,6 +110,12 @@ export default async function AdminDashboard() {
         >
           Newsletter subscribers →
         </Link>
+        <Link
+          href="/admin/newsletter/drafts"
+          className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+        >
+          Newsletter drafts →
+        </Link>
       </div>
     </section>
   );

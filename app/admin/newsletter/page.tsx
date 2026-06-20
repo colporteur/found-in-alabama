@@ -61,6 +61,12 @@ export default async function NewsletterAdminPage() {
           <h1 className="font-marker text-3xl md:text-4xl">Subscribers</h1>
         </div>
         <Link
+          href="/admin/newsletter/drafts"
+          className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+        >
+          Drafts →
+        </Link>
+        <Link
           href="/admin"
           className="text-sm text-brand-ink/60 hover:text-brand-ink"
         >
