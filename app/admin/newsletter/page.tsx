@@ -1,5 +1,5 @@
 // Admin overview of newsletter subscribers. Shows counts by status,
-// recent signups, and a CSV export link. Sending newsletters is Phase 4C.
+// recent signups, and a CSV export link. Sending happens from /admin/newsletter/drafts.
 
 import Link from "next/link";
 import { auth } from "@/auth";
@@ -82,8 +82,8 @@ export default async function NewsletterAdminPage() {
       </div>
 
       <p className="text-brand-ink/70 mb-8 max-w-prose">
-        Email subscribers for the monthly newsletter. Sending — drafting and
-        sending the newsletter itself — comes in Phase 4B/C.
+        Email subscribers for the monthly newsletter. Head to
+        <strong> Drafts</strong> to generate, edit, and send the next issue.
       </p>
 
       {/* Stat tiles */}

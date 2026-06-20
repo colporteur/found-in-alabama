@@ -69,8 +69,9 @@ export default async function DraftsPage() {
 
       <p className="text-brand-ink/70 mb-6 max-w-prose">
         Generated newsletter drafts. Click any to edit the subject lines or
-        body of either flavor (email subscribers vs. eBay Seller Hub). Sending
-        — actually delivering — comes in Phase 4C.
+        body of either flavor (email subscribers vs. eBay Seller Hub), then
+        send to your confirmed subscribers or copy the eBay flavor into
+        Seller Hub.
       </p>
 
       <div className="mb-8">
