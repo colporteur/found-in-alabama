@@ -104,6 +104,12 @@ export default async function AdminDashboard() {
         >
           Browse inventory →
         </Link>
+        <Link
+          href="/admin/newsletter"
+          className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+        >
+          Newsletter subscribers →
+        </Link>
       </div>
     </section>
   );

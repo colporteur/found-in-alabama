@@ -1,4 +1,5 @@
 import { marketplaces, socials, comingSoonSocials, contact } from "@/lib/links";
+import NewsletterSignup from "./NewsletterSignup";
 
 export default function Footer() {
   return (
@@ -68,7 +69,21 @@ export default function Footer() {
           </div>
         </div>
 
-        <div className="mt-10 pt-6 border-t border-brand-paper/20 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="mt-10 pt-6 border-t border-brand-paper/20">
+          <div className="grid gap-6 md:grid-cols-[1fr,auto] md:items-center">
+            <div>
+              <p className="text-xs uppercase tracking-wider text-brand-paper/50 mb-2">
+                Monthly newsletter
+              </p>
+              <p className="text-sm text-brand-paper/80 leading-snug max-w-md">
+                Recent hauls, current inventory, and recently sold pieces. One email a month, no spam.
+              </p>
+            </div>
+            <NewsletterSignup source="footer" />
+          </div>
+        </div>
+
+        <div className="mt-8 pt-6 border-t border-brand-paper/20 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
           <a
             href={contact.smsHref}
             className="inline-flex items-center gap-2 text-brand-yellow font-medium hover:text-brand-yellow-light transition-colors"

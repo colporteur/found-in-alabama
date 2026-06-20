@@ -82,6 +82,16 @@ export default function PrivacyPage() {
           to any marketing list — we don&rsquo;t have one.
         </p>
 
+        <h3 className="font-medium text-lg mt-6 mb-2">When you subscribe to our newsletter</h3>
+        <p>
+          If you sign up for our monthly newsletter, we store your email
+          address and your confirmation status until you unsubscribe.
+          We use Resend (already listed below) to deliver the emails.
+          We never share your email address with anyone, and you can
+          unsubscribe instantly by clicking the link in any newsletter
+          we send.
+        </p>
+
         <h3 className="font-medium text-lg mt-6 mb-2">
           When you buy from us on a marketplace
         </h3>

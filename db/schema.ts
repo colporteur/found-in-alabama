@@ -507,6 +507,45 @@ export const publerAccounts = pgTable(
   })
 );
 
+// ─── Phase 4A — Newsletter subscribers ──────────────────────────────
+//
+// Email signup list for the monthly newsletter. Same hashed-token pattern
+// as api_keys: we store SHA-256 hashes of the confirm and unsubscribe
+// tokens, never the plaintext. The raw token only lives in the URL of
+// the email we send.
+
+export const newsletterSubscribers = pgTable(
+  "newsletter_subscribers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    // Normalized to lowercase + trimmed at insert time so the unique
+    // constraint works as expected.
+    email: text("email").notNull().unique(),
+    status: text("status", {
+      enum: ["pending", "confirmed", "unsubscribed"],
+    })
+      .default("pending")
+      .notNull(),
+    confirmTokenHash: text("confirm_token_hash"),
+    confirmTokenExpiresAt: timestamp("confirm_token_expires_at"),
+    unsubscribeTokenHash: text("unsubscribe_token_hash").notNull(),
+    /** Where the signup happened: "footer", "journal_post", etc. */
+    source: text("source"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    confirmedAt: timestamp("confirmed_at"),
+    unsubscribedAt: timestamp("unsubscribed_at"),
+  },
+  (t) => ({
+    statusIdx: index("newsletter_subscribers_status_idx").on(t.status),
+    confirmHashIdx: index("newsletter_subscribers_confirm_hash_idx").on(
+      t.confirmTokenHash
+    ),
+    unsubHashIdx: index("newsletter_subscribers_unsub_hash_idx").on(
+      t.unsubscribeTokenHash
+    ),
+  })
+);
+
 // ─── NextAuth tables (shape required by @auth/drizzle-adapter) ────────────────
 
 export const users = pgTable("user", {
