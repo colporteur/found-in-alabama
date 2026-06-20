@@ -586,6 +586,34 @@ export const newsletterDrafts = pgTable(
   })
 );
 
+
+// Per-recipient audit + idempotency for newsletter sends. Looked up at
+// send time to skip subscribers we've already processed for this draft.
+
+export const newsletterSendLog = pgTable(
+  "newsletter_send_log",
+  {
+    draftId: uuid("draft_id")
+      .notNull()
+      .references(() => newsletterDrafts.id, { onDelete: "cascade" }),
+    subscriberId: uuid("subscriber_id")
+      .notNull()
+      .references(() => newsletterSubscribers.id, { onDelete: "cascade" }),
+    /** Denormalized so audit survives subscriber deletion. */
+    email: text("email").notNull(),
+    status: text("status", { enum: ["sent", "failed", "skipped"] }).notNull(),
+    /** Resend's message id when sent. */
+    resendId: text("resend_id"),
+    error: text("error"),
+    attemptedAt: timestamp("attempted_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.draftId, t.subscriberId] }),
+    draftIdx: index("newsletter_send_log_draft_idx").on(t.draftId),
+    statusIdx: index("newsletter_send_log_status_idx").on(t.status),
+  })
+);
+
 // ─── NextAuth tables (shape required by @auth/drizzle-adapter) ────────────────
 
 export const users = pgTable("user", {

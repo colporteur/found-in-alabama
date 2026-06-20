@@ -31,10 +31,18 @@ export default function DraftEditor({ initial }: { initial: InitialDraft }) {
   const [emailBody, setEmailBody] = useState(initial.emailBody);
   const [ebayBody, setEbayBody] = useState(initial.ebayBody);
   const [active, setActive] = useState<Flavor>("email");
-  const [busy, setBusy] = useState<"save" | "delete" | "copy" | null>(null);
+  const [busy, setBusy] = useState<"save" | "delete" | "copy" | "send" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const [sendProgress, setSendProgress] = useState<{
+    done: boolean;
+    total: number;
+    succeeded: number;
+    failed: number;
+    remaining: number;
+    lastError?: string;
+  } | null>(null);
 
   const sent = initial.status === "sent";
 
@@ -90,6 +98,41 @@ export default function DraftEditor({ initial }: { initial: InitialDraft }) {
     }
   }
 
+  async function handleSend() {
+    if (sent) return;
+    if (
+      !confirm(
+        `Send to all confirmed subscribers? This cannot be undone. The draft will be locked once sending completes.`
+      )
+    )
+      return;
+    setBusy("send");
+    setError(null);
+    setSendProgress({ done: false, total: 0, succeeded: 0, failed: 0, remaining: 0 });
+    try {
+      // Poll the budgeted send endpoint until done.
+      for (let pass = 0; pass < 60; pass++) {
+        const res = await fetch(
+          `/api/admin/newsletter/drafts/${initial.id}/send`,
+          { method: "POST" }
+        );
+        const data = await res.json();
+        if (!res.ok) {
+          throw new Error(data.error ?? `HTTP ${res.status}`);
+        }
+        setSendProgress(data);
+        if (data.done) break;
+        // Small breather between calls so we don't hammer
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Send failed");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function copyEbayBody() {
     try {
       await navigator.clipboard.writeText(ebayBody);
@@ -133,11 +176,22 @@ export default function DraftEditor({ initial }: { initial: InitialDraft }) {
           </button>
           <button
             type="button"
-            disabled
-            title="Sending lands in Phase 4C"
-            className="px-4 py-2 bg-emerald-700 text-white font-medium rounded-md text-sm opacity-50 cursor-not-allowed"
+            onClick={handleSend}
+            disabled={busy === "send" || sent || dirty}
+            title={
+              sent
+                ? "Already sent"
+                : dirty
+                  ? "Save changes before sending"
+                  : "Send the email flavor to all confirmed subscribers"
+            }
+            className="px-4 py-2 bg-emerald-700 text-white font-medium rounded-md text-sm hover:bg-emerald-800 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            Send (Phase 4C)
+            {busy === "send"
+              ? "Sending…"
+              : sent
+                ? "Sent ✓"
+                : "Send to subscribers"}
           </button>
           <button
             type="button"
@@ -156,6 +210,28 @@ export default function DraftEditor({ initial }: { initial: InitialDraft }) {
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-900">
           {error}
+        </div>
+      )}
+
+      {sendProgress && (
+        <div className={`rounded-md p-3 text-sm border ${
+          sendProgress.done
+            ? "bg-emerald-50 border-emerald-200 text-emerald-900"
+            : "bg-brand-yellow/15 border-brand-yellow/40 text-brand-ink"
+        }`}>
+          {sendProgress.done ? (
+            <p className="font-medium mb-1">
+              Sent. {sendProgress.succeeded} delivered{sendProgress.failed > 0 ? `, ${sendProgress.failed} failed` : ""}.
+            </p>
+          ) : (
+            <p className="font-medium mb-1">
+              Sending… {sendProgress.succeeded} / {sendProgress.total} delivered
+              {sendProgress.failed > 0 ? ` (${sendProgress.failed} failed)` : ""}.
+            </p>
+          )}
+          {sendProgress.lastError && (
+            <p className="text-xs">Most recent error: {sendProgress.lastError}</p>
+          )}
         </div>
       )}
 
