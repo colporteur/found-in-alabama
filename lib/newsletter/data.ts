@@ -64,6 +64,16 @@ export type NewsletterFacts = {
 };
 
 const SITE_URL = "https://www.foundinalabama.com";
+
+/** Convert a root-relative path to an absolute URL so the link/image
+ *  resolves outside the site (e.g. in an email client). Passes through
+ *  values that are already absolute or null. */
+function absolutize(src: string | null | undefined): string | null {
+  if (!src) return null;
+  if (src.startsWith("http://") || src.startsWith("https://")) return src;
+  if (src.startsWith("/")) return `${SITE_URL}${src}`;
+  return `${SITE_URL}/${src}`;
+}
 const DEFAULT_WINDOW_DAYS = 30;
 const MAX_HAULS = 5;
 const MAX_FEATURED_ACTIVE = 12;
@@ -131,7 +141,7 @@ export async function collectNewsletterFacts({
       location: displayLocation(p),
       excerpt: p.excerpt ?? "",
       body: stripHtml(p.contentHtml).slice(0, 1200),
-      heroImage: p.hero ?? null,
+      heroImage: absolutize(p.hero),
       url: `${SITE_URL}/journal/${p.slug}`,
       itemCount: c.total,
       activeCount: c.active,
@@ -167,7 +177,7 @@ export async function collectNewsletterFacts({
     id: r.id,
     slug: r.slug ?? null,
     title: r.title,
-    heroImage: r.heroImage,
+    heroImage: absolutize(r.heroImage),
     price: r.price,
     status: r.status as "active",
     soldOnMarketplace: null,
@@ -201,7 +211,7 @@ export async function collectNewsletterFacts({
     id: r.id,
     slug: r.slug ?? null,
     title: r.title,
-    heroImage: r.heroImage,
+    heroImage: absolutize(r.heroImage),
     price: r.price,
     status: r.status as "sold",
     soldOnMarketplace: r.soldOnMarketplace,
