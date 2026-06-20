@@ -30,6 +30,7 @@ function defaultLabel(): string {
 }
 
 export async function POST(req: NextRequest) {
+  try {
   const session = await auth();
   if (!session?.user) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -55,7 +56,7 @@ export async function POST(req: NextRequest) {
   try {
     const response = await claude.messages.create({
       model: DRAFT_MODEL,
-      max_tokens: 4000,
+      max_tokens: 6000,
       system: buildSystemPrompt(),
       messages: [
         { role: "user", content: buildUserMessage(facts) },
@@ -124,4 +125,16 @@ export async function POST(req: NextRequest) {
     .returning();
 
   return NextResponse.json({ draft: saved });
+  } catch (err) {
+    console.error("[newsletter/draft/generate] uncaught", err);
+    return NextResponse.json(
+      {
+        error:
+          err instanceof Error
+            ? `${err.name}: ${err.message}`
+            : "Unexpected server error generating draft",
+      },
+      { status: 500 }
+    );
+  }
 }
