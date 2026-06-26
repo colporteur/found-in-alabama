@@ -100,9 +100,12 @@ export async function POST(req: NextRequest) {
     ];
   }
 
-  if (heroImages.length === 0) {
+  // At least one photo of either kind is required. Hero photos and
+  // context photos carry equal narrative weight — the seller may upload
+  // only haul photos, only context photos, or any mix.
+  if (heroImages.length + contextImages.length === 0) {
     return NextResponse.json(
-      { error: "At least one haul (hero) image is required" },
+      { error: "At least one photo (haul or context) is required" },
       { status: 400 }
     );
   }
@@ -126,22 +129,6 @@ export async function POST(req: NextRequest) {
   const photoNotes = (payload.photoNotes ?? "").trim();
   const contextUrl = (payload.contextUrl ?? "").trim();
 
-  // Some kind of text input or context image is required so Claude has
-  // *something* beyond just the hero to work with.
-  if (
-    acquisitionContext.length + photoNotes.length < 10 &&
-    contextImages.length === 0 &&
-    !contextUrl
-  ) {
-    return NextResponse.json(
-      {
-        error:
-          "Tell us at least a sentence about where the haul came from, what's in the photo, or paste a source URL.",
-      },
-      { status: 400 }
-    );
-  }
-
   // Optionally fetch the source URL and pass its text to Claude.
   let urlText: string | null = null;
   if (contextUrl) {
@@ -150,25 +137,34 @@ export async function POST(req: NextRequest) {
 
   const claude = getClaude();
 
-  const heroLabel =
-    heroImages.length === 1
-      ? "the haul photo"
-      : `${heroImages.length} haul photos (first is the main hero, rest are additional angles/items)`;
-  const contextLabel =
-    contextImages.length === 0
-      ? ""
-      : contextImages.length === 1
-        ? "One context photo provided (separate from the haul — where the items came from)."
-        : `${contextImages.length} context photos provided (separate from the haul — where the items came from).`;
+  // Describe what was uploaded. Hero and context photos are presented
+  // as equally-weighted evidence — the seller chooses the mix.
+  const photoSummary = (() => {
+    const parts: string[] = [];
+    if (heroImages.length > 0) {
+      parts.push(
+        heroImages.length === 1
+          ? "1 haul photo (items the seller acquired)"
+          : `${heroImages.length} haul photos (items the seller acquired)`
+      );
+    }
+    if (contextImages.length > 0) {
+      parts.push(
+        contextImages.length === 1
+          ? "1 context photo (the source — signage, the room, an auction page, etc.)"
+          : `${contextImages.length} context photos (the source — signage, the room, an auction page, etc.)`
+      );
+    }
+    return parts.join(" and ");
+  })();
 
-  const userMessage = `Acquisition context (where the haul came from):
+  const userMessage = `Acquisition story (where the haul came from):
 ${acquisitionContext.length ? acquisitionContext : "(not provided)"}
 
 What's in the photos (visible items):
-${photoNotes.length ? photoNotes : "(not provided — describe what you see in the images)"}
+${photoNotes.length ? photoNotes : "(not provided)"}
 
-You're looking at ${heroLabel}.
-${contextLabel}
+Photos attached: ${photoSummary}. Treat all attached photos as equally-weighted visual evidence — describe what you can actually see, do not invent items, brands, names, dates, or stories beyond what is clearly visible or stated.
 ${
   contextUrl
     ? urlText
@@ -177,7 +173,7 @@ ${
     : ""
 }
 
-Generate the draft journal post as JSON.`.replace(/\n{3,}/g, "\n\n");
+Generate the draft journal post as JSON. Stick strictly to facts derivable from the inputs above. Shorter is fine if the inputs are sparse.`.replace(/\n{3,}/g, "\n\n");
 
   // Build the content array. Order:
   //   1. All hero photos (the haul), in user-supplied order

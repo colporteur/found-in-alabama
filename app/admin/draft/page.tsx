@@ -215,20 +215,10 @@ export default function DraftPage() {
     setError(null);
     setResult(null);
     setPublishedUrl(null);
-    if (heroImages.length === 0) {
-      setError("Please add at least one haul photo first.");
-      return;
-    }
-    const totalContextLength =
-      acquisitionContext.trim().length + photoNotes.trim().length;
-    if (
-      totalContextLength < 10 &&
-      contextImages.length === 0 &&
-      !contextUrl.trim()
-    ) {
-      setError(
-        "Add at least a sentence of context, or attach a context photo, or paste a source URL."
-      );
+    // At least one photo of either type is required — haul and context
+    // photos carry equal weight in the generated narrative.
+    if (heroImages.length === 0 && contextImages.length === 0) {
+      setError("Add at least one photo — either a haul photo or a context photo.");
       return;
     }
     setIsGenerating(true);
@@ -366,10 +356,11 @@ ${r.body}
       </div>
 
       <p className="text-brand-ink/70 mb-8 max-w-prose">
-        Upload one or more photos from a recent haul plus a few sentences of
-        context. Claude will draft a complete journal post you can edit and
-        publish. The first haul photo becomes the hero; the rest show up in a
-        gallery below the narrative.
+        Upload at least one photo — either a haul photo or a context photo —
+        plus a few sentences of context if you can. Claude will draft a
+        journal post grounded strictly in what you provide. The first haul
+        photo becomes the hero; the rest appear in a gallery below the
+        narrative.
       </p>
 
       <form onSubmit={handleGenerate} className="space-y-8 max-w-3xl">
@@ -405,7 +396,7 @@ ${r.body}
                 ({contextImages.length}/{MAX_CONTEXT_IMAGES})
               </span>
               <span className="text-brand-ink/50 font-normal ml-2 block mt-1">
-                Optional — estate sale signage, the room before pack-out, auction catalog page
+                Estate signage, the room before pack-out, auction catalog page. Carries equal narrative weight as haul photos.
               </span>
             </label>
             <input
@@ -552,7 +543,7 @@ ${r.body}
                 ({heroImages.length}/{MAX_HERO_IMAGES})
               </span>
               <span className="text-brand-ink/50 font-normal ml-2 block mt-1">
-                Required — JPG, PNG, WebP, or GIF. First photo becomes the hero; rest appear in a gallery on the post.
+                JPG, PNG, WebP, or GIF. First haul photo becomes the published hero. Optional if you have context photos — but you need at least one photo total to publish.
               </span>
             </label>
             <input
@@ -608,10 +599,7 @@ ${r.body}
             type="submit"
             disabled={
               isGenerating ||
-              heroImages.length === 0 ||
-              (acquisitionContext.trim().length + photoNotes.trim().length < 10 &&
-                contextImages.length === 0 &&
-                !contextUrl.trim())
+              (heroImages.length === 0 && contextImages.length === 0)
             }
             className="inline-flex items-center justify-center px-6 py-3 bg-brand-yellow text-brand-ink font-medium rounded-md hover:bg-brand-yellow-dark transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
@@ -643,13 +631,22 @@ ${r.body}
             <div className="flex flex-wrap items-center gap-2">
               <button
                 onClick={handlePublish}
-                disabled={isPublishing || !!publishedUrl}
+                disabled={
+                  isPublishing || !!publishedUrl || heroImages.length === 0
+                }
+                title={
+                  heroImages.length === 0
+                    ? "Promote a context photo to the haul section first (hover any context photo and click 'Use as hero →')"
+                    : undefined
+                }
                 className="inline-flex items-center px-4 py-2 bg-brand-yellow text-brand-ink font-medium rounded-md hover:bg-brand-yellow-dark transition-colors text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {isPublishing
                   ? "Publishing…"
                   : publishedUrl
                   ? "Published ✓"
+                  : heroImages.length === 0
+                  ? "Need a haul photo to publish"
                   : `Publish ${heroImages.length} photo${heroImages.length === 1 ? "" : "s"} →`}
               </button>
               <button
