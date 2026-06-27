@@ -2,6 +2,7 @@
 title: "A Five Dollar Bag from a South Huntsville Estate Sale"
 date: "2026-06-27"
 type: "haul"
+city: "Huntsville"
 state: "Alabama"
 hero: "/photos/posts/five-dollar-bag-south-huntsville-estate-sale-hero.jpg"
 excerpt: "A Loose Ends estate sale in Huntsville's Camelot neighborhood, a final-day fill-a-bag deal, and a mix of small collectibles and framed artwork."
