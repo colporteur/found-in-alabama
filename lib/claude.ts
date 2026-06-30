@@ -20,7 +20,16 @@ export function getClaude(): Anthropic {
 // Default model for haul-narrative generation. Sonnet gives noticeably
 // better creative writing than Haiku for this use case; cost is still
 // pennies per generation at this scale.
-export const DRAFT_MODEL = "claude-sonnet-4-6";
+//
+// Sonnet 5 notes (migration from 4.6):
+//   - Adaptive thinking is ON by default; it consumes from the same
+//     max_tokens budget. Routes that previously sized max_tokens close
+//     to expected output length have been bumped to absorb thinking
+//     plus the new tokenizer's ~30% per-text increase.
+//   - Sampling params (temperature, top_p, top_k) return 400 if set to
+//     non-default values. We don't set any of these.
+//   - Manual extended thinking is removed (use adaptive thinking).
+export const DRAFT_MODEL = "claude-sonnet-5";
 
 // System prompt that defines the voice and structure. Shared across all
 // haul-draft calls so you get consistent output.

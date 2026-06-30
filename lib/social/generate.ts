@@ -26,7 +26,7 @@ import {
   formatVoiceSamplesPrompt,
 } from "@/lib/social/voice-samples";
 
-const MODEL = "claude-sonnet-4-6";
+const MODEL = "claude-sonnet-5";
 
 export type ImageMediaType =
   | "image/jpeg"
@@ -220,7 +220,7 @@ export async function generateChannelDrafts(input: {
   const claude = getClaude();
   const response = await claude.messages.create({
     model: MODEL,
-    max_tokens: 2500,
+    max_tokens: 3500, // Sonnet 5: +30% tokenizer + adaptive thinking budget
     system: buildSystemPrompt(),
     messages: [{ role: "user", content }],
   });

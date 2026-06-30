@@ -205,7 +205,7 @@ Generate the draft journal post as JSON. Stick strictly to facts derivable from 
   try {
     const response = await claude.messages.create({
       model: DRAFT_MODEL,
-      max_tokens: 1500,
+      max_tokens: 2500, // Sonnet 5: +30% tokenizer + adaptive thinking budget
       system: DRAFT_SYSTEM_PROMPT,
       messages: [{ role: "user", content }],
     });

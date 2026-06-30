@@ -42,7 +42,7 @@ async function callClaudeForFlavor({
   const claude = getClaude();
   const response = await claude.messages.create({
     model: DRAFT_MODEL,
-    max_tokens: 3500,
+    max_tokens: 5000, // Sonnet 5: absorb tokenizer + thinking; stays under 60s gateway when paralleled
     system: systemPrompt,
     messages: [{ role: "user", content: userMessage }],
   });
