@@ -614,6 +614,61 @@ export const newsletterSendLog = pgTable(
   })
 );
 
+// ─── Haul drafts ──────────────────────────────────────────────────────────────
+//
+// Saved drafts of haul journal posts. Captures inputs (photos + acquisition
+// story + photo notes + location) and optionally the Claude-generated
+// narrative. A draft may have only inputs (Claude hasn't run yet) or inputs
+// plus generated title/slug/excerpt/body. On publish, the draft is deleted —
+// the published post lives on disk and can be re-edited via /admin/journal.
+//
+// Photos are stored inline as base64 in JSONB. Each draft save request must
+// stay under Vercel's 4.5 MB body limit, so ~10 phone photos per save is the
+// realistic ceiling. The client-side compression in /admin/draft already
+// brings phone photos down to ~200-400 KB each.
+
+export type HaulDraftImage = {
+  base64: string;
+  mediaType: string;
+  fileName: string;
+};
+
+export const haulDrafts = pgTable(
+  "haul_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Human-readable label shown in the drafts list. */
+    label: text("label").default("").notNull(),
+    /** Captured photos: hero (the haul) and context (the source). */
+    heroImages: jsonb("hero_images")
+      .$type<HaulDraftImage[]>()
+      .default([])
+      .notNull(),
+    contextImages: jsonb("context_images")
+      .$type<HaulDraftImage[]>()
+      .default([])
+      .notNull(),
+    /** Free-text inputs the seller captured. */
+    acquisitionContext: text("acquisition_context").default("").notNull(),
+    photoNotes: text("photo_notes").default("").notNull(),
+    contextUrl: text("context_url").default("").notNull(),
+    /** Location fields — same shape as the publish frontmatter. */
+    city: text("city").default("").notNull(),
+    state: text("state").default("Alabama").notNull(),
+    vagueLocation: text("vague_location").default("").notNull(),
+    /** Generated narrative — null until Claude has run on this draft. */
+    title: text("title"),
+    slug: text("slug"),
+    excerpt: text("excerpt"),
+    body: text("body"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    updatedAtIdx: index("haul_drafts_updated_at_idx").on(t.updatedAt),
+  })
+);
+
 // ─── NextAuth tables (shape required by @auth/drizzle-adapter) ────────────────
 
 export const users = pgTable("user", {

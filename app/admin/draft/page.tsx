@@ -43,6 +43,13 @@ export default function DraftPage() {
   const [copied, setCopied] = useState(false);
   const [isPublishing, setIsPublishing] = useState(false);
   const [publishedUrl, setPublishedUrl] = useState<string | null>(null);
+  // Phase 4E — draft persistence. draftId is set on mount (from ?id=N) or on
+  // first Save (POST → returned id). label shows in the saved-drafts list.
+  const [draftId, setDraftId] = useState<string | null>(null);
+  const [label, setLabel] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
+  const [savedAt, setSavedAt] = useState<string | null>(null);
+  const [isLoadingDraft, setIsLoadingDraft] = useState(false);
 
   // Prefill from Sale Finder's "Send to FIA" button (query params on /admin/draft)
   useEffect(() => {
@@ -55,6 +62,76 @@ export default function DraftPage() {
     if (st) setStateName(st);
     const u = p.get("url");
     if (u) setContextUrl(u);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Load a saved draft when ?id=N is present in the URL.
+  useEffect(() => {
+    const p = new URLSearchParams(window.location.search);
+    const id = p.get("id");
+    if (!id) return;
+    setDraftId(id);
+    setIsLoadingDraft(true);
+    (async () => {
+      try {
+        const res = await fetch(`/api/admin/haul-drafts/${id}`);
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}));
+          throw new Error(body.error ?? `HTTP ${res.status}`);
+        }
+        const { draft: d } = (await res.json()) as {
+          draft: {
+            label: string;
+            heroImages: Array<{ base64: string; mediaType: string; fileName: string }>;
+            contextImages: Array<{ base64: string; mediaType: string; fileName: string }>;
+            acquisitionContext: string;
+            photoNotes: string;
+            contextUrl: string;
+            city: string;
+            state: string;
+            vagueLocation: string;
+            title: string | null;
+            slug: string | null;
+            excerpt: string | null;
+            body: string | null;
+          };
+        };
+        setLabel(d.label ?? "");
+        setAcquisitionContext(d.acquisitionContext ?? "");
+        setPhotoNotes(d.photoNotes ?? "");
+        setContextUrl(d.contextUrl ?? "");
+        setCity(d.city ?? "");
+        setStateName(d.state ?? "Alabama");
+        setVagueLocation(d.vagueLocation ?? "");
+        const hydrate = (
+          imgs: Array<{ base64: string; mediaType: string; fileName: string }>
+        ): ImageData[] =>
+          imgs.map((img) => ({
+            base64: img.base64,
+            mediaType: img.mediaType,
+            fileName: img.fileName,
+            previewUrl: `data:${img.mediaType};base64,${img.base64}`,
+          }));
+        setHeroImages(hydrate(d.heroImages ?? []));
+        setContextImages(hydrate(d.contextImages ?? []));
+        if (d.title || d.body) {
+          setResult({
+            title: d.title ?? "",
+            slug: d.slug ?? "",
+            excerpt: d.excerpt ?? "",
+            body: d.body ?? "",
+          });
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error
+            ? `Could not load draft: ${err.message}`
+            : "Could not load draft"
+        );
+      } finally {
+        setIsLoadingDraft(false);
+      }
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -282,6 +359,15 @@ export default function DraftPage() {
       }
       const data = (await res.json()) as { postUrl: string };
       setPublishedUrl(data.postUrl);
+      // If this was a saved draft, drop it from the drafts list — the
+      // published post is now editable at /admin/journal/[slug]/edit.
+      if (draftId) {
+        try {
+          await fetch(`/api/admin/haul-drafts/${draftId}`, { method: "DELETE" });
+        } catch {
+          // Non-fatal — user can manually delete from the drafts list.
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Publish failed");
     } finally {
@@ -325,6 +411,76 @@ ${r.body}
 `;
   }
 
+  // Save the current form state as a draft. Creates a new row on first
+  // call (POST); updates the existing row on subsequent calls (PATCH).
+  // Includes the generated narrative if Claude has been run.
+  async function handleSave() {
+    setError(null);
+    if (
+      heroImages.length === 0 &&
+      contextImages.length === 0 &&
+      acquisitionContext.trim().length === 0 &&
+      photoNotes.trim().length === 0 &&
+      !contextUrl.trim() &&
+      !result
+    ) {
+      setError("Add a photo or some context before saving.");
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const payload = {
+        label: label.trim(),
+        heroImages: heroImages.map((i) => ({
+          base64: i.base64,
+          mediaType: i.mediaType,
+          fileName: i.fileName,
+        })),
+        contextImages: contextImages.map((i) => ({
+          base64: i.base64,
+          mediaType: i.mediaType,
+          fileName: i.fileName,
+        })),
+        acquisitionContext,
+        photoNotes,
+        contextUrl,
+        city,
+        state: stateName,
+        vagueLocation,
+        title: result?.title ?? null,
+        slug: result?.slug ?? null,
+        excerpt: result?.excerpt ?? null,
+        body: result?.body ?? null,
+      };
+      const res = draftId
+        ? await fetch(`/api/admin/haul-drafts/${draftId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          })
+        : await fetch("/api/admin/haul-drafts", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `HTTP ${res.status}`);
+      }
+      const { id } = (await res.json()) as { id: string };
+      if (!draftId) {
+        setDraftId(id);
+        // Make refresh land on this draft — soft URL update, no navigation.
+        window.history.replaceState(null, "", `/admin/draft?id=${id}`);
+      }
+      setSavedAt(new Date().toISOString());
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Save failed");
+    } finally {
+      setIsSaving(false);
+    }
+  }
+
   async function handleCopy() {
     if (!result) return;
     try {
@@ -364,6 +520,27 @@ ${r.body}
       </p>
 
       <form onSubmit={handleGenerate} className="space-y-8 max-w-3xl">
+
+        {/* ── Draft label ────────────────────────────────────────────── */}
+        <div>
+          <label
+            htmlFor="draft-label"
+            className="block text-sm font-medium mb-2"
+          >
+            Draft label
+            <span className="text-brand-ink/50 font-normal ml-2">
+              Optional — shows in the saved drafts list (e.g. &ldquo;Sylacauga estate, 6/29&rdquo;)
+            </span>
+          </label>
+          <input
+            id="draft-label"
+            type="text"
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="e.g. Anniston physician estate"
+            className="w-full px-4 py-3 border border-brand-ink/20 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-brand-yellow focus:border-brand-yellow"
+          />
+        </div>
 
         {/* ── Where it came from ─────────────────────────────────────── */}
         <fieldset className="border border-brand-ink/15 rounded-lg p-5 space-y-4">
@@ -605,8 +782,39 @@ ${r.body}
           >
             {isGenerating ? "Generating…" : "Generate draft with Claude →"}
           </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={isSaving || isLoadingDraft}
+            className="inline-flex items-center justify-center px-5 py-3 bg-white border border-brand-ink/30 text-brand-ink font-medium rounded-md hover:bg-brand-ink/5 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title={
+              draftId
+                ? "Update the saved draft with current inputs and (if generated) the narrative"
+                : "Save current inputs as a draft you can come back to later"
+            }
+          >
+            {isSaving
+              ? "Saving…"
+              : draftId
+                ? "Update saved draft"
+                : "Save as draft"}
+          </button>
           <span className="text-xs text-brand-ink/50">
             ~$0.02 per generation · Sonnet
+            {savedAt && (
+              <>
+                {" · "}
+                <span className="text-emerald-700">
+                  Saved {new Date(savedAt).toLocaleTimeString()}
+                </span>
+              </>
+            )}
+            {isLoadingDraft && (
+              <>
+                {" · "}
+                <span>Loading saved draft…</span>
+              </>
+            )}
           </span>
         </div>
 

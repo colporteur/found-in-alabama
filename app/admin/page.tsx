@@ -75,6 +75,12 @@ export default async function AdminDashboard() {
           Draft a haul narrative →
         </Link>
         <Link
+          href="/admin/drafts"
+          className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+        >
+          Saved drafts →
+        </Link>
+        <Link
           href="/admin/journal"
           className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
         >
