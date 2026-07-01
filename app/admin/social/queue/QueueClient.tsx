@@ -53,6 +53,10 @@ export default function QueueClient({
   const [tab, setTab] = useState<TabKey>("schedule");
   const [channelFilter, setChannelFilter] = useState<ChannelKey | "all">("all");
   const [error, setError] = useState<string | null>(null);
+  // Bulk retry — used on the Failed tab after a scope/adapter fix lands
+  // and we want to burn down a backlog of failed drafts.
+  const [isBulkRetrying, setIsBulkRetrying] = useState(false);
+  const [bulkRetrySummary, setBulkRetrySummary] = useState<string | null>(null);
 
   // Counts per tab — drives the tab badges
   const counts = useMemo(() => {
@@ -210,6 +214,54 @@ export default function QueueClient({
     }
   }
 
+  async function handleBulkRetry() {
+    setError(null);
+    setBulkRetrySummary(null);
+    setIsBulkRetrying(true);
+    try {
+      const res = await fetch("/api/admin/social/drafts/bulk-retry", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          channel: channelFilter === "all" ? undefined : channelFilter,
+          limit: 10,
+        }),
+      });
+      const data = (await res.json()) as {
+        attempted?: number;
+        succeeded?: number;
+        failed?: number;
+        remaining?: number;
+        samples?: string[];
+        error?: string;
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? `HTTP ${res.status}`);
+      }
+      const parts = [
+        `Retried ${data.attempted ?? 0}`,
+        `${data.succeeded ?? 0} posted`,
+        `${data.failed ?? 0} still failing`,
+        `${data.remaining ?? 0} remaining`,
+      ];
+      let summary = parts.join(" · ");
+      if (data.samples && data.samples.length > 0) {
+        summary += ` — example: ${data.samples[0]}`;
+      }
+      setBulkRetrySummary(summary);
+      // Simplest way to reflect DB changes: refresh the page state. The
+      // queue is server-rendered, so navigating to itself picks up the
+      // new statuses.
+      if ((data.succeeded ?? 0) > 0 || (data.attempted ?? 0) > 0) {
+        setTimeout(() => window.location.reload(), 1500);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Bulk retry failed");
+    } finally {
+      setIsBulkRetrying(false);
+    }
+  }
+
   const rowProps = {
     onPatch: patchDraft,
     onDelete: deleteDraft,
@@ -283,6 +335,31 @@ export default function QueueClient({
           </button>
         ))}
       </div>
+
+      {tab === "failed" && counts.failed > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-md p-4 space-y-2">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-amber-900">
+              <strong>{counts.failed}</strong> failed{" "}
+              {channelFilter === "all"
+                ? "draft" + (counts.failed === 1 ? "" : "s")
+                : `${channelFilter} draft` + (counts.failed === 1 ? "" : "s")}
+              . Click Retry to re-post up to 10 at a time.
+            </p>
+            <button
+              type="button"
+              onClick={handleBulkRetry}
+              disabled={isBulkRetrying}
+              className="text-xs px-3 py-1.5 bg-amber-600 text-white font-medium rounded hover:bg-amber-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isBulkRetrying ? "Retrying…" : "Retry batch of 10"}
+            </button>
+          </div>
+          {bulkRetrySummary && (
+            <p className="text-xs text-amber-900/80">{bulkRetrySummary}</p>
+          )}
+        </div>
+      )}
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-900">

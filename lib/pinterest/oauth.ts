@@ -21,8 +21,16 @@ import { pinterestOAuthTokens } from "@/db/schema";
 import { eq } from "drizzle-orm";
 import crypto from "node:crypto";
 
+// Pinterest v5 quirk: creating a pin requires BOTH pins:write AND
+// boards:write. The board scope covers "writing to a board" which is
+// what create-pin technically does. Without boards:write, every
+// createPin call returns 401 with:
+//   "Missing: ['boards:write']"
+// If you change this list, existing OAuth tokens do NOT automatically
+// pick up the new scopes — you have to reconnect at /admin/settings/posting.
 export const REQUIRED_SCOPES = [
   "boards:read",
+  "boards:write",
   "pins:read",
   "pins:write",
   "user_accounts:read",
