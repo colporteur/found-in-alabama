@@ -24,9 +24,11 @@ import {
   computeAdjustedPrice,
   computeRenamedSku,
   getOpHandler,
+  DEFAULT_TARGET_SPECIFICS,
   type PriceAdjustConfig,
   type SkuRenameConfig,
 } from "@/lib/enhance/ops";
+import { fetchItemForSpecifics } from "@/lib/ebay/calls";
 import { decodeEntities } from "@/lib/ebay/entities";
 import type { EnhanceOp } from "@/db/schema";
 
@@ -207,13 +209,53 @@ export async function POST(req: NextRequest) {
   const estimatedCostUsd = perJob * matched.length;
 
   if (body.dryRun) {
+    let sample = matched.slice(0, 10).map((m) => ({
+      ...m,
+      after: projectAfter(op, config, m),
+    }));
+
+    // item_specifics: check each sample item LIVE so the preview shows
+    // exactly which specifics are empty (will be filled) vs. already set
+    // (never touched). ~10 GetItem calls, a few seconds — worth it for
+    // the visibility before spending on the LLM.
+    if (op === "item_specifics") {
+      const targets = (
+        Array.isArray(config.specifics) && config.specifics.length > 0
+          ? config.specifics.map((s) => String(s).trim()).filter(Boolean)
+          : DEFAULT_TARGET_SPECIFICS
+      ).slice(0, 20);
+      sample = await Promise.all(
+        sample.map(async (row) => {
+          try {
+            const live = await fetchItemForSpecifics(row.itemId);
+            if (!live) return { ...row, after: "(item not found on eBay)" };
+            const existing = new Map(
+              live.specifics.map((s) => [s.name.toLowerCase(), s])
+            );
+            const fillable = targets.filter((n) => {
+              const e = existing.get(n.toLowerCase());
+              return !e || e.values.length === 0;
+            });
+            const alreadySet = targets.filter((n) => !fillable.includes(n));
+            const after =
+              fillable.length === 0
+                ? "nothing to fill — will skip"
+                : `will fill: ${fillable.join(", ")}` +
+                  (alreadySet.length > 0
+                    ? ` · keeps: ${alreadySet.join(", ")}`
+                    : "");
+            return { ...row, after };
+          } catch {
+            return { ...row, after: "(could not check live item)" };
+          }
+        })
+      );
+    }
+
     return NextResponse.json({
       matched: matched.length,
       estimatedCostUsd,
-      sample: matched.slice(0, 10).map((m) => ({
-        ...m,
-        after: projectAfter(op, config, m),
-      })),
+      sample,
     });
   }
 

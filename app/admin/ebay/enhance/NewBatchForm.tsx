@@ -390,25 +390,45 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
             {preview.matched} listing{preview.matched === 1 ? "" : "s"} matched ·
             estimated cost ${preview.estimatedCostUsd.toFixed(2)}
           </p>
+          {op === "item_specifics" && (
+            <p className="text-xs text-brand-ink/50 mb-2">
+              Each sample item below was checked live on eBay. Only the
+              &ldquo;will fill&rdquo; specifics get written — anything listed
+              under &ldquo;keeps&rdquo; already has a value and is never
+              touched. The values themselves are decided by the model at run
+              time.
+            </p>
+          )}
           {preview.sample.length > 0 && (
             <ul className="text-xs text-brand-ink/70 space-y-1">
-              {preview.sample.map((s) => (
-                <li key={s.itemId} className="truncate">
-                  <span className="font-mono">{s.sku ?? "—"}</span> ·{" "}
-                  {op === "price_adjust" && s.after ? (
-                    <span className="font-medium">
-                      ${s.price ?? "?"} → {s.after}
+              {preview.sample.map((s) =>
+                op === "item_specifics" ? (
+                  <li key={s.itemId}>
+                    <span className="truncate block">
+                      <span className="font-mono">{s.sku ?? "—"}</span> · ${s.price ?? "?"} · {s.title}
                     </span>
-                  ) : op === "sku_rename" && s.after ? (
-                    <span className="font-medium font-mono">
-                      {s.sku ?? "—"} → {s.after}
+                    <span className="block pl-5 font-medium text-brand-ink">
+                      {s.after ?? "—"}
                     </span>
-                  ) : (
-                    <>${s.price ?? "?"}</>
-                  )}{" "}
-                  · {s.title}
-                </li>
-              ))}
+                  </li>
+                ) : (
+                  <li key={s.itemId} className="truncate">
+                    <span className="font-mono">{s.sku ?? "—"}</span> ·{" "}
+                    {op === "price_adjust" && s.after ? (
+                      <span className="font-medium">
+                        ${s.price ?? "?"} → {s.after}
+                      </span>
+                    ) : op === "sku_rename" && s.after ? (
+                      <span className="font-medium font-mono">
+                        {s.sku ?? "—"} → {s.after}
+                      </span>
+                    ) : (
+                      <>${s.price ?? "?"}</>
+                    )}{" "}
+                    · {s.title}
+                  </li>
+                )
+              )}
               {preview.matched > preview.sample.length && (
                 <li className="text-brand-ink/40">
                   …and {preview.matched - preview.sample.length} more
