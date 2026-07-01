@@ -3,6 +3,7 @@
 // on without thinking in XML.
 
 import { tradingCall } from "./client";
+import { decodeEntities } from "./entities";
 
 // ─── GetStore: pull the seller's Store custom-category tree ───────────────────
 
@@ -185,7 +186,10 @@ function toFetchedListing(item: unknown): FetchedListing {
   return {
     itemId: String(i.ItemID ?? ""),
     sku: i.SKU != null ? String(i.SKU) : null,
-    title: String(i.Title ?? ""),
+    // Decode XML entities at ingestion so the ebay_listings mirror stores
+    // clean text ("Foo & Bar", not "Foo &amp; Bar"). Rows synced before
+    // this change may still carry entities — decode again at display.
+    title: decodeEntities(String(i.Title ?? "")),
     primaryImageUrl: Array.isArray(pictureUrl)
       ? String(pictureUrl[0] ?? "")
       : pictureUrl != null
@@ -304,7 +308,7 @@ export async function fetchItemCore(itemId: string): Promise<ItemCore | null> {
 
   return {
     itemId: String(item.ItemID ?? itemId),
-    title: String(item.Title ?? ""),
+    title: decodeEntities(String(item.Title ?? "")),
     sku: item.SKU != null && String(item.SKU) !== "" ? String(item.SKU) : null,
     price,
     listingType: item.ListingType != null ? String(item.ListingType) : null,
@@ -333,6 +337,128 @@ export async function reviseItemSku(itemId: string, sku: string): Promise<void> 
     Item: {
       ItemID: itemId,
       SKU: sku,
+    },
+  });
+}
+
+// ─── ItemSpecifics: read + write for the item_specifics op (Phase 2) ─────────
+//
+// IMPORTANT eBay semantics: ReviseItem with an ItemSpecifics block REPLACES
+// the entire container. Writers must always send the full merged set
+// (existing specifics + newly filled ones), never just the additions.
+//
+// Values are entity-decoded on read (our parser has processEntities off);
+// the XML builder re-escapes on write, so decoded values round-trip
+// correctly — writing raw "&amp;" back would double-encode it.
+
+export interface ItemSpecific {
+  name: string;
+  values: string[];
+}
+
+export interface ItemForSpecifics {
+  itemId: string;
+  title: string;
+  /** Description with HTML tags stripped, entity-decoded, capped at 4000 chars. */
+  description: string;
+  specifics: ItemSpecific[];
+  pictureUrl: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  listingStatus: string | null;
+}
+
+function parseNameValueList(raw: unknown): ItemSpecific[] {
+  if (!raw) return [];
+  const arr = Array.isArray(raw) ? raw : [raw];
+  const out: ItemSpecific[] = [];
+  for (const entry of arr) {
+    const e = entry as Record<string, unknown>;
+    const name = e.Name != null ? decodeEntities(String(e.Name)) : "";
+    if (!name) continue;
+    const v = e.Value;
+    const values = (Array.isArray(v) ? v : v != null ? [v] : [])
+      .map((x) => decodeEntities(String(x)))
+      .filter((x) => x.length > 0);
+    out.push({ name, values });
+  }
+  return out;
+}
+
+function stripHtml(html: string): string {
+  return decodeEntities(
+    html
+      .replace(/<(script|style)[\s\S]*?<\/\1>/gi, " ")
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<\/(p|div|li|tr|h[1-6])>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+  )
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n\s*/g, "\n")
+    .trim();
+}
+
+export async function fetchItemForSpecifics(
+  itemId: string
+): Promise<ItemForSpecifics | null> {
+  const res = await tradingCall("GetItem", {
+    ItemID: itemId,
+    DetailLevel: "ReturnAll",
+    IncludeItemSpecifics: true,
+  });
+  const item = (res as { Item?: Record<string, unknown> }).Item;
+  if (!item) return null;
+
+  const specificsNode = (item.ItemSpecifics as Record<string, unknown> | undefined)
+    ?.NameValueList;
+  const pictureDetails =
+    (item.PictureDetails as Record<string, unknown> | undefined) ?? {};
+  const pictureUrl = pictureDetails.PictureURL;
+  const primaryCat =
+    (item.PrimaryCategory as Record<string, unknown> | undefined) ?? {};
+  const sellingStatus =
+    (item.SellingStatus as Record<string, unknown> | undefined) ?? {};
+
+  return {
+    itemId: String(item.ItemID ?? itemId),
+    title: decodeEntities(String(item.Title ?? "")),
+    description:
+      item.Description != null
+        ? stripHtml(String(item.Description)).slice(0, 4000)
+        : "",
+    specifics: parseNameValueList(specificsNode),
+    pictureUrl: Array.isArray(pictureUrl)
+      ? String(pictureUrl[0] ?? "") || null
+      : pictureUrl != null
+      ? String(pictureUrl)
+      : null,
+    categoryId:
+      primaryCat.CategoryID != null ? String(primaryCat.CategoryID) : null,
+    categoryName:
+      primaryCat.CategoryName != null
+        ? decodeEntities(String(primaryCat.CategoryName))
+        : null,
+    listingStatus:
+      sellingStatus.ListingStatus != null
+        ? String(sellingStatus.ListingStatus)
+        : null,
+  };
+}
+
+/** Write the FULL merged specifics set (see semantics note above). */
+export async function reviseItemSpecifics(
+  itemId: string,
+  specifics: ItemSpecific[]
+): Promise<void> {
+  await tradingCall("ReviseItem", {
+    Item: {
+      ItemID: itemId,
+      ItemSpecifics: {
+        NameValueList: specifics.map((s) => ({
+          Name: s.name,
+          Value: s.values.length === 1 ? s.values[0] : s.values,
+        })),
+      },
     },
   });
 }

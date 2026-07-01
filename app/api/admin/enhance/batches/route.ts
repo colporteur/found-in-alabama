@@ -20,14 +20,64 @@ import { auth } from "@/auth";
 import { db, ebayListings } from "@/db";
 import { and, asc, eq, ilike, inArray, or, sql, type SQL } from "drizzle-orm";
 import { createBatch } from "@/lib/enhance/queue";
-import { getOpHandler } from "@/lib/enhance/ops";
+import {
+  computeAdjustedPrice,
+  computeRenamedSku,
+  getOpHandler,
+  type PriceAdjustConfig,
+  type SkuRenameConfig,
+} from "@/lib/enhance/ops";
+import { decodeEntities } from "@/lib/ebay/entities";
 import type { EnhanceOp } from "@/db/schema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const PHASE1_OPS: EnhanceOp[] = ["price_adjust", "sku_rename"];
+const SUPPORTED_OPS: EnhanceOp[] = ["price_adjust", "sku_rename", "item_specifics"];
+
+/**
+ * Projected "after" value for one preview row, computed from the same
+ * functions the op handler uses. Indicative only — handlers re-fetch the
+ * live item at run time (the mirror price may be slightly stale).
+ */
+function projectAfter(
+  op: EnhanceOp,
+  config: Record<string, unknown>,
+  row: { sku: string | null; price: string | null }
+): string | null {
+  if (op === "price_adjust") {
+    const price = row.price !== null ? Number(row.price) : NaN;
+    const mode = config.mode;
+    const delta = Number(config.delta);
+    if (!Number.isFinite(price) || (mode !== "percent" && mode !== "flat") || !Number.isFinite(delta)) {
+      return null;
+    }
+    const cfg: PriceAdjustConfig = {
+      mode,
+      delta,
+      floor: Number.isFinite(Number(config.floor)) && config.floor !== undefined && config.floor !== ""
+        ? Number(config.floor)
+        : undefined,
+      round87: config.round87 === true,
+    };
+    return `$${computeAdjustedPrice(price, cfg).toFixed(2)}`;
+  }
+  if (op === "sku_rename") {
+    if (typeof config.find !== "string" || typeof config.replace !== "string") return null;
+    const cfg: SkuRenameConfig = {
+      find: config.find,
+      replace: config.replace,
+      mode:
+        config.mode === "prefix" || config.mode === "contains"
+          ? config.mode
+          : "exact",
+    };
+    const renamed = computeRenamedSku(row.sku ?? "", cfg);
+    return renamed ?? "(no match — will skip)";
+  }
+  return null; // item_specifics: outcome unknowable before the LLM runs
+}
 
 type Selection = {
   itemIds?: string[];
@@ -87,6 +137,7 @@ export async function POST(req: NextRequest) {
     label?: string;
     config?: Record<string, unknown>;
     selection?: Selection;
+    modelOverride?: string;
     dryRun?: boolean;
   };
   try {
@@ -96,9 +147,9 @@ export async function POST(req: NextRequest) {
   }
 
   const op = body.op as EnhanceOp;
-  if (!PHASE1_OPS.includes(op)) {
+  if (!SUPPORTED_OPS.includes(op)) {
     return NextResponse.json(
-      { error: `op must be one of: ${PHASE1_OPS.join(", ")}` },
+      { error: `op must be one of: ${SUPPORTED_OPS.join(", ")}` },
       { status: 400 }
     );
   }
@@ -133,7 +184,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const matched = await db
+  const matchedRaw = await db
     .select({
       itemId: ebayListings.itemId,
       sku: ebayListings.sku,
@@ -144,9 +195,14 @@ export async function POST(req: NextRequest) {
     .where(and(...filters))
     .orderBy(asc(ebayListings.itemId));
 
+  // Mirror rows synced before the ingestion-side decode may still carry
+  // XML entities ("Foo &amp; Bar") — normalize for display and job storage.
+  const matched = matchedRaw.map((m) => ({ ...m, title: decodeEntities(m.title) }));
+
+  const modelOverride = body.modelOverride?.trim() || null;
   const handler = getOpHandler(op);
   const perJob = handler
-    ? handler.estimateCostPerJob({ op, config, modelOverride: null })
+    ? handler.estimateCostPerJob({ op, config, modelOverride })
     : 0;
   const estimatedCostUsd = perJob * matched.length;
 
@@ -154,7 +210,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       matched: matched.length,
       estimatedCostUsd,
-      sample: matched.slice(0, 10),
+      sample: matched.slice(0, 10).map((m) => ({
+        ...m,
+        after: projectAfter(op, config, m),
+      })),
     });
   }
 
@@ -169,6 +228,7 @@ export async function POST(req: NextRequest) {
     op,
     label: body.label ?? "",
     config,
+    modelOverride,
     items: matched.map((m) => ({
       ebayItemId: m.itemId,
       sku: m.sku,

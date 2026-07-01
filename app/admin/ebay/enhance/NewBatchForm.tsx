@@ -20,12 +20,15 @@ type Preview = {
     sku: string | null;
     title: string;
     price: string | null;
+    after: string | null;
   }>;
 };
 
+type Op = "price_adjust" | "sku_rename" | "item_specifics";
+
 export default function NewBatchForm({ categories }: { categories: Category[] }) {
   const router = useRouter();
-  const [op, setOp] = useState<"price_adjust" | "sku_rename">("price_adjust");
+  const [op, setOp] = useState<Op>("price_adjust");
   const [label, setLabel] = useState("");
 
   // price_adjust config
@@ -38,6 +41,13 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
   const [find, setFind] = useState("");
   const [replace, setReplace] = useState("");
   const [skuMode, setSkuMode] = useState<"exact" | "prefix" | "contains">("exact");
+
+  // item_specifics config
+  const [specificsList, setSpecificsList] = useState(
+    "Brand, Color, Size, Material, Style, Type"
+  );
+  const [specificsModel, setSpecificsModel] = useState("gemini:gemini-2.0-flash");
+  const [usePhoto, setUsePhoto] = useState(true);
 
   // selection
   const [skuFilter, setSkuFilter] = useState("");
@@ -60,7 +70,15 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
             ...(floor ? { floor: Number(floor) } : {}),
             round87,
           }
-        : { find, replace, mode: skuMode };
+        : op === "sku_rename"
+        ? { find, replace, mode: skuMode }
+        : {
+            specifics: specificsList
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean),
+            usePhoto,
+          };
 
     const selection: Record<string, unknown> = {};
     if (skuFilter) {
@@ -73,7 +91,14 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
     if (priceMin) selection.priceMin = Number(priceMin);
     if (priceMax) selection.priceMax = Number(priceMax);
 
-    return { op, label, config, selection, dryRun };
+    return {
+      op,
+      label,
+      config,
+      selection,
+      dryRun,
+      ...(op === "item_specifics" ? { modelOverride: specificsModel } : {}),
+    };
   }
 
   function validate(): string | null {
@@ -81,9 +106,11 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
       if (!delta || !Number.isFinite(Number(delta)) || Number(delta) === 0) {
         return "Enter a non-zero delta.";
       }
-    } else {
+    } else if (op === "sku_rename") {
       if (!find) return "Enter the SKU text to find.";
       if (!replace && skuMode === "exact") return "Enter the replacement SKU.";
+    } else {
+      if (!specificsList.trim()) return "Enter at least one specific to fill.";
     }
     return null;
   }
@@ -139,12 +166,13 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
             className={inputCls}
             value={op}
             onChange={(e) => {
-              setOp(e.target.value as typeof op);
+              setOp(e.target.value as Op);
               setPreview(null);
             }}
           >
             <option value="price_adjust">Price bump / discount</option>
             <option value="sku_rename">SKU rename (bin consolidation)</option>
+            <option value="item_specifics">Item specifics fill (AI)</option>
           </select>
         </div>
         <div>
@@ -205,7 +233,7 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
             </label>
           </div>
         </div>
-      ) : (
+      ) : op === "sku_rename" ? (
         <div className="grid gap-4 sm:grid-cols-3 mb-4">
           <div>
             <label className={labelCls}>Find</label>
@@ -236,6 +264,42 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
               <option value="prefix">SKU prefix</option>
               <option value="contains">SKU contains</option>
             </select>
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-3 mb-4">
+          <div className="sm:col-span-1">
+            <label className={labelCls}>Specifics to fill (comma-separated)</label>
+            <input
+              className={inputCls}
+              value={specificsList}
+              onChange={(e) => setSpecificsList(e.target.value)}
+              placeholder="Brand, Color, Size, Material, Style, Type"
+            />
+            <p className="text-xs text-brand-ink/40 mt-1">
+              Only EMPTY specifics get filled — existing values are never touched.
+            </p>
+          </div>
+          <div>
+            <label className={labelCls}>Model</label>
+            <select
+              className={inputCls}
+              value={specificsModel}
+              onChange={(e) => setSpecificsModel(e.target.value)}
+            >
+              <option value="gemini:gemini-2.0-flash">Gemini 2.0 Flash (default)</option>
+              <option value="openai:gpt-4o-mini">GPT-4o-mini</option>
+            </select>
+          </div>
+          <div className="flex items-end pb-1.5">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={usePhoto}
+                onChange={(e) => setUsePhoto(e.target.checked)}
+              />
+              Use listing photo (helps Color/Material)
+            </label>
           </div>
         </div>
       )}
@@ -330,8 +394,19 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
             <ul className="text-xs text-brand-ink/70 space-y-1">
               {preview.sample.map((s) => (
                 <li key={s.itemId} className="truncate">
-                  <span className="font-mono">{s.sku ?? "—"}</span> · ${s.price ?? "?"} ·{" "}
-                  {s.title}
+                  <span className="font-mono">{s.sku ?? "—"}</span> ·{" "}
+                  {op === "price_adjust" && s.after ? (
+                    <span className="font-medium">
+                      ${s.price ?? "?"} → {s.after}
+                    </span>
+                  ) : op === "sku_rename" && s.after ? (
+                    <span className="font-medium font-mono">
+                      {s.sku ?? "—"} → {s.after}
+                    </span>
+                  ) : (
+                    <>${s.price ?? "?"}</>
+                  )}{" "}
+                  · {s.title}
                 </li>
               ))}
               {preview.matched > preview.sample.length && (

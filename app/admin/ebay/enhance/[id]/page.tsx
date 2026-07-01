@@ -6,6 +6,7 @@ import { db, enhanceBatches, enhanceJobs } from "@/db";
 import { asc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { decodeEntities } from "@/lib/ebay/entities";
 import CancelBatchButton from "./CancelBatchButton";
 
 export const dynamic = "force-dynamic";
@@ -121,7 +122,7 @@ export default async function BatchDetail({
                     rel="noreferrer"
                     className="hover:underline underline-offset-2 decoration-brand-yellow decoration-2"
                   >
-                    {j.title ?? j.ebayItemId}
+                    {j.title ? decodeEntities(j.title) : j.ebayItemId}
                   </a>
                 </td>
                 <td className="py-2 pr-4">
@@ -164,14 +165,32 @@ function renderDiff(
   for (const k of keys) {
     const b = before?.[k];
     const a = after?.[k];
+    // Nested objects (item_specifics stores { specifics: {Brand: "..."} }) —
+    // diff the inner keys instead of printing [object Object].
+    if (isObj(b) || isObj(a)) {
+      const innerKeys = new Set([
+        ...Object.keys(isObj(b) ? b : {}),
+        ...Object.keys(isObj(a) ? a : {}),
+      ]);
+      for (const ik of innerKeys) {
+        const ib = isObj(b) ? b[ik] : undefined;
+        const ia = isObj(a) ? a[ik] : undefined;
+        parts.push(`${ik}: ${fmt(ib)} → ${fmt(ia)}`);
+      }
+      continue;
+    }
     if (a === undefined) parts.push(`${k}: ${fmt(b)}`);
     else parts.push(`${k}: ${fmt(b)} → ${fmt(a)}`);
   }
   return parts.join(" · ");
 }
 
+function isObj(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
 function fmt(v: unknown): string {
-  if (v === null || v === undefined) return "—";
+  if (v === null || v === undefined || v === "") return "—";
   if (typeof v === "number") return v % 1 === 0 ? String(v) : v.toFixed(2);
   return String(v);
 }

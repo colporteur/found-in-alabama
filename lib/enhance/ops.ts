@@ -14,7 +14,15 @@
 import { db, ebayListings } from "@/db";
 import { eq } from "drizzle-orm";
 import type { EnhanceOp, enhanceBatches, enhanceJobs } from "@/db/schema";
-import { fetchItemCore, reviseItemPrice, reviseItemSku } from "@/lib/ebay/calls";
+import {
+  fetchItemCore,
+  fetchItemForSpecifics,
+  reviseItemPrice,
+  reviseItemSku,
+  reviseItemSpecifics,
+  type ItemSpecific,
+} from "@/lib/ebay/calls";
+import { callLlm, type LlmImage, type LlmProvider } from "@/lib/enhance/providers";
 
 export type EnhanceBatchRow = typeof enhanceBatches.$inferSelect;
 export type EnhanceJobRow = typeof enhanceJobs.$inferSelect;
@@ -254,12 +262,217 @@ function parseSkuConfig(raw: Record<string, unknown>): SkuRenameConfig | null {
   return { find: raw.find, replace: raw.replace, mode };
 }
 
+// ─── item_specifics (Phase 2 — first LLM op) ─────────────────────────────────
+//
+// Fills EMPTY item specifics from the listing's title, description, and
+// (optionally) primary photo. Never overwrites a specific that already has
+// a value — this op adds missing data, it doesn't second-guess Todd.
+//
+// Config shape:
+//   specifics: string[]  — names to consider (default DEFAULT_TARGET_SPECIFICS)
+//   usePhoto:  boolean   — attach the primary photo (default true; Color/
+//                          Material often need it)
+//
+// Model: batch.modelOverride as "provider:model" (e.g. "openai:gpt-4o-mini"),
+// default gemini:gemini-2.0-flash — cheap structured extraction per the
+// locked op/model matrix.
+
+export const DEFAULT_TARGET_SPECIFICS = [
+  "Brand",
+  "Color",
+  "Size",
+  "Material",
+  "Style",
+  "Type",
+];
+
+const SPECIFICS_DEFAULT = { provider: "gemini" as LlmProvider, model: "gemini-2.0-flash" };
+
+export function parseModelOverride(
+  override: string | null | undefined
+): { provider: LlmProvider; model: string } {
+  if (override) {
+    const idx = override.indexOf(":");
+    if (idx > 0) {
+      const provider = override.slice(0, idx);
+      const model = override.slice(idx + 1);
+      if (
+        (provider === "anthropic" || provider === "openai" || provider === "gemini") &&
+        model
+      ) {
+        return { provider, model };
+      }
+    }
+  }
+  return SPECIFICS_DEFAULT;
+}
+
+const SPECIFICS_SYSTEM_PROMPT = `You extract eBay item specifics from listing evidence (title, description, and sometimes a photo).
+
+Rules:
+- Only provide values you can determine CONFIDENTLY from the evidence. When unsure, omit the field entirely.
+- Never guess brands. Only name a brand that appears in the title, description, or is clearly readable on a label/tag in the photo.
+- Values must be short (1-4 words), in the conventional form buyers filter by (e.g. "Blue", "100% Cotton", "XL").
+- Return ONLY a JSON object mapping specific names to string values. No commentary, no code fences, no extra keys.`;
+
+/** Fetch the primary photo as base64, downsized via eBay's URL size variants. */
+async function fetchListingPhoto(url: string): Promise<LlmImage | null> {
+  try {
+    const sized = url.replace(/s-l\d+/i, "s-l500");
+    const resp = await fetch(sized, { signal: AbortSignal.timeout(10_000) });
+    if (!resp.ok) return null;
+    const mediaType = resp.headers.get("content-type") ?? "image/jpeg";
+    if (!mediaType.startsWith("image/")) return null;
+    const buf = Buffer.from(await resp.arrayBuffer());
+    if (buf.length > 4_000_000) return null; // sanity cap
+    return { base64: buf.toString("base64"), mediaType };
+  } catch {
+    return null; // photo is a bonus, not a requirement
+  }
+}
+
+function extractJsonObject(text: string): Record<string, unknown> | null {
+  const cleaned = text.replace(/```(?:json)?/gi, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(cleaned.slice(start, end + 1));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+const itemSpecificsHandler: OpHandler = {
+  estimateCostPerJob: ({ modelOverride }) => {
+    // Rough: ~1.5k input tokens (prompt + desc) + ~500 photo tokens + ~100 out.
+    const { provider } = parseModelOverride(modelOverride);
+    return provider === "openai" ? 0.002 : provider === "anthropic" ? 0.01 : 0.001;
+  },
+  async run(job, batch) {
+    const cfg = batch.config ?? {};
+    const targetNames = (
+      Array.isArray(cfg.specifics) && cfg.specifics.length > 0
+        ? cfg.specifics.map((s) => String(s).trim()).filter(Boolean)
+        : DEFAULT_TARGET_SPECIFICS
+    ).slice(0, 20);
+    const usePhoto = cfg.usePhoto !== false;
+    const { provider, model } = parseModelOverride(batch.modelOverride);
+
+    const live = await fetchItemForSpecifics(job.ebayItemId);
+    if (!live) {
+      return { status: "failed", errorMessage: "GetItem returned no item" };
+    }
+    if (live.listingStatus && live.listingStatus !== "Active") {
+      return {
+        status: "skipped",
+        result: { reason: `Listing status is ${live.listingStatus}, not Active` },
+      };
+    }
+
+    // Only specifics that are currently missing or empty are fillable.
+    const existingByLower = new Map(
+      live.specifics.map((s) => [s.name.toLowerCase(), s])
+    );
+    const fillable = targetNames.filter((n) => {
+      const existing = existingByLower.get(n.toLowerCase());
+      return !existing || existing.values.length === 0;
+    });
+    if (fillable.length === 0) {
+      return {
+        status: "skipped",
+        result: { reason: "All target specifics already have values" },
+      };
+    }
+
+    const images: LlmImage[] = [];
+    if (usePhoto && live.pictureUrl) {
+      const photo = await fetchListingPhoto(live.pictureUrl);
+      if (photo) images.push(photo);
+    }
+
+    const prompt = [
+      `Fill in these eBay item specifics: ${fillable.join(", ")}`,
+      live.categoryName ? `eBay category: ${live.categoryName}` : null,
+      `Title: ${live.title}`,
+      live.description ? `Description:\n${live.description}` : null,
+      images.length > 0 ? "A photo of the item is attached." : null,
+      `Return a JSON object with only the specifics you can determine confidently. Allowed keys: ${fillable.join(", ")}.`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    const llm = await callLlm({
+      provider,
+      model,
+      system: SPECIFICS_SYSTEM_PROMPT,
+      prompt,
+      images,
+      maxTokens: 500,
+      op: "item_specifics",
+      batchId: job.batchId,
+      jobId: job.id,
+    });
+
+    const parsed = extractJsonObject(llm.text);
+    if (!parsed) {
+      return {
+        status: "failed",
+        errorMessage: `Model returned unparseable output: ${llm.text.slice(0, 200)}`,
+        costUsd: llm.costUsd,
+      };
+    }
+
+    const fillableLower = new Set(fillable.map((n) => n.toLowerCase()));
+    const newlyFilled: ItemSpecific[] = [];
+    for (const [k, v] of Object.entries(parsed)) {
+      if (!fillableLower.has(k.trim().toLowerCase())) continue;
+      const value = typeof v === "string" ? v.trim() : "";
+      if (!value || value.length > 65) continue; // eBay caps values at 65 chars
+      // Use the canonical target-name casing, not the model's.
+      const canonical =
+        fillable.find((n) => n.toLowerCase() === k.trim().toLowerCase()) ?? k.trim();
+      newlyFilled.push({ name: canonical, values: [value] });
+    }
+
+    if (newlyFilled.length === 0) {
+      return {
+        status: "skipped",
+        result: { reason: "Model could not confidently determine any values" },
+        costUsd: llm.costUsd,
+      };
+    }
+
+    // Merge: full existing set + additions (ReviseItem replaces the container).
+    const merged: ItemSpecific[] = [
+      ...live.specifics.filter((s) => s.values.length > 0),
+      ...newlyFilled,
+    ];
+    await reviseItemSpecifics(job.ebayItemId, merged);
+
+    return {
+      status: "completed",
+      before: {
+        specifics: Object.fromEntries(newlyFilled.map((s) => [s.name, ""])),
+      },
+      after: {
+        specifics: Object.fromEntries(newlyFilled.map((s) => [s.name, s.values[0]])),
+      },
+      result: { provider, model, filledCount: newlyFilled.length },
+      costUsd: llm.costUsd,
+    };
+  },
+};
+
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
 export const OP_HANDLERS: Partial<Record<EnhanceOp, OpHandler>> = {
   price_adjust: priceAdjustHandler,
   sku_rename: skuRenameHandler,
-  // Phase 2: item_specifics
+  item_specifics: itemSpecificsHandler,
   // Phase 3: title_remix, description_remix
   // Phase 4: price_research
 };
