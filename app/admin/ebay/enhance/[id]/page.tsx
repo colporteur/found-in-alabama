@@ -65,6 +65,7 @@ export default async function BatchDetail({
           day: "numeric",
           hour: "numeric",
           minute: "2-digit",
+          timeZone: "America/Chicago",
         })}
         {batch.completedAt &&
           ` · finished ${batch.completedAt.toLocaleString("en-US", {
@@ -72,6 +73,7 @@ export default async function BatchDetail({
             day: "numeric",
             hour: "numeric",
             minute: "2-digit",
+            timeZone: "America/Chicago",
           })}`}
       </p>
 

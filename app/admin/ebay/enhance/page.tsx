@@ -7,6 +7,7 @@ import { asc, desc, gte, sql } from "drizzle-orm";
 import Link from "next/link";
 import { listGuides } from "@/lib/enhance/guides";
 import NewBatchForm from "./NewBatchForm";
+import RunQueueButton from "./RunQueueButton";
 
 export const dynamic = "force-dynamic";
 
@@ -131,12 +132,7 @@ export default async function EnhancePortal() {
           >
             Change history &amp; rollback →
           </Link>
-          <a
-            href="/api/cron/enhance"
-            className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
-          >
-            Run queue now →
-          </a>
+          <RunQueueButton />
         </div>
       </div>
       {batches.length === 0 ? (
@@ -166,6 +162,7 @@ export default async function EnhancePortal() {
                       day: "numeric",
                       hour: "numeric",
                       minute: "2-digit",
+                      timeZone: "America/Chicago",
                     })}
                   </td>
                   <td className="py-2 pr-4">{b.op}</td>

@@ -87,6 +87,8 @@ export type TickSummary = {
   completed: number;
   failed: number;
   skipped: number;
+  /** Jobs re-queued this tick because async work (APR) is still running. */
+  waiting: number;
   batchesFinished: number;
   errors: string[];
 };
@@ -103,6 +105,7 @@ export async function processTick(budgetMs: number): Promise<TickSummary> {
     completed: 0,
     failed: 0,
     skipped: 0,
+    waiting: 0,
     batchesFinished: 0,
     errors: [],
   };
@@ -187,6 +190,7 @@ export async function processTick(budgetMs: number): Promise<TickSummary> {
             result: outcome.result ?? job.result ?? null,
           })
           .where(eq(enhanceJobs.id, job.id));
+        summary.waiting++;
         continue;
       }
     }

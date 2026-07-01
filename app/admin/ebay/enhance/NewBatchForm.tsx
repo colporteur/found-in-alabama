@@ -190,6 +190,8 @@ export default function NewBatchForm({
       } else {
         setPreview(null);
         setLabel("");
+        // Kick the queue immediately — GitHub's 5-min cron is often late.
+        fetch("/api/cron/enhance").catch(() => {});
         router.refresh();
       }
     } catch (err) {
@@ -557,7 +559,7 @@ export default function NewBatchForm({
           <p className="text-xs text-brand-ink/50 mb-2">
             Matching runs on the local eBay mirror
             {preview.oldestSyncedAt &&
-              ` (oldest matched row synced ${new Date(preview.oldestSyncedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })})`}
+              ` (oldest matched row synced ${new Date(preview.oldestSyncedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" })})`}
             . A listing whose SKU or price changed since its last sync may be
             missing here or shown with stale values — jobs re-check every item
             live before touching it.
