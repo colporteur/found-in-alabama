@@ -2,9 +2,10 @@
 // shell + batch history). Batch creation UI arrives with Phase 1
 // (price bump + SKU rename).
 
-import { db, enhanceBatches, aiCallLog, aiModelPricing } from "@/db";
-import { desc, gte, sql } from "drizzle-orm";
+import { db, enhanceBatches, aiCallLog, aiModelPricing, ebayStoreCategories } from "@/db";
+import { asc, desc, gte, sql } from "drizzle-orm";
 import Link from "next/link";
+import NewBatchForm from "./NewBatchForm";
 
 export const dynamic = "force-dynamic";
 
@@ -40,7 +41,7 @@ export default async function EnhancePortal() {
   const weekAgo = new Date(now - 7 * 86_400_000);
   const monthAgo = new Date(now - 30 * 86_400_000);
 
-  const [today, week, month, batches, pricing] = await Promise.all([
+  const [today, week, month, batches, pricing, categories] = await Promise.all([
     spendSince(dayAgo),
     spendSince(weekAgo),
     spendSince(monthAgo),
@@ -50,6 +51,13 @@ export default async function EnhancePortal() {
       .orderBy(desc(enhanceBatches.createdAt))
       .limit(20),
     db.select().from(aiModelPricing).orderBy(aiModelPricing.provider),
+    db
+      .select({
+        categoryId: ebayStoreCategories.categoryId,
+        name: ebayStoreCategories.name,
+      })
+      .from(ebayStoreCategories)
+      .orderBy(asc(ebayStoreCategories.name)),
   ]);
 
   const total = (rows: SpendRow[]) => rows.reduce((s, r) => s + r.costUsd, 0);
@@ -65,9 +73,12 @@ export default async function EnhancePortal() {
         item IDs stay stable and Nifty crosslisting is never disrupted.
       </p>
       <p className="text-sm text-brand-ink/50 mb-10">
-        Phase 0 (queue + cost tracking) is live. Batch creation lands in
-        Phase 1: price bump &amp; SKU rename.
+        Phase 1 is live: price bump/discount &amp; SKU rename. AI-powered ops
+        (item specifics, guide-informed remixes, price research) arrive in
+        Phases 2–4.
       </p>
+
+      <NewBatchForm categories={categories} />
 
       {/* ── Spend widgets ── */}
       <div className="grid gap-4 sm:grid-cols-3 mb-4">
@@ -118,7 +129,7 @@ export default async function EnhancePortal() {
       </div>
       {batches.length === 0 ? (
         <div className="bg-white border border-brand-ink/15 rounded-lg p-8 text-center text-sm text-brand-ink/50 mb-10">
-          No batches yet. The first ones arrive with Phase 1.
+          No batches yet — create one above.
         </div>
       ) : (
         <div className="bg-white border border-brand-ink/15 rounded-lg p-5 mb-10 overflow-x-auto">
@@ -146,7 +157,14 @@ export default async function EnhancePortal() {
                     })}
                   </td>
                   <td className="py-2 pr-4">{b.op}</td>
-                  <td className="py-2 pr-4">{b.label || "—"}</td>
+                  <td className="py-2 pr-4">
+                    <Link
+                      href={`/admin/ebay/enhance/${b.id}`}
+                      className="hover:underline underline-offset-2 decoration-brand-yellow decoration-2"
+                    >
+                      {b.label || "view →"}
+                    </Link>
+                  </td>
                   <td className="py-2 pr-4">
                     <StatusBadge status={b.status} />
                   </td>

@@ -260,3 +260,79 @@ export async function fetchItemDescription(itemId: string): Promise<string | nul
   const desc = item.Description;
   return desc != null ? String(desc) : null;
 }
+
+// ─── GetItem (core fields): live price/SKU/status for Expert Enhance ─────────
+//
+// The Expert Enhance ops fetch the item live right before mutating it so
+// the `before` rollback snapshot and the mutation math both reflect
+// reality, not the possibly-stale ebay_listings mirror.
+
+export interface ItemCore {
+  itemId: string;
+  title: string;
+  sku: string | null;
+  /** Current listing price (StartPrice for fixed-price listings). */
+  price: number | null;
+  listingType: string | null;
+  /** "Active" | "Completed" | "Ended" — mutations only make sense on Active. */
+  listingStatus: string | null;
+}
+
+export async function fetchItemCore(itemId: string): Promise<ItemCore | null> {
+  const res = await tradingCall("GetItem", {
+    ItemID: itemId,
+    DetailLevel: "ReturnAll",
+    IncludeItemSpecifics: false,
+  });
+  const item = (res as { Item?: Record<string, unknown> }).Item;
+  if (!item) return null;
+
+  const priceNode = item.StartPrice as
+    | Record<string, unknown>
+    | string
+    | number
+    | undefined;
+  const priceRaw =
+    priceNode != null && typeof priceNode === "object"
+      ? priceNode["#text"]
+      : priceNode;
+  const price =
+    priceRaw != null && Number.isFinite(Number(priceRaw)) ? Number(priceRaw) : null;
+
+  const sellingStatus =
+    (item.SellingStatus as Record<string, unknown> | undefined) ?? {};
+
+  return {
+    itemId: String(item.ItemID ?? itemId),
+    title: String(item.Title ?? ""),
+    sku: item.SKU != null && String(item.SKU) !== "" ? String(item.SKU) : null,
+    price,
+    listingType: item.ListingType != null ? String(item.ListingType) : null,
+    listingStatus:
+      sellingStatus.ListingStatus != null
+        ? String(sellingStatus.ListingStatus)
+        : null,
+  };
+}
+
+// ─── ReviseItem: price + SKU mutations for Expert Enhance ─────────────────────
+
+/** Set a fixed-price listing's price. Caller validates the value first. */
+export async function reviseItemPrice(itemId: string, price: number): Promise<void> {
+  await tradingCall("ReviseItem", {
+    Item: {
+      ItemID: itemId,
+      StartPrice: price.toFixed(2),
+    },
+  });
+}
+
+/** Set (or overwrite) a listing's SKU. */
+export async function reviseItemSku(itemId: string, sku: string): Promise<void> {
+  await tradingCall("ReviseItem", {
+    Item: {
+      ItemID: itemId,
+      SKU: sku,
+    },
+  });
+}
