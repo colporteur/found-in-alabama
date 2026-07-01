@@ -16,6 +16,7 @@ type GuideOption = { id: string; name: string };
 type Preview = {
   matched: number;
   estimatedCostUsd: number;
+  oldestSyncedAt: string | null;
   sample: Array<{
     itemId: string;
     sku: string | null;
@@ -553,6 +554,14 @@ export default function NewBatchForm({
             {preview.matched} listing{preview.matched === 1 ? "" : "s"} matched ·
             estimated cost ${preview.estimatedCostUsd.toFixed(2)}
           </p>
+          <p className="text-xs text-brand-ink/50 mb-2">
+            Matching runs on the local eBay mirror
+            {preview.oldestSyncedAt &&
+              ` (oldest matched row synced ${new Date(preview.oldestSyncedAt).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" })})`}
+            . A listing whose SKU or price changed since its last sync may be
+            missing here or shown with stale values — jobs re-check every item
+            live before touching it.
+          </p>
           {op === "item_specifics" && (
             <p className="text-xs text-brand-ink/50 mb-2">
               Each sample item below was checked live on eBay. Only the
@@ -588,7 +597,15 @@ export default function NewBatchForm({
                     ) : (
                       <>${s.price ?? "?"}</>
                     )}{" "}
-                    · {s.title}
+                    · {s.title}{" "}
+                    <a
+                      href={`https://www.ebay.com/itm/${s.itemId}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-brand-ink/40 font-mono hover:underline"
+                    >
+                      #{s.itemId}
+                    </a>
                   </li>
                 )
               )}

@@ -211,6 +211,7 @@ export async function POST(req: NextRequest) {
       sku: ebayListings.sku,
       title: ebayListings.title,
       price: ebayListings.price,
+      lastSyncedAt: ebayListings.lastSyncedAt,
     })
     .from(ebayListings)
     .where(and(...filters))
@@ -271,9 +272,19 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Selection reads the local mirror, which the budgeted sync cron
+    // refreshes in slices — surface how stale the matched rows are so a
+    // missing/duplicate listing is explainable at a glance.
+    const syncTimes = matched
+      .map((m) => m.lastSyncedAt?.getTime())
+      .filter((t): t is number => typeof t === "number");
+    const oldestSyncedAt =
+      syncTimes.length > 0 ? new Date(Math.min(...syncTimes)).toISOString() : null;
+
     return NextResponse.json({
       matched: matched.length,
       estimatedCostUsd,
+      oldestSyncedAt,
       sample,
     });
   }
