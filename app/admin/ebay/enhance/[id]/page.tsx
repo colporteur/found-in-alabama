@@ -7,6 +7,11 @@ import { asc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { decodeEntities } from "@/lib/ebay/entities";
+import { rollbackEligibility } from "@/lib/enhance/rollback";
+import {
+  BatchRollbackButton,
+  JobRollbackButton,
+} from "../RollbackControls";
 import CancelBatchButton from "./CancelBatchButton";
 
 export const dynamic = "force-dynamic";
@@ -48,7 +53,10 @@ export default async function BatchDetail({
         <h1 className="font-marker text-3xl md:text-4xl">
           {batch.label || batch.op}
         </h1>
-        {active && <CancelBatchButton batchId={batch.id} />}
+        <div className="flex items-start gap-3">
+          {batch.completedJobs > 0 && <BatchRollbackButton batchId={batch.id} />}
+          {active && <CancelBatchButton batchId={batch.id} />}
+        </div>
       </div>
       <p className="text-sm text-brand-ink/60 mb-6">
         {batch.op} · created{" "}
@@ -106,7 +114,8 @@ export default async function BatchDetail({
               <th className="pb-2 pr-4">Title</th>
               <th className="pb-2 pr-4">Status</th>
               <th className="pb-2 pr-4">Before → After</th>
-              <th className="pb-2">Detail</th>
+              <th className="pb-2 pr-4">Detail</th>
+              <th className="pb-2"></th>
             </tr>
           </thead>
           <tbody>
@@ -131,11 +140,27 @@ export default async function BatchDetail({
                 <td className="py-2 pr-4 font-mono text-xs whitespace-nowrap">
                   {renderDiff(j.before, j.after)}
                 </td>
-                <td className="py-2 text-xs text-brand-ink/60 max-w-sm">
+                <td className="py-2 pr-4 text-xs text-brand-ink/60 max-w-sm">
                   {j.errorMessage ??
                     (j.result && "reason" in j.result
                       ? String((j.result as Record<string, unknown>).reason)
                       : "")}
+                  {j.result &&
+                    "rollbackError" in (j.result as Record<string, unknown>) && (
+                      <span className="block text-red-700">
+                        Rollback failed:{" "}
+                        {String((j.result as Record<string, unknown>).rollbackError)}
+                      </span>
+                    )}
+                </td>
+                <td className="py-2 text-right">
+                  {j.rolledBack ? (
+                    <span className="text-xs uppercase tracking-wider px-2 py-0.5 rounded bg-brand-ink/10 text-brand-ink/60 whitespace-nowrap">
+                      rolled back
+                    </span>
+                  ) : rollbackEligibility(j, batch.op).ok ? (
+                    <JobRollbackButton jobId={j.id} />
+                  ) : null}
                 </td>
               </tr>
             ))}

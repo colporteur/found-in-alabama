@@ -124,12 +124,20 @@ export default async function EnhancePortal() {
       {/* ── Batches ── */}
       <div className="flex items-baseline justify-between mb-3">
         <h2 className="font-medium text-lg">Recent batches</h2>
-        <a
-          href="/api/cron/enhance"
-          className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
-        >
-          Run queue now →
-        </a>
+        <div className="flex items-baseline gap-4">
+          <Link
+            href="/admin/ebay/enhance/history"
+            className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+          >
+            Change history &amp; rollback →
+          </Link>
+          <a
+            href="/api/cron/enhance"
+            className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+          >
+            Run queue now →
+          </a>
+        </div>
       </div>
       {batches.length === 0 ? (
         <div className="bg-white border border-brand-ink/15 rounded-lg p-8 text-center text-sm text-brand-ink/50 mb-10">
