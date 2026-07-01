@@ -5,6 +5,7 @@
 import { db, enhanceBatches, aiCallLog, aiModelPricing, ebayStoreCategories } from "@/db";
 import { asc, desc, gte, sql } from "drizzle-orm";
 import Link from "next/link";
+import { listGuides } from "@/lib/enhance/guides";
 import NewBatchForm from "./NewBatchForm";
 
 export const dynamic = "force-dynamic";
@@ -78,7 +79,10 @@ export default async function EnhancePortal() {
         Phases 2–4.
       </p>
 
-      <NewBatchForm categories={categories} />
+      <NewBatchForm
+        categories={categories}
+        guides={listGuides().map((g) => ({ id: g.id, name: g.name }))}
+      />
 
       {/* ── Spend widgets ── */}
       <div className="grid gap-4 sm:grid-cols-3 mb-4">

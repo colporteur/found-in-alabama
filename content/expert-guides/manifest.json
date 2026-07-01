@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "guides": [
+    {
+      "id": "aviation-photography",
+      "name": "Aviation Photography",
+      "file": "aviation-photography.md",
+      "keywords": ["aviation", "airplane", "aircraft", "military photo"]
+    },
+    {
+      "id": "postcards",
+      "name": "Postcards",
+      "file": "postcards.md",
+      "keywords": ["postcard", "rppc", "ephemera"]
+    },
+    {
+      "id": "costume-jewelry",
+      "name": "Costume Jewelry",
+      "file": "costume-jewelry.md",
+      "keywords": ["jewelry", "brooch", "necklace", "earrings", "bracelet"]
+    },
+    {
+      "id": "vintage-photos",
+      "name": "Vintage Photographs",
+      "file": "vintage-photos.md",
+      "keywords": ["photo", "photograph", "snapshot", "cabinet card", "tintype"]
+    },
+    {
+      "id": "photo-values-1980s-1990s",
+      "name": "1980s-90s Photo Values",
+      "file": "photo-values-1980s-1990s.md",
+      "keywords": ["photo", "1980s", "1990s"]
+    }
+  ]
+}

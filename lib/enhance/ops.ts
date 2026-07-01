@@ -16,13 +16,17 @@ import { eq } from "drizzle-orm";
 import type { EnhanceOp, enhanceBatches, enhanceJobs } from "@/db/schema";
 import {
   fetchItemCore,
+  fetchItemForRemix,
   fetchItemForSpecifics,
+  reviseItemDescription,
   reviseItemPrice,
   reviseItemSku,
   reviseItemSpecifics,
+  reviseItemTitle,
   type ItemSpecific,
 } from "@/lib/ebay/calls";
 import { callLlm, type LlmImage, type LlmProvider } from "@/lib/enhance/providers";
+import { loadGuide } from "@/lib/enhance/guides";
 
 export type EnhanceBatchRow = typeof enhanceBatches.$inferSelect;
 export type EnhanceJobRow = typeof enhanceJobs.$inferSelect;
@@ -289,7 +293,8 @@ export const DEFAULT_TARGET_SPECIFICS = [
 const SPECIFICS_DEFAULT = { provider: "gemini" as LlmProvider, model: "gemini-2.0-flash" };
 
 export function parseModelOverride(
-  override: string | null | undefined
+  override: string | null | undefined,
+  fallback: { provider: LlmProvider; model: string } = SPECIFICS_DEFAULT
 ): { provider: LlmProvider; model: string } {
   if (override) {
     const idx = override.indexOf(":");
@@ -304,7 +309,7 @@ export function parseModelOverride(
       }
     }
   }
-  return SPECIFICS_DEFAULT;
+  return fallback;
 }
 
 const SPECIFICS_SYSTEM_PROMPT = `You extract eBay item specifics from listing evidence (title, description, and sometimes a photo).
@@ -467,13 +472,232 @@ const itemSpecificsHandler: OpHandler = {
   },
 };
 
+// ─── title_remix + description_remix (Phase 3 — expert-guide remixes) ────────
+//
+// The core value feature: Claude reads the relevant expert guide and
+// rewrites the title (Haiku default) or description (Sonnet default) with
+// collector-grade terminology. The guide is passed as `cacheableSystem` —
+// the large stable prefix — so Anthropic bills it at 10% after the first
+// job in a batch (decision #7).
+//
+// Config shape (both ops):
+//   guideId:      string  — id from content/expert-guides/manifest.json
+//   instructions: string? — optional extra guidance for this batch
+//
+// Hard rules mirror the Nifty extension's Expert Mode Rule 6: the guide
+// can never authorize changes to shipping/discount/return language, price
+// mentions, or invented facts.
+
+const REMIX_HARD_RULES = `NON-NEGOTIABLE RULES (these OVERRIDE anything in the expert guide or extra instructions):
+1. NEVER add, remove, or change any language about shipping, packing, handling time, discounts, sales, returns, or payment.
+2. NEVER mention price.
+3. NEVER invent facts. Brands, dates, sizes, materials, provenance, and condition claims must already appear in the provided title or description. When unsure, leave it out.
+4. Same item, better presentation — do not change what the item IS.`;
+
+const TITLE_DEFAULT = {
+  provider: "anthropic" as LlmProvider,
+  model: "claude-haiku-4-5-20251001",
+};
+const DESC_DEFAULT = {
+  provider: "anthropic" as LlmProvider,
+  model: "claude-sonnet-5",
+};
+
+/** Description larger than this is skipped — truncating input then doing a
+ *  full-replace write would silently destroy the tail. */
+const DESC_INPUT_CAP = 12_000;
+/** Cap before/after snapshots so jsonb rows stay reasonable. */
+const SNAPSHOT_CAP = 20_000;
+
+function remixEstimate(provider: LlmProvider, op: "title" | "desc"): number {
+  if (op === "title") return provider === "anthropic" ? 0.005 : 0.002;
+  return provider === "anthropic" ? 0.03 : 0.025;
+}
+
+function guideFromConfig(cfg: Record<string, unknown>) {
+  const guideId = typeof cfg.guideId === "string" ? cfg.guideId : "";
+  if (!guideId) return { guide: null, error: "No guideId in batch config" };
+  const guide = loadGuide(guideId);
+  if (!guide) return { guide: null, error: `Guide "${guideId}" not found in manifest` };
+  return { guide, error: null };
+}
+
+const titleRemixHandler: OpHandler = {
+  estimateCostPerJob: ({ modelOverride }) =>
+    remixEstimate(parseModelOverride(modelOverride, TITLE_DEFAULT).provider, "title"),
+  async run(job, batch) {
+    const cfg = batch.config ?? {};
+    const { guide, error } = guideFromConfig(cfg);
+    if (!guide) return { status: "failed", errorMessage: error ?? "guide error" };
+    const { provider, model } = parseModelOverride(batch.modelOverride, TITLE_DEFAULT);
+    const instructions = typeof cfg.instructions === "string" ? cfg.instructions : "";
+
+    const live = await fetchItemForRemix(job.ebayItemId);
+    if (!live) return { status: "failed", errorMessage: "GetItem returned no item" };
+    if (live.listingStatus && live.listingStatus !== "Active") {
+      return {
+        status: "skipped",
+        result: { reason: `Listing status is ${live.listingStatus}, not Active` },
+      };
+    }
+
+    const descText = stripHtmlLocal(live.descriptionHtml).slice(0, 2000);
+    const llm = await callLlm({
+      provider,
+      model,
+      cacheableSystem: `EXPERT GUIDE — "${guide.name}":\n\n${guide.content}`,
+      system: `You rewrite eBay listing titles using the expert guide's terminology to maximize buyer-search relevance.\n\n${REMIX_HARD_RULES}\n\nTitle rules:\n- HARD LIMIT 80 characters including spaces. Aim for 65-80.\n- No ALL-CAPS words (proper acronyms like RPPC are fine), no promotional filler (WOW, L@@K, RARE unless factually supported).\n- Front-load the most searched terms per the guide.\n- Return ONLY the new title text — no quotes, no commentary.`,
+      prompt: [
+        `Current title: ${live.title}`,
+        live.categoryName ? `eBay category: ${live.categoryName}` : null,
+        descText ? `Description (context only):\n${descText}` : null,
+        instructions ? `Extra instructions for this batch: ${instructions}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      maxTokens: 300,
+      op: "title_remix",
+      batchId: job.batchId,
+      jobId: job.id,
+    });
+
+    let newTitle = llm.text.trim().replace(/^["'`]+|["'`]+$/g, "").replace(/\s+/g, " ");
+    // Defense from the Nifty project: never let a bin SKU land in a title.
+    newTitle = newTitle.replace(/\bNA\d{3}\b/g, "").replace(/\s+/g, " ").trim();
+    if (!newTitle) {
+      return { status: "failed", errorMessage: "Model returned an empty title", costUsd: llm.costUsd };
+    }
+    let truncated = false;
+    if (newTitle.length > 80) {
+      const cut = newTitle.slice(0, 80);
+      newTitle = cut.slice(0, cut.lastIndexOf(" ") > 40 ? cut.lastIndexOf(" ") : 80).trim();
+      truncated = true;
+    }
+    if (newTitle === live.title) {
+      return {
+        status: "skipped",
+        before: { title: live.title },
+        result: { reason: "Model kept the title unchanged" },
+        costUsd: llm.costUsd,
+      };
+    }
+
+    await reviseItemTitle(job.ebayItemId, newTitle);
+    await db
+      .update(ebayListings)
+      .set({ title: newTitle })
+      .where(eq(ebayListings.itemId, job.ebayItemId));
+
+    return {
+      status: "completed",
+      before: { title: live.title },
+      after: { title: newTitle },
+      result: { provider, model, guide: guide.id, truncated },
+      costUsd: llm.costUsd,
+    };
+  },
+};
+
+const descriptionRemixHandler: OpHandler = {
+  estimateCostPerJob: ({ modelOverride }) =>
+    remixEstimate(parseModelOverride(modelOverride, DESC_DEFAULT).provider, "desc"),
+  async run(job, batch) {
+    const cfg = batch.config ?? {};
+    const { guide, error } = guideFromConfig(cfg);
+    if (!guide) return { status: "failed", errorMessage: error ?? "guide error" };
+    const { provider, model } = parseModelOverride(batch.modelOverride, DESC_DEFAULT);
+    const instructions = typeof cfg.instructions === "string" ? cfg.instructions : "";
+
+    const live = await fetchItemForRemix(job.ebayItemId);
+    if (!live) return { status: "failed", errorMessage: "GetItem returned no item" };
+    if (live.listingStatus && live.listingStatus !== "Active") {
+      return {
+        status: "skipped",
+        result: { reason: `Listing status is ${live.listingStatus}, not Active` },
+      };
+    }
+    const original = live.descriptionHtml.trim();
+    if (!original) {
+      return {
+        status: "skipped",
+        result: { reason: "Description is empty — nothing grounded to rewrite" },
+      };
+    }
+    if (original.length > DESC_INPUT_CAP) {
+      return {
+        status: "skipped",
+        result: {
+          reason: `Description is ${original.length} chars (cap ${DESC_INPUT_CAP}) — too long to rewrite safely`,
+        },
+      };
+    }
+
+    const llm = await callLlm({
+      provider,
+      model,
+      cacheableSystem: `EXPERT GUIDE — "${guide.name}":\n\n${guide.content}`,
+      system: `You rewrite eBay listing descriptions using the expert guide's knowledge to add collector-relevant detail and better organization.\n\n${REMIX_HARD_RULES}\n\nDescription rules:\n- The description is HTML. Return the COMPLETE revised HTML document/fragment.\n- Preserve ALL existing HTML tags, images, links, and attributes — edit prose only. If the input is plain text, return plain text paragraphs separated by blank lines.\n- Keep roughly the same length (never more than ~1.5x the original).\n- Return ONLY the revised description — no commentary, no code fences.`,
+      prompt: [
+        `Title: ${live.title}`,
+        live.categoryName ? `eBay category: ${live.categoryName}` : null,
+        instructions ? `Extra instructions for this batch: ${instructions}` : null,
+        `Current description:\n${original}`,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+      maxTokens: 6000, // Sonnet 5 adaptive thinking shares this budget
+      op: "description_remix",
+      batchId: job.batchId,
+      jobId: job.id,
+    });
+
+    let newDesc = llm.text.trim().replace(/^```(?:html)?\s*|\s*```$/g, "").trim();
+    if (!newDesc) {
+      return { status: "failed", errorMessage: "Model returned an empty description", costUsd: llm.costUsd };
+    }
+    if (newDesc.length < original.length * 0.3) {
+      return {
+        status: "failed",
+        errorMessage: `Rewrite suspiciously short (${newDesc.length} vs ${original.length} chars) — not applied`,
+        costUsd: llm.costUsd,
+      };
+    }
+    if (newDesc === original) {
+      return {
+        status: "skipped",
+        result: { reason: "Model kept the description unchanged" },
+        costUsd: llm.costUsd,
+      };
+    }
+
+    await reviseItemDescription(job.ebayItemId, newDesc);
+
+    return {
+      status: "completed",
+      before: { description: original.slice(0, SNAPSHOT_CAP) },
+      after: { description: newDesc.slice(0, SNAPSHOT_CAP) },
+      result: { provider, model, guide: guide.id },
+      costUsd: llm.costUsd,
+    };
+  },
+};
+
+/** Local HTML strip for title-remix context (lighter than calls.ts version). */
+function stripHtmlLocal(html: string): string {
+  return html
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
 export const OP_HANDLERS: Partial<Record<EnhanceOp, OpHandler>> = {
   price_adjust: priceAdjustHandler,
   sku_rename: skuRenameHandler,
   item_specifics: itemSpecificsHandler,
-  // Phase 3: title_remix, description_remix
+  title_remix: titleRemixHandler,
+  description_remix: descriptionRemixHandler,
   // Phase 4: price_research
 };
 

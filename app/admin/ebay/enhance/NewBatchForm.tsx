@@ -11,6 +11,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Category = { categoryId: string; name: string };
+type GuideOption = { id: string; name: string };
 
 type Preview = {
   matched: number;
@@ -24,9 +25,20 @@ type Preview = {
   }>;
 };
 
-type Op = "price_adjust" | "sku_rename" | "item_specifics";
+type Op =
+  | "price_adjust"
+  | "sku_rename"
+  | "item_specifics"
+  | "title_remix"
+  | "description_remix";
 
-export default function NewBatchForm({ categories }: { categories: Category[] }) {
+export default function NewBatchForm({
+  categories,
+  guides,
+}: {
+  categories: Category[];
+  guides: GuideOption[];
+}) {
   const router = useRouter();
   const [op, setOp] = useState<Op>("price_adjust");
   const [label, setLabel] = useState("");
@@ -48,6 +60,12 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
   );
   const [specificsModel, setSpecificsModel] = useState("gemini:gemini-2.0-flash");
   const [usePhoto, setUsePhoto] = useState(true);
+
+  // remix config (title_remix + description_remix)
+  const [guideId, setGuideId] = useState("");
+  const [remixInstructions, setRemixInstructions] = useState("");
+  const [titleModel, setTitleModel] = useState("anthropic:claude-haiku-4-5-20251001");
+  const [descModel, setDescModel] = useState("anthropic:claude-sonnet-5");
 
   // selection
   const [skuFilter, setSkuFilter] = useState("");
@@ -72,12 +90,19 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
           }
         : op === "sku_rename"
         ? { find, replace, mode: skuMode }
-        : {
+        : op === "item_specifics"
+        ? {
             specifics: specificsList
               .split(",")
               .map((s) => s.trim())
               .filter(Boolean),
             usePhoto,
+          }
+        : {
+            guideId,
+            ...(remixInstructions.trim()
+              ? { instructions: remixInstructions.trim() }
+              : {}),
           };
 
     const selection: Record<string, unknown> = {};
@@ -91,13 +116,22 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
     if (priceMin) selection.priceMin = Number(priceMin);
     if (priceMax) selection.priceMax = Number(priceMax);
 
+    const modelOverride =
+      op === "item_specifics"
+        ? specificsModel
+        : op === "title_remix"
+        ? titleModel
+        : op === "description_remix"
+        ? descModel
+        : undefined;
+
     return {
       op,
       label,
       config,
       selection,
       dryRun,
-      ...(op === "item_specifics" ? { modelOverride: specificsModel } : {}),
+      ...(modelOverride ? { modelOverride } : {}),
     };
   }
 
@@ -109,8 +143,10 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
     } else if (op === "sku_rename") {
       if (!find) return "Enter the SKU text to find.";
       if (!replace && skuMode === "exact") return "Enter the replacement SKU.";
-    } else {
+    } else if (op === "item_specifics") {
       if (!specificsList.trim()) return "Enter at least one specific to fill.";
+    } else {
+      if (!guideId) return "Pick an expert guide.";
     }
     return null;
   }
@@ -173,6 +209,8 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
             <option value="price_adjust">Price bump / discount</option>
             <option value="sku_rename">SKU rename (bin consolidation)</option>
             <option value="item_specifics">Item specifics fill (AI)</option>
+            <option value="title_remix">Title remix — expert guide (AI)</option>
+            <option value="description_remix">Description remix — expert guide (AI)</option>
           </select>
         </div>
         <div>
@@ -266,7 +304,7 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
             </select>
           </div>
         </div>
-      ) : (
+      ) : op === "item_specifics" ? (
         <div className="grid gap-4 sm:grid-cols-3 mb-4">
           <div className="sm:col-span-1">
             <label className={labelCls}>Specifics to fill (comma-separated)</label>
@@ -300,6 +338,64 @@ export default function NewBatchForm({ categories }: { categories: Category[] })
               />
               Use listing photo (helps Color/Material)
             </label>
+          </div>
+        </div>
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-3 mb-4">
+          <div>
+            <label className={labelCls}>Expert guide</label>
+            <select
+              className={inputCls}
+              value={guideId}
+              onChange={(e) => setGuideId(e.target.value)}
+            >
+              <option value="">Pick a guide…</option>
+              {guides.map((g) => (
+                <option key={g.id} value={g.id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-brand-ink/40 mt-1">
+              Shipping/discount/return language is protected — the guide can
+              never change it.
+            </p>
+          </div>
+          <div>
+            <label className={labelCls}>Model</label>
+            {op === "title_remix" ? (
+              <select
+                className={inputCls}
+                value={titleModel}
+                onChange={(e) => setTitleModel(e.target.value)}
+              >
+                <option value="anthropic:claude-haiku-4-5-20251001">
+                  Haiku 4.5 (default, cached guide)
+                </option>
+                <option value="gemini:gemini-2.0-flash">Gemini 2.0 Flash</option>
+              </select>
+            ) : (
+              <select
+                className={inputCls}
+                value={descModel}
+                onChange={(e) => setDescModel(e.target.value)}
+              >
+                <option value="anthropic:claude-sonnet-5">
+                  Sonnet 5 (default, cached guide)
+                </option>
+                <option value="openai:gpt-4o">GPT-4o</option>
+                <option value="gemini:gemini-1.5-pro">Gemini 1.5 Pro (budget)</option>
+              </select>
+            )}
+          </div>
+          <div>
+            <label className={labelCls}>Extra instructions (optional)</label>
+            <input
+              className={inputCls}
+              value={remixInstructions}
+              onChange={(e) => setRemixInstructions(e.target.value)}
+              placeholder='e.g. "emphasize Alabama connections"'
+            />
           </div>
         </div>
       )}

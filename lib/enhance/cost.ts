@@ -65,11 +65,26 @@ export function defaultRates(): PricingRate[] {
       notes: "Verify against current OpenAI pricing before Phase 2 runs.",
     },
     {
+      provider: "openai",
+      model: "gpt-4o",
+      inputPerMTok: 2.5,
+      outputPerMTok: 10,
+      cacheReadPerMTok: 1.25,
+      notes: "Description remix alternate. Verify current OpenAI pricing.",
+    },
+    {
       provider: "gemini",
       model: "gemini-2.0-flash",
       inputPerMTok: 0.1,
       outputPerMTok: 0.4,
       notes: "Verify against current Google pricing before Phase 2 runs.",
+    },
+    {
+      provider: "gemini",
+      model: "gemini-1.5-pro",
+      inputPerMTok: 1.25,
+      outputPerMTok: 5,
+      notes: "Description remix budget option. Verify current Google pricing.",
     },
     {
       provider: "apr",

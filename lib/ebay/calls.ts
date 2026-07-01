@@ -462,3 +462,65 @@ export async function reviseItemSpecifics(
     },
   });
 }
+
+// ─── Remix ops (Phase 3): title + description read/write ─────────────────────
+
+export interface ItemForRemix {
+  itemId: string;
+  title: string;
+  /** Raw HTML description, entity-decoded once (parser leaves entities). */
+  descriptionHtml: string;
+  categoryName: string | null;
+  listingStatus: string | null;
+}
+
+export async function fetchItemForRemix(itemId: string): Promise<ItemForRemix | null> {
+  const res = await tradingCall("GetItem", {
+    ItemID: itemId,
+    DetailLevel: "ReturnAll",
+    IncludeItemSpecifics: false,
+  });
+  const item = (res as { Item?: Record<string, unknown> }).Item;
+  if (!item) return null;
+  const primaryCat =
+    (item.PrimaryCategory as Record<string, unknown> | undefined) ?? {};
+  const sellingStatus =
+    (item.SellingStatus as Record<string, unknown> | undefined) ?? {};
+  return {
+    itemId: String(item.ItemID ?? itemId),
+    title: decodeEntities(String(item.Title ?? "")),
+    descriptionHtml:
+      item.Description != null ? decodeEntities(String(item.Description)) : "",
+    categoryName:
+      primaryCat.CategoryName != null
+        ? decodeEntities(String(primaryCat.CategoryName))
+        : null,
+    listingStatus:
+      sellingStatus.ListingStatus != null
+        ? String(sellingStatus.ListingStatus)
+        : null,
+  };
+}
+
+/** Set a listing's title. Caller enforces eBay's 80-char limit first. */
+export async function reviseItemTitle(itemId: string, title: string): Promise<void> {
+  await tradingCall("ReviseItem", {
+    Item: {
+      ItemID: itemId,
+      Title: title,
+    },
+  });
+}
+
+/** Set a listing's description (full HTML replace). */
+export async function reviseItemDescription(
+  itemId: string,
+  descriptionHtml: string
+): Promise<void> {
+  await tradingCall("ReviseItem", {
+    Item: {
+      ItemID: itemId,
+      Description: descriptionHtml,
+    },
+  });
+}

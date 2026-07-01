@@ -30,13 +30,20 @@ import {
 } from "@/lib/enhance/ops";
 import { fetchItemForSpecifics } from "@/lib/ebay/calls";
 import { decodeEntities } from "@/lib/ebay/entities";
+import { listGuides } from "@/lib/enhance/guides";
 import type { EnhanceOp } from "@/db/schema";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const SUPPORTED_OPS: EnhanceOp[] = ["price_adjust", "sku_rename", "item_specifics"];
+const SUPPORTED_OPS: EnhanceOp[] = [
+  "price_adjust",
+  "sku_rename",
+  "item_specifics",
+  "title_remix",
+  "description_remix",
+];
 
 /**
  * Projected "after" value for one preview row, computed from the same
@@ -157,6 +164,17 @@ export async function POST(req: NextRequest) {
   }
   const config = body.config ?? {};
   const sel: Selection = body.selection ?? {};
+
+  // Remix ops need a valid guide before anything runs.
+  if (op === "title_remix" || op === "description_remix") {
+    const guideId = typeof config.guideId === "string" ? config.guideId : "";
+    if (!guideId || !listGuides().some((g) => g.id === guideId)) {
+      return NextResponse.json(
+        { error: "Pick an expert guide for remix batches" },
+        { status: 400 }
+      );
+    }
+  }
 
   // Convenience: a sku_rename with no explicit selection targets the SKUs
   // its own find/mode describe.
