@@ -43,6 +43,7 @@ const SUPPORTED_OPS: EnhanceOp[] = [
   "item_specifics",
   "title_remix",
   "description_remix",
+  "price_research",
 ];
 
 /**

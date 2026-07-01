@@ -14,8 +14,14 @@
 
 import { db, enhanceBatches, enhanceJobs } from "@/db";
 import type { EnhanceOp } from "@/db/schema";
-import { and, asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, notInArray, sql } from "drizzle-orm";
 import { getOpHandler } from "@/lib/enhance/ops";
+
+// A job that returns "waiting" (async op in flight, e.g. an APR research
+// job) goes back to pending and is re-claimed on a LATER tick — the
+// in-tick skip list below prevents a tight submit/poll spin. Each wait
+// costs one attempt; past this cap the job fails as timed out.
+const MAX_WAIT_ATTEMPTS = 50; // × 5-min ticks ≈ 4 hours
 
 export type CreateBatchParams = {
   op: EnhanceOp;
@@ -100,6 +106,8 @@ export async function processTick(budgetMs: number): Promise<TickSummary> {
     batchesFinished: 0,
     errors: [],
   };
+  /** Jobs already touched this tick — never re-claim in the same tick. */
+  const seenThisTick: string[] = [];
 
   while (Date.now() < deadline) {
     // Oldest pending job from the oldest active batch.
@@ -110,15 +118,19 @@ export async function processTick(budgetMs: number): Promise<TickSummary> {
       .where(
         and(
           eq(enhanceJobs.status, "pending"),
-          sql`${enhanceBatches.status} IN ('pending', 'running')`
+          sql`${enhanceBatches.status} IN ('pending', 'running')`,
+          seenThisTick.length > 0
+            ? notInArray(enhanceJobs.id, seenThisTick)
+            : undefined
         )
       )
       .orderBy(asc(enhanceBatches.createdAt), asc(enhanceJobs.createdAt))
       .limit(1);
 
-    if (!next) break; // queue empty
+    if (!next) break; // queue empty (or everything left is waiting)
 
     const { job, batch } = next;
+    seenThisTick.push(job.id);
 
     // Claim: only proceed if we're the tick that flipped it.
     const claimed = await db
@@ -158,10 +170,35 @@ export async function processTick(budgetMs: number): Promise<TickSummary> {
       }
     }
 
+    // "waiting" = async work in flight (APR job running). Re-queue for a
+    // later tick, merging any state the handler stashed (e.g. aprJobId).
+    // Batch counters and cost stay untouched until a final outcome.
+    if (outcome.status === "waiting") {
+      if ((job.attemptCount ?? 0) + 1 > MAX_WAIT_ATTEMPTS) {
+        outcome = {
+          status: "failed" as const,
+          errorMessage: `Timed out after ${MAX_WAIT_ATTEMPTS} wait cycles`,
+        };
+      } else {
+        await db
+          .update(enhanceJobs)
+          .set({
+            status: "pending",
+            result: outcome.result ?? job.result ?? null,
+          })
+          .where(eq(enhanceJobs.id, job.id));
+        continue;
+      }
+    }
+
+    // Past the waiting branch, only final statuses remain.
+    const finalStatus =
+      outcome.status === "waiting" ? "failed" : outcome.status;
+
     await db
       .update(enhanceJobs)
       .set({
-        status: outcome.status,
+        status: finalStatus,
         before: outcome.before ?? null,
         after: outcome.after ?? null,
         result: outcome.result ?? null,

@@ -11,9 +11,9 @@
 // they write the new value back to the mirror so the admin UI stays
 // consistent without waiting for the next sync cron.
 
-import { db, ebayListings } from "@/db";
-import { eq } from "drizzle-orm";
-import type { EnhanceOp, enhanceBatches, enhanceJobs } from "@/db/schema";
+import { db, ebayListings, enhanceJobs } from "@/db";
+import { and, eq, sql } from "drizzle-orm";
+import type { EnhanceOp, enhanceBatches } from "@/db/schema";
 import {
   fetchItemCore,
   fetchItemForRemix,
@@ -25,14 +25,20 @@ import {
   reviseItemTitle,
   type ItemSpecific,
 } from "@/lib/ebay/calls";
-import { callLlm, type LlmImage, type LlmProvider } from "@/lib/enhance/providers";
+import {
+  callHttpService,
+  callLlm,
+  type LlmImage,
+  type LlmProvider,
+} from "@/lib/enhance/providers";
 import { loadGuide } from "@/lib/enhance/guides";
 
 export type EnhanceBatchRow = typeof enhanceBatches.$inferSelect;
 export type EnhanceJobRow = typeof enhanceJobs.$inferSelect;
 
 export type OpOutcome = {
-  status: "completed" | "failed" | "skipped";
+  /** "waiting" = async work in flight; queue re-runs the job next tick. */
+  status: "completed" | "failed" | "skipped" | "waiting";
   /** Field values before the mutation (rollback snapshot). */
   before?: Record<string, unknown>;
   /** Field values after the mutation. */
@@ -692,6 +698,249 @@ function stripHtmlLocal(html: string): string {
     .trim();
 }
 
+// ─── price_research (Phase 4 — Agent Price Researcher reprice) ───────────────
+//
+// Async submit/poll against Todd's self-hosted APR service (Cloudflare
+// tunnel, PC must be awake). One tick submits the research job and stores
+// aprJobId via a "waiting" outcome; later ticks poll until APR finishes
+// (typical job ~60s, so usually done by the next 5-minute tick), then
+// apply the comp-anchored price with the same guardrails as price_adjust.
+//
+// Config shape:
+//   anchor:       "recommended" (75th pctile, default) | "median"
+//   floor:        number  — never go below (default 0.99)
+//   round87:      boolean — round to .87 (default true)
+//   maxChangePct: number? — skip if |new-current|/current exceeds this
+//
+// Cost: the submit is the billable event ($0.03 pass-through: ScrapingBee
+// stealth ~75 credits/req + Gemini vision). Poll GETs log nothing.
+
+const APR_INFLIGHT_CAP = 3; // don't flood the tunnel/APR queue
+
+function aprEnv(): { url: string; key: string } {
+  const url = (process.env.APR_API_URL ?? "https://aprapi.dev").replace(/\/+$/, "");
+  const key = process.env.APR_API_KEY;
+  if (!key) {
+    throw new Error("APR_API_KEY is not set. Add it to .env.local and Vercel env vars.");
+  }
+  return { url, key };
+}
+
+type AprPollBody = {
+  status?: "pending" | "running" | "complete" | "failed" | "cancelled";
+  result?: {
+    recommended_price: number | null;
+    median_price: number | null;
+    tier_used?: number;
+    confidence?: string;
+    comp_count?: number;
+    reasoning?: string;
+  } | null;
+  error?: string;
+};
+
+const priceResearchHandler: OpHandler = {
+  estimateCostPerJob: () => 0.03,
+  async run(job, batch) {
+    const cfg = batch.config ?? {};
+    const anchor = cfg.anchor === "median" ? "median" : "recommended";
+    const floorRaw = Number(cfg.floor);
+    const floor = cfg.floor !== undefined && cfg.floor !== "" && Number.isFinite(floorRaw) ? floorRaw : 0.99;
+    const round87 = cfg.round87 !== false;
+    const maxChangeRaw = Number(cfg.maxChangePct);
+    const maxChangePct =
+      cfg.maxChangePct !== undefined && cfg.maxChangePct !== "" && Number.isFinite(maxChangeRaw) && maxChangeRaw > 0
+        ? maxChangeRaw
+        : null;
+    const { url, key } = aprEnv();
+    const priorResult = (job.result ?? {}) as Record<string, unknown>;
+    const aprJobId = typeof priorResult.aprJobId === "string" ? priorResult.aprJobId : null;
+
+    // ── Submit phase ──
+    if (!aprJobId) {
+      // In-flight cap: sibling jobs already waiting on APR count against it.
+      const [inflight] = await db
+        .select({ n: sql<number>`count(*)::int` })
+        .from(enhanceJobs)
+        .where(
+          and(
+            eq(enhanceJobs.batchId, job.batchId),
+            eq(enhanceJobs.status, "pending"),
+            sql`${enhanceJobs.result}->>'aprJobId' is not null`
+          )
+        );
+      if ((inflight?.n ?? 0) >= APR_INFLIGHT_CAP) {
+        return { status: "waiting" }; // defer submission to a later tick
+      }
+
+      const live = await fetchItemCore(job.ebayItemId);
+      if (!live) return { status: "failed", errorMessage: "GetItem returned no item" };
+      if (live.listingStatus && live.listingStatus !== "Active") {
+        return {
+          status: "skipped",
+          result: { reason: `Listing status is ${live.listingStatus}, not Active` },
+        };
+      }
+      if (live.price == null) {
+        return { status: "failed", errorMessage: "GetItem returned no price" };
+      }
+
+      const [mirror] = await db
+        .select({ primaryImageUrl: ebayListings.primaryImageUrl })
+        .from(ebayListings)
+        .where(eq(ebayListings.itemId, job.ebayItemId))
+        .limit(1);
+
+      let submit;
+      try {
+        submit = await callHttpService({
+          provider: "apr",
+          model: "research",
+          url: `${url}/api/v1/research`,
+          method: "POST",
+          headers: { "X-API-Key": key },
+          body: {
+            title: live.title,
+            images: mirror?.primaryImageUrl ? [mirror.primaryImageUrl] : [],
+            condition: "used",
+            client_id: "expert-enhance",
+            // Identical key returns the existing APR job instead of a new
+            // (billed) one — safe against tick crashes between submit and save.
+            idempotency_key: `enhance-${job.id}`,
+          },
+          billable: true,
+          op: "price_research",
+          batchId: job.batchId,
+          jobId: job.id,
+          timeoutMs: 20_000,
+        });
+      } catch {
+        // Tunnel down / PC asleep — retry next tick rather than failing.
+        return { status: "waiting" };
+      }
+      const submitBody = submit.json as { job_id?: string } | null;
+      if (submit.status < 200 || submit.status >= 300 || !submitBody?.job_id) {
+        return {
+          status: "failed",
+          errorMessage: `APR submit failed (HTTP ${submit.status}): ${JSON.stringify(submitBody).slice(0, 200)}`,
+        };
+      }
+      return {
+        status: "waiting",
+        result: { aprJobId: submitBody.job_id, priceAtSubmit: live.price },
+      };
+    }
+
+    // ── Poll phase ──
+    let poll;
+    try {
+      poll = await callHttpService({
+        provider: "apr",
+        model: "research",
+        url: `${url}/api/v1/research/${aprJobId}`,
+        headers: { "X-API-Key": key },
+        billable: false,
+        op: "price_research",
+        batchId: job.batchId,
+        jobId: job.id,
+        timeoutMs: 20_000,
+      });
+    } catch {
+      return { status: "waiting", result: priorResult }; // transient — retry next tick
+    }
+    const body = poll.json as AprPollBody | null;
+    const aprStatus = body?.status;
+
+    if (aprStatus === "pending" || aprStatus === "running") {
+      return { status: "waiting", result: priorResult };
+    }
+    if (aprStatus === "failed" || aprStatus === "cancelled") {
+      return {
+        status: "failed",
+        errorMessage: `APR job ${aprStatus}: ${body?.error ?? "(no detail)"}`,
+        costUsd: 0.03,
+      };
+    }
+    if (aprStatus !== "complete" || !body?.result) {
+      return { status: "waiting", result: priorResult }; // odd payload — retry
+    }
+
+    const r = body.result;
+    const anchorPrice = anchor === "median" ? r.median_price : r.recommended_price;
+    const aprDetail = {
+      aprJobId,
+      anchor,
+      confidence: r.confidence,
+      tierUsed: r.tier_used,
+      compCount: r.comp_count,
+      reasoning: r.reasoning?.slice(0, 300),
+    };
+    if (anchorPrice == null || !Number.isFinite(anchorPrice) || anchorPrice <= 0) {
+      return {
+        status: "skipped",
+        result: { ...aprDetail, reason: "APR found no usable comps" },
+        costUsd: 0.03,
+      };
+    }
+
+    // Re-fetch live for an accurate before-snapshot and change guardrail.
+    const live = await fetchItemCore(job.ebayItemId);
+    if (!live || live.price == null) {
+      return { status: "failed", errorMessage: "GetItem failed at apply time", costUsd: 0.03 };
+    }
+    if (live.listingStatus && live.listingStatus !== "Active") {
+      return {
+        status: "skipped",
+        result: { ...aprDetail, reason: `Listing status is ${live.listingStatus}, not Active` },
+        costUsd: 0.03,
+      };
+    }
+
+    let newPrice = anchorPrice;
+    if (round87) newPrice = roundTo87(newPrice);
+    if (newPrice < floor) newPrice = floor;
+    newPrice = Math.round(newPrice * 100) / 100;
+
+    if (maxChangePct !== null && live.price > 0) {
+      const changePct = (Math.abs(newPrice - live.price) / live.price) * 100;
+      if (changePct > maxChangePct) {
+        return {
+          status: "skipped",
+          before: { price: live.price },
+          result: {
+            ...aprDetail,
+            suggestedPrice: newPrice,
+            reason: `Change ${changePct.toFixed(0)}% exceeds cap ${maxChangePct}% — review manually`,
+          },
+          costUsd: 0.03,
+        };
+      }
+    }
+    if (Math.abs(newPrice - live.price) < 0.005) {
+      return {
+        status: "skipped",
+        before: { price: live.price },
+        result: { ...aprDetail, reason: "APR price matches current price" },
+        costUsd: 0.03,
+      };
+    }
+
+    await reviseItemPrice(job.ebayItemId, newPrice);
+    await db
+      .update(ebayListings)
+      .set({ price: newPrice.toFixed(2) })
+      .where(eq(ebayListings.itemId, job.ebayItemId));
+
+    return {
+      status: "completed",
+      before: { price: live.price },
+      after: { price: newPrice },
+      result: aprDetail,
+      costUsd: 0.03,
+    };
+  },
+};
+
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
 export const OP_HANDLERS: Partial<Record<EnhanceOp, OpHandler>> = {
@@ -700,7 +949,7 @@ export const OP_HANDLERS: Partial<Record<EnhanceOp, OpHandler>> = {
   item_specifics: itemSpecificsHandler,
   title_remix: titleRemixHandler,
   description_remix: descriptionRemixHandler,
-  // Phase 4: price_research
+  price_research: priceResearchHandler,
 };
 
 export function getOpHandler(op: string): OpHandler | undefined {

@@ -30,7 +30,8 @@ type Op =
   | "sku_rename"
   | "item_specifics"
   | "title_remix"
-  | "description_remix";
+  | "description_remix"
+  | "price_research";
 
 export default function NewBatchForm({
   categories,
@@ -67,6 +68,12 @@ export default function NewBatchForm({
   const [titleModel, setTitleModel] = useState("anthropic:claude-haiku-4-5-20251001");
   const [descModel, setDescModel] = useState("anthropic:claude-sonnet-5");
 
+  // price_research config
+  const [aprAnchor, setAprAnchor] = useState<"recommended" | "median">("recommended");
+  const [aprFloor, setAprFloor] = useState("");
+  const [aprRound87, setAprRound87] = useState(true);
+  const [aprMaxChange, setAprMaxChange] = useState("");
+
   // selection
   const [skuFilter, setSkuFilter] = useState("");
   const [skuFilterMode, setSkuFilterMode] = useState<"contains" | "prefix" | "exact">("contains");
@@ -97,6 +104,13 @@ export default function NewBatchForm({
               .map((s) => s.trim())
               .filter(Boolean),
             usePhoto,
+          }
+        : op === "price_research"
+        ? {
+            anchor: aprAnchor,
+            ...(aprFloor ? { floor: Number(aprFloor) } : {}),
+            round87: aprRound87,
+            ...(aprMaxChange ? { maxChangePct: Number(aprMaxChange) } : {}),
           }
         : {
             guideId,
@@ -145,7 +159,7 @@ export default function NewBatchForm({
       if (!replace && skuMode === "exact") return "Enter the replacement SKU.";
     } else if (op === "item_specifics") {
       if (!specificsList.trim()) return "Enter at least one specific to fill.";
-    } else {
+    } else if (op === "title_remix" || op === "description_remix") {
       if (!guideId) return "Pick an expert guide.";
     }
     return null;
@@ -211,6 +225,7 @@ export default function NewBatchForm({
             <option value="item_specifics">Item specifics fill (AI)</option>
             <option value="title_remix">Title remix — expert guide (AI)</option>
             <option value="description_remix">Description remix — expert guide (AI)</option>
+            <option value="price_research">Price research reprice (APR)</option>
           </select>
         </div>
         <div>
@@ -338,6 +353,57 @@ export default function NewBatchForm({
                 onChange={(e) => setUsePhoto(e.target.checked)}
               />
               Use listing photo (helps Color/Material)
+            </label>
+          </div>
+        </div>
+      ) : op === "price_research" ? (
+        <div className="grid gap-4 sm:grid-cols-4 mb-4">
+          <div>
+            <label className={labelCls}>Anchor</label>
+            <select
+              className={inputCls}
+              value={aprAnchor}
+              onChange={(e) => setAprAnchor(e.target.value as typeof aprAnchor)}
+            >
+              <option value="recommended">Recommended (75th pctile)</option>
+              <option value="median">Median</option>
+            </select>
+            <p className="text-xs text-brand-ink/40 mt-1">
+              Runs through your local APR service — keep the PC awake.
+              ~$0.03 and a few minutes per item.
+            </p>
+          </div>
+          <div>
+            <label className={labelCls}>Floor $ (default 0.99)</label>
+            <input
+              className={inputCls}
+              value={aprFloor}
+              onChange={(e) => setAprFloor(e.target.value)}
+              placeholder="0.99"
+              inputMode="decimal"
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Max change % (blank = no cap)</label>
+            <input
+              className={inputCls}
+              value={aprMaxChange}
+              onChange={(e) => setAprMaxChange(e.target.value)}
+              placeholder="50"
+              inputMode="decimal"
+            />
+            <p className="text-xs text-brand-ink/40 mt-1">
+              Bigger swings get skipped for manual review instead of applied.
+            </p>
+          </div>
+          <div className="flex items-end pb-1.5">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={aprRound87}
+                onChange={(e) => setAprRound87(e.target.checked)}
+              />
+              Round to .87
             </label>
           </div>
         </div>
