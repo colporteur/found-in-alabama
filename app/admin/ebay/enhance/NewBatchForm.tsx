@@ -58,7 +58,7 @@ export default function NewBatchForm({
   const [specificsList, setSpecificsList] = useState(
     "Brand, Color, Size, Material, Style, Type"
   );
-  const [specificsModel, setSpecificsModel] = useState("gemini:gemini-2.0-flash");
+  const [specificsModel, setSpecificsModel] = useState("gemini:gemini-2.5-flash");
   const [usePhoto, setUsePhoto] = useState(true);
 
   // remix config (title_remix + description_remix)
@@ -325,7 +325,8 @@ export default function NewBatchForm({
               value={specificsModel}
               onChange={(e) => setSpecificsModel(e.target.value)}
             >
-              <option value="gemini:gemini-2.0-flash">Gemini 2.0 Flash (default)</option>
+              <option value="gemini:gemini-2.5-flash">Gemini 2.5 Flash (default)</option>
+              <option value="gemini:gemini-2.5-flash-lite">Gemini 2.5 Flash-Lite (budget)</option>
               <option value="openai:gpt-4o-mini">GPT-4o-mini</option>
             </select>
           </div>
@@ -372,7 +373,7 @@ export default function NewBatchForm({
                 <option value="anthropic:claude-haiku-4-5-20251001">
                   Haiku 4.5 (default, cached guide)
                 </option>
-                <option value="gemini:gemini-2.0-flash">Gemini 2.0 Flash</option>
+                <option value="gemini:gemini-2.5-flash">Gemini 2.5 Flash</option>
               </select>
             ) : (
               <select
@@ -384,7 +385,7 @@ export default function NewBatchForm({
                   Sonnet 5 (default, cached guide)
                 </option>
                 <option value="openai:gpt-4o">GPT-4o</option>
-                <option value="gemini:gemini-1.5-pro">Gemini 1.5 Pro (budget)</option>
+                <option value="gemini:gemini-2.5-pro">Gemini 2.5 Pro (budget)</option>
               </select>
             )}
           </div>

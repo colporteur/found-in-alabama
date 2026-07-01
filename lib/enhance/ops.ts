@@ -290,7 +290,9 @@ export const DEFAULT_TARGET_SPECIFICS = [
   "Type",
 ];
 
-const SPECIFICS_DEFAULT = { provider: "gemini" as LlmProvider, model: "gemini-2.0-flash" };
+// gemini-2.0-flash was shut down 2026-06-01 (404s). 2.5-flash is what the
+// APR service runs on Todd's key; 2.5 family sunsets 2026-10-16 — revisit then.
+const SPECIFICS_DEFAULT = { provider: "gemini" as LlmProvider, model: "gemini-2.5-flash" };
 
 export function parseModelOverride(
   override: string | null | undefined,
