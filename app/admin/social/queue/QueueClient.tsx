@@ -249,10 +249,10 @@ export default function QueueClient({
         summary += ` — example: ${data.samples[0]}`;
       }
       setBulkRetrySummary(summary);
-      // Simplest way to reflect DB changes: refresh the page state. The
-      // queue is server-rendered, so navigating to itself picks up the
-      // new statuses.
-      if ((data.succeeded ?? 0) > 0 || (data.attempted ?? 0) > 0) {
+      // Refresh the page ONLY if at least one draft actually posted —
+      // if all N still failed, there's nothing to reflect and reloading
+      // would wipe the summary/error before the user can read it.
+      if ((data.succeeded ?? 0) > 0) {
         setTimeout(() => window.location.reload(), 1500);
       }
     } catch (err) {
