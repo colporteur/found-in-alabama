@@ -111,6 +111,23 @@ export default async function EbayDashboard() {
         </Link>
       </div>
 
+      <div className="mt-10 pt-6 border-t border-brand-ink/10">
+        <p className="text-xs uppercase tracking-wider text-brand-earth mb-2">
+          Expert Enhance
+        </p>
+        <Link
+          href="/admin/ebay/enhance"
+          className="inline-block bg-white border border-brand-ink/15 hover:border-brand-yellow rounded-lg p-4 transition-colors max-w-md"
+        >
+          <p className="font-medium mb-1">Expert Enhance portal →</p>
+          <p className="text-sm text-brand-ink/70">
+            Batch listing improvements via ReviseItem — price bumps, SKU
+            renames, guide-informed remixes. Phase 0 (queue + cost
+            dashboard) is live.
+          </p>
+        </Link>
+      </div>
+
       <p className="text-xs text-brand-ink/50 mt-12">
         Phase 3 (newsletters) is planned but not yet built.
       </p>

@@ -669,6 +669,169 @@ export const haulDrafts = pgTable(
   })
 );
 
+// ─── Expert Enhance portal — Phase 0 ─────────────────────────────────────────
+//
+// Queue-first batch mutation system for live eBay listings (ReviseItem only —
+// never end-and-relist, so Nifty crosslinking stays intact). Phase 0 is the
+// scaffolding: batches, jobs, AI call/cost logging, and a pricing lookup
+// table. Op handlers arrive in Phases 1+.
+
+/** All planned ops. Handlers are registered per-op in lib/enhance/ops.ts. */
+export const ENHANCE_OPS = [
+  "price_adjust", // Phase 1 — percent/flat delta with floor. No AI.
+  "sku_rename", // Phase 1 — find/replace for bin consolidation. No AI.
+  "item_specifics", // Phase 2 — structured extraction (Gemini Flash / GPT-4o-mini)
+  "title_remix", // Phase 3 — expert-guide title rewrite (Haiku, cached prompt)
+  "description_remix", // Phase 3 — expert-guide description rewrite (Sonnet, cached)
+  "price_research", // Phase 4 — Agent Price Researcher reprice
+] as const;
+export type EnhanceOp = (typeof ENHANCE_OPS)[number];
+
+export const enhanceBatches = pgTable(
+  "enhance_batches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    op: text("op", { enum: ENHANCE_OPS }).notNull(),
+    status: text("status", {
+      enum: ["pending", "running", "completed", "failed", "cancelled"],
+    })
+      .default("pending")
+      .notNull(),
+    /** Human-readable label shown in the batch list. */
+    label: text("label").default("").notNull(),
+    // Op-specific configuration: percent delta + floor for price_adjust,
+    // find/replace strings for sku_rename, guide id + model override for
+    // the remix ops, etc. Shape is owned by the op handler.
+    config: jsonb("config").$type<Record<string, unknown>>().default({}).notNull(),
+    /** Per-batch model override (A/B testing cheaper vs. better). Null = op default. */
+    modelOverride: text("model_override"),
+    totalJobs: integer("total_jobs").default(0).notNull(),
+    completedJobs: integer("completed_jobs").default(0).notNull(),
+    failedJobs: integer("failed_jobs").default(0).notNull(),
+    skippedJobs: integer("skipped_jobs").default(0).notNull(),
+    /** Pre-run estimate shown in the "this batch will cost ~$X, proceed?" gate. */
+    estimatedCostUsd: numeric("estimated_cost_usd", { precision: 10, scale: 4 }),
+    /** Running actual spend, accumulated from job costs as they complete. */
+    actualCostUsd: numeric("actual_cost_usd", { precision: 10, scale: 4 })
+      .default("0")
+      .notNull(),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    startedAt: timestamp("started_at"),
+    completedAt: timestamp("completed_at"),
+  },
+  (t) => ({
+    statusIdx: index("enhance_batches_status_idx").on(t.status),
+    createdAtIdx: index("enhance_batches_created_at_idx").on(t.createdAt),
+  })
+);
+
+// One row per listing per batch. before/after JSONB snapshots power the
+// three-grain rollback (per item, per batch, per 24h session) in Phase 5 —
+// captured from day one so history is complete when that UI lands.
+
+export const enhanceJobs = pgTable(
+  "enhance_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id")
+      .notNull()
+      .references(() => enhanceBatches.id, { onDelete: "cascade" }),
+    ebayItemId: text("ebay_item_id").notNull(),
+    /** Denormalized for list rendering without joining ebay_listings. */
+    sku: text("sku"),
+    title: text("title"),
+    status: text("status", {
+      enum: ["pending", "running", "completed", "failed", "skipped"],
+    })
+      .default("pending")
+      .notNull(),
+    attemptCount: integer("attempt_count").default(0).notNull(),
+    /** Field values before the mutation — only fields the op touches. */
+    before: jsonb("before").$type<Record<string, unknown>>(),
+    /** Field values after the mutation succeeded. */
+    after: jsonb("after").$type<Record<string, unknown>>(),
+    /** Op-specific result detail (AI reasoning, APR job id, etc.). */
+    result: jsonb("result").$type<Record<string, unknown>>(),
+    /** True once a rollback has restored this job's before snapshot. */
+    rolledBack: boolean("rolled_back").default(false).notNull(),
+    errorMessage: text("error_message"),
+    costUsd: numeric("cost_usd", { precision: 10, scale: 6 }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    startedAt: timestamp("started_at"),
+    completedAt: timestamp("completed_at"),
+  },
+  (t) => ({
+    batchIdx: index("enhance_jobs_batch_idx").on(t.batchId),
+    statusIdx: index("enhance_jobs_status_idx").on(t.status),
+    batchStatusIdx: index("enhance_jobs_batch_status_idx").on(t.batchId, t.status),
+    itemIdx: index("enhance_jobs_item_idx").on(t.ebayItemId),
+  })
+);
+
+// Every AI call and HTTP-service call in the enhance pipeline logs here,
+// with cost computed at call time from ai_model_pricing. The dashboard's
+// today/week/month spend widgets aggregate this table.
+
+export const aiCallLog = pgTable(
+  "ai_call_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Which op made the call ("title_remix"), or "adhoc" for one-offs. */
+    op: text("op").notNull(),
+    batchId: uuid("batch_id").references(() => enhanceBatches.id, {
+      onDelete: "set null",
+    }),
+    jobId: uuid("job_id").references(() => enhanceJobs.id, {
+      onDelete: "set null",
+    }),
+    /** "llm" = token-billed model call; "http_service" = request-billed (APR). */
+    category: text("category", { enum: ["llm", "http_service"] }).notNull(),
+    provider: text("provider").notNull(), // "anthropic" | "openai" | "gemini" | "apr"
+    model: text("model").notNull(), // model string, or service tag like "research"
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    cacheReadTokens: integer("cache_read_tokens"),
+    cacheWriteTokens: integer("cache_write_tokens"),
+    /** For http_service rows — number of billable requests (usually 1). */
+    requestCount: integer("request_count").default(1).notNull(),
+    costUsd: numeric("cost_usd", { precision: 10, scale: 6 }).notNull(),
+    durationMs: integer("duration_ms"),
+    success: boolean("success").default(true).notNull(),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    createdAtIdx: index("ai_call_log_created_at_idx").on(t.createdAt),
+    opIdx: index("ai_call_log_op_idx").on(t.op),
+    providerModelIdx: index("ai_call_log_provider_model_idx").on(t.provider, t.model),
+    batchIdx: index("ai_call_log_batch_idx").on(t.batchId),
+  })
+);
+
+// Editable pricing lookup. Rates are USD per million tokens for llm rows;
+// perRequestUsd for http_service rows. Code falls back to hardcoded
+// defaults in lib/enhance/cost.ts when a (provider, model) pair is absent,
+// and lazily seeds those defaults here so they're visible + editable.
+
+export const aiModelPricing = pgTable(
+  "ai_model_pricing",
+  {
+    provider: text("provider").notNull(),
+    model: text("model").notNull(),
+    inputPerMTok: numeric("input_per_mtok", { precision: 10, scale: 4 }),
+    outputPerMTok: numeric("output_per_mtok", { precision: 10, scale: 4 }),
+    cacheReadPerMTok: numeric("cache_read_per_mtok", { precision: 10, scale: 4 }),
+    cacheWritePerMTok: numeric("cache_write_per_mtok", { precision: 10, scale: 4 }),
+    perRequestUsd: numeric("per_request_usd", { precision: 10, scale: 6 }),
+    notes: text("notes"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    pk: primaryKey({ columns: [t.provider, t.model] }),
+  })
+);
+
 // ─── NextAuth tables (shape required by @auth/drizzle-adapter) ────────────────
 
 export const users = pgTable("user", {

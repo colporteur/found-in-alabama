@@ -1,0 +1,29 @@
+# Expert Enhance batch runner heartbeat.
+#
+# Vercel's Hobby plan only allows once-daily crons, so — same as the
+# social publish heartbeat — a GitHub Action does the real ticking:
+# every 5 minutes it pings /api/cron/enhance, which processes pending
+# enhance jobs for up to ~45s and exits. Idle ticks (empty queue)
+# return immediately, so the frequent cadence costs nothing when no
+# batch is running.
+#
+# Uses the same CRON_SECRET repository secret as the other workflows.
+# Manual trigger: Actions tab → "Enhance batch cron" → Run workflow.
+
+name: Enhance batch cron
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Ping enhance endpoint
+        run: |
+          curl --silent --show-error --fail --max-time 120 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://www.foundinalabama.com/api/cron/enhance
