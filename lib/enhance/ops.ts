@@ -186,15 +186,18 @@ function parsePriceConfig(raw: Record<string, unknown>): PriceAdjustConfig | nul
 // to do" isn't an error.
 
 export type SkuRenameConfig = {
+  /** "set" ignores find and assigns `replace` outright (workbench bin
+   *  consolidation: check items → move them all to NA320). */
+  mode: "exact" | "prefix" | "contains" | "set";
   find: string;
   replace: string;
-  mode: "exact" | "prefix" | "contains";
 };
 
 export function computeRenamedSku(
   current: string,
   cfg: SkuRenameConfig
 ): string | null {
+  if (cfg.mode === "set") return cfg.replace;
   if (cfg.mode === "exact") {
     return current === cfg.find ? cfg.replace : null;
   }
@@ -265,8 +268,12 @@ const skuRenameHandler: OpHandler = {
 };
 
 function parseSkuConfig(raw: Record<string, unknown>): SkuRenameConfig | null {
-  if (typeof raw.find !== "string" || raw.find.length === 0) return null;
   if (typeof raw.replace !== "string") return null;
+  if (raw.mode === "set") {
+    if (raw.replace.length === 0) return null; // never blank a SKU via "set"
+    return { mode: "set", find: "", replace: raw.replace };
+  }
+  if (typeof raw.find !== "string" || raw.find.length === 0) return null;
   const mode =
     raw.mode === "prefix" || raw.mode === "contains" ? raw.mode : "exact";
   return { find: raw.find, replace: raw.replace, mode };

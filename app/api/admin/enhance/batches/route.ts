@@ -74,15 +74,18 @@ function projectAfter(
     return `$${computeAdjustedPrice(price, cfg).toFixed(2)}`;
   }
   if (op === "sku_rename") {
-    if (typeof config.find !== "string" || typeof config.replace !== "string") return null;
+    if (typeof config.replace !== "string") return null;
     const cfg: SkuRenameConfig = {
-      find: config.find,
+      find: typeof config.find === "string" ? config.find : "",
       replace: config.replace,
       mode:
-        config.mode === "prefix" || config.mode === "contains"
+        config.mode === "set" ||
+        config.mode === "prefix" ||
+        config.mode === "contains"
           ? config.mode
           : "exact",
     };
+    if (cfg.mode !== "set" && !cfg.find) return null;
     const renamed = computeRenamedSku(row.sku ?? "", cfg);
     return renamed ?? "(no match — will skip)";
   }
@@ -179,8 +182,18 @@ export async function POST(req: NextRequest) {
 
   // Convenience: a sku_rename with no explicit selection targets the SKUs
   // its own find/mode describe.
+  // "set" mode assigns a SKU outright and has no find pattern — it must
+  // come with an explicit selection (the workbench always sends itemIds).
+  if (op === "sku_rename" && config.mode === "set" && !sel.itemIds?.length) {
+    return NextResponse.json(
+      { error: 'SKU "set" mode requires an explicit item selection' },
+      { status: 400 }
+    );
+  }
+
   if (
     op === "sku_rename" &&
+    config.mode !== "set" &&
     !sel.itemIds?.length &&
     !sel.skuExact &&
     !sel.skuPrefix &&
