@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import AudioStory, { type AudioFillFields } from "./AudioStory";
 
 type DraftResult = {
   title: string;
@@ -545,6 +546,26 @@ ${r.body}
         {/* ── Where it came from ─────────────────────────────────────── */}
         <fieldset className="border border-brand-ink/15 rounded-lg p-5 space-y-4">
           <legend className="font-marker text-lg px-2">Where it came from</legend>
+
+          <AudioStory
+            onFilled={(f: AudioFillFields) => {
+              // Append to a non-empty story rather than clobbering it;
+              // location fields only fill when currently blank.
+              if (f.acquisitionStory) {
+                setAcquisitionContext((prev) =>
+                  prev.trim() ? `${prev.trim()}\n\n${f.acquisitionStory}` : f.acquisitionStory
+                );
+              }
+              if (f.photoNotes) {
+                setPhotoNotes((prev) =>
+                  prev.trim() ? `${prev.trim()}\n\n${f.photoNotes}` : f.photoNotes
+                );
+              }
+              if (f.city) setCity((prev) => prev.trim() || f.city);
+              if (f.state) setStateName((prev) => (prev.trim() && prev !== "Alabama" ? prev : f.state));
+              if (f.vagueLocation) setVagueLocation((prev) => prev.trim() || f.vagueLocation);
+            }}
+          />
 
           <div>
             <label
