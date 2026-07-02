@@ -12,8 +12,8 @@
 //   cancelBatch()  → flips remaining pending jobs to skipped and the batch
 //                    to cancelled. In-flight jobs finish their current run.
 
-import { db, enhanceBatches, enhanceJobs } from "@/db";
-import type { EnhanceOp } from "@/db/schema";
+import { db, ebayListings, enhanceBatches, enhanceJobs } from "@/db";
+import { SUBSTANTIVE_OPS, WIGGLE_OPS, type EnhanceOp } from "@/db/schema";
 import { and, asc, eq, notInArray, sql } from "drizzle-orm";
 import { getOpHandler } from "@/lib/enhance/ops";
 
@@ -230,6 +230,23 @@ export async function processTick(budgetMs: number): Promise<TickSummary> {
         actualCostUsd: sql`${enhanceBatches.actualCostUsd} + ${(outcome.costUsd ?? 0).toFixed(6)}`,
       })
       .where(eq(enhanceBatches.id, batch.id));
+
+    // Workbench action tracking: a COMPLETED job stamps the listing's
+    // last-wiggle / last-substantive date (skips and failures don't count).
+    if (finalStatus === "completed") {
+      const stamp = new Date();
+      if (WIGGLE_OPS.includes(batch.op)) {
+        await db
+          .update(ebayListings)
+          .set({ lastWiggleAt: stamp })
+          .where(eq(ebayListings.itemId, job.ebayItemId));
+      } else if (SUBSTANTIVE_OPS.includes(batch.op)) {
+        await db
+          .update(ebayListings)
+          .set({ lastSubstantiveAt: stamp })
+          .where(eq(ebayListings.itemId, job.ebayItemId));
+      }
+    }
 
     summary.processed++;
     if (outcome.status === "completed") summary.completed++;

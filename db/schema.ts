@@ -138,10 +138,21 @@ export const ebayListings = pgTable(
     // the age reference for stale-inventory sale tiers.
     startTime: timestamp("start_time"),
     lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
+    // Workbench action tracking (Phase W1): stamped by the enhance queue
+    // when a job COMPLETES (skips/failures don't count). "Wiggle" =
+    // price_adjust / sku_rename; "substantive" = the AI + APR ops. See
+    // WIGGLE_OPS / SUBSTANTIVE_OPS below. Backfilled once from
+    // enhance_jobs history via /api/admin/enhance/backfill-last-actions.
+    lastWiggleAt: timestamp("last_wiggle_at"),
+    lastSubstantiveAt: timestamp("last_substantive_at"),
   },
   (t) => ({
     storeCat1Idx: index("ebay_listings_store_cat1_idx").on(t.storeCategory1Id),
     storeCat2Idx: index("ebay_listings_store_cat2_idx").on(t.storeCategory2Id),
+    lastWiggleIdx: index("ebay_listings_last_wiggle_idx").on(t.lastWiggleAt),
+    lastSubstantiveIdx: index("ebay_listings_last_substantive_idx").on(
+      t.lastSubstantiveAt
+    ),
   })
 );
 
@@ -686,6 +697,16 @@ export const ENHANCE_OPS = [
   "price_research", // Phase 4 — Agent Price Researcher reprice
 ] as const;
 export type EnhanceOp = (typeof ENHANCE_OPS)[number];
+
+/** Workbench action classes: "wiggles" freshen the listing cheaply… */
+export const WIGGLE_OPS: EnhanceOp[] = ["price_adjust", "sku_rename"];
+/** …"substantive changes" add real value via AI or comp research. */
+export const SUBSTANTIVE_OPS: EnhanceOp[] = [
+  "item_specifics",
+  "title_remix",
+  "description_remix",
+  "price_research",
+];
 
 export const enhanceBatches = pgTable(
   "enhance_batches",

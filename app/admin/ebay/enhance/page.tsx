@@ -127,6 +127,12 @@ export default async function EnhancePortal() {
         <h2 className="font-medium text-lg">Recent batches</h2>
         <div className="flex items-baseline gap-4">
           <Link
+            href="/admin/ebay/workbench"
+            className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+          >
+            Workbench →
+          </Link>
+          <Link
             href="/admin/ebay/enhance/history"
             className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
           >
