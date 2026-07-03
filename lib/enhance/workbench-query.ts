@@ -4,11 +4,20 @@
 
 import { eq, ilike, or, sql, type SQL } from "drizzle-orm";
 import { ebayListings } from "@/db/schema";
-import { SKU_CLASSES, skuClassSql, type SkuClass } from "@/lib/enhance/sku-class";
+import {
+  SKU_CLASSES,
+  skuClassSql,
+  skuNumericSql,
+  type SkuClass,
+} from "@/lib/enhance/sku-class";
 
 export type WorkbenchParams = {
   q?: string;
   skuClass?: string;
+  /** Class-aware SKU number range: NA bins by bin #, media/vinyl by
+   *  YYMMDD date, LT by main number, cards by leading id. */
+  skuNumFrom?: string;
+  skuNumTo?: string;
   categoryId?: string;
   priceMin?: string;
   priceMax?: string;
@@ -42,6 +51,12 @@ export function workbenchFilters(p: WorkbenchParams): SQL[] {
     ? (p.skuClass as SkuClass)
     : "";
   if (skuClass) filters.push(sql`(${skuClassSql()}) = ${skuClass}`);
+  if (p.skuNumFrom && Number.isFinite(Number(p.skuNumFrom))) {
+    filters.push(sql`(${skuNumericSql()}) >= ${Number(p.skuNumFrom)}`);
+  }
+  if (p.skuNumTo && Number.isFinite(Number(p.skuNumTo))) {
+    filters.push(sql`(${skuNumericSql()}) <= ${Number(p.skuNumTo)}`);
+  }
   if (p.categoryId) {
     filters.push(
       or(

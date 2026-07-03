@@ -45,7 +45,7 @@ function buildHref(base: Params, patch: Partial<Params>): string {
 
 function filterQueryString(p: Params): string {
   const usp = new URLSearchParams();
-  for (const k of ["q", "skuClass", "categoryId", "priceMin", "priceMax", "wiggle", "subst"] as const) {
+  for (const k of ["q", "skuClass", "skuNumFrom", "skuNumTo", "categoryId", "priceMin", "priceMax", "wiggle", "subst"] as const) {
     if (p[k]) usp.set(k, p[k]!);
   }
   return usp.toString();
@@ -200,6 +200,15 @@ export default async function Workbench({
                 </option>
               ))}
             </select>
+          </div>
+          <div>
+            <label className={labelCls} title="Bin/jewelry/LT number, YYMMDD date for media & vinyl, card id">
+              SKU # / date range
+            </label>
+            <div className="flex gap-1">
+              <input className={`${inputCls} w-full`} name="skuNumFrom" placeholder="from" defaultValue={p.skuNumFrom ?? ""} inputMode="numeric" />
+              <input className={`${inputCls} w-full`} name="skuNumTo" placeholder="to" defaultValue={p.skuNumTo ?? ""} inputMode="numeric" />
+            </div>
           </div>
           <div>
             <label className={labelCls}>Store category</label>

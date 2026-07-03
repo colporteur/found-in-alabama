@@ -24,6 +24,8 @@ export async function GET(req: NextRequest) {
   const params: WorkbenchParams = {
     q: sp.get("q") ?? undefined,
     skuClass: sp.get("skuClass") ?? undefined,
+    skuNumFrom: sp.get("skuNumFrom") ?? undefined,
+    skuNumTo: sp.get("skuNumTo") ?? undefined,
     categoryId: sp.get("categoryId") ?? undefined,
     priceMin: sp.get("priceMin") ?? undefined,
     priceMax: sp.get("priceMax") ?? undefined,
