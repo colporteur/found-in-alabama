@@ -22,12 +22,16 @@ export const viewport: Viewport = {
   initialScale: 1,
 };
 
+// Daily-use destinations only — everything else is one hop away via the
+// grouped dashboard launcher.
 const adminNav = [
   { href: "/admin", label: "Dashboard" },
   { href: "/admin/draft", label: "Draft a haul" },
+  { href: "/admin/ebay/workbench", label: "Workbench" },
+  { href: "/admin/ebay/enhance", label: "Enhance" },
+  { href: "/admin/social", label: "Social" },
+  { href: "/admin/newsletter", label: "Newsletter" },
   { href: "/admin/inventory", label: "Inventory" },
-  { href: "/admin/ebay", label: "eBay tools" },
-  { href: "/admin/api-keys", label: "API keys" },
 ];
 
 export default async function AdminLayout({
@@ -54,7 +58,7 @@ export default async function AdminLayout({
             >
               Admin
             </Link>
-            <nav className="flex items-center gap-4 text-sm">
+            <nav className="flex items-center gap-4 text-sm flex-wrap">
               {adminNav.map((link) => (
                 <Link
                   key={link.href}

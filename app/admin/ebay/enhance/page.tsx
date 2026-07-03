@@ -75,9 +75,9 @@ export default async function EnhancePortal() {
         item IDs stay stable and Nifty crosslisting is never disrupted.
       </p>
       <p className="text-sm text-brand-ink/50 mb-10">
-        Phase 1 is live: price bump/discount &amp; SKU rename. AI-powered ops
-        (item specifics, guide-informed remixes, price research) arrive in
-        Phases 2–4.
+        Price bumps &amp; discounts, SKU renames, item-specifics fill,
+        expert-guide title/description remixes, and APR repricing. Prefer
+        picking items by hand? Use the Workbench.
       </p>
 
       <NewBatchForm

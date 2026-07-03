@@ -45,10 +45,10 @@ export default async function EbayDashboard() {
         Manage your store
       </h1>
       <p className="text-brand-ink/70 mb-8 max-w-prose">
-        Two tools wired up to your eBay seller account: auto-categorize cleans
-        up the &ldquo;Other&rdquo; bucket using Claude, and sales/promotions
-        (Phase 2) schedules markdowns. Both depend on the Store category sync,
-        which you should run any time you add or rename Store categories.
+        Everything wired to your eBay seller account: the Workbench and
+        Expert Enhance for listing improvements, auto-categorize for the
+        &ldquo;Other&rdquo; bucket, and sales/promotions. Run the Store
+        category sync any time you add or rename categories on eBay.
       </p>
 
       <ConnectionCard configured={credsConfigured} />
@@ -82,7 +82,7 @@ export default async function EbayDashboard() {
         <ToolCard
           href="/admin/ebay/auto-categorize"
           title="Auto-categorize"
-          desc='One-button Claude-powered re-categorization of listings stuck in "Other." Pushes changes to eBay immediately. Phase 2 adds a 2nd category to items that still need one.'
+          desc='One-button Claude-powered re-categorization of listings stuck in "Other," then a second pass fills in missing secondary categories. Pushes changes to eBay immediately.'
           ready={credsConfigured && !!otherCat}
           cta={
             latestRun?.status === "running"
@@ -96,7 +96,7 @@ export default async function EbayDashboard() {
 
       <div className="mt-10 pt-6 border-t border-brand-ink/10">
         <p className="text-xs uppercase tracking-wider text-brand-earth mb-2">
-          Phase 2 — Sales &amp; promotions
+          Sales &amp; promotions
         </p>
         <Link
           href="/admin/ebay/sales"
@@ -113,7 +113,7 @@ export default async function EbayDashboard() {
 
       <div className="mt-10 pt-6 border-t border-brand-ink/10">
         <p className="text-xs uppercase tracking-wider text-brand-earth mb-2">
-          Expert Enhance
+          Listing improvement
         </p>
         <div className="flex gap-4 flex-wrap">
           <Link
@@ -123,7 +123,7 @@ export default async function EbayDashboard() {
             <p className="font-medium mb-1">Expert Enhance portal →</p>
             <p className="text-sm text-brand-ink/70">
               Batch listing improvements via ReviseItem — price bumps, SKU
-              renames, guide-informed remixes, APR repricing. All phases live.
+              renames, guide-informed remixes, APR repricing.
             </p>
           </Link>
           <Link
@@ -140,9 +140,6 @@ export default async function EbayDashboard() {
         </div>
       </div>
 
-      <p className="text-xs text-brand-ink/50 mt-12">
-        Phase 3 (newsletters) is planned but not yet built.
-      </p>
     </section>
   );
 }
