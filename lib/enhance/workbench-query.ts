@@ -51,12 +51,12 @@ export function workbenchFilters(p: WorkbenchParams): SQL[] {
     ? (p.skuClass as SkuClass)
     : "";
   if (skuClass) filters.push(sql`(${skuClassSql()}) = ${skuClass}`);
-  if (p.skuNumFrom && Number.isFinite(Number(p.skuNumFrom))) {
-    filters.push(sql`(${skuNumericSql()}) >= ${Number(p.skuNumFrom)}`);
-  }
-  if (p.skuNumTo && Number.isFinite(Number(p.skuNumTo))) {
-    filters.push(sql`(${skuNumericSql()}) <= ${Number(p.skuNumTo)}`);
-  }
+  // Lenient range parsing: "NA59", "LT229", and "59" all mean 59 — strip
+  // everything but digits rather than silently ignoring prefixed input.
+  const numFrom = (p.skuNumFrom ?? "").replace(/\D/g, "");
+  const numTo = (p.skuNumTo ?? "").replace(/\D/g, "");
+  if (numFrom) filters.push(sql`(${skuNumericSql()}) >= ${Number(numFrom)}`);
+  if (numTo) filters.push(sql`(${skuNumericSql()}) <= ${Number(numTo)}`);
   if (p.categoryId) {
     filters.push(
       or(

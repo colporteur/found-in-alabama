@@ -1,7 +1,8 @@
 // SKU schema classifier for the workbench.
 //
 // Todd's SKU nomenclature, accumulated over time:
-//   bin         NA### (exactly 3 digits) — storage bins, ascending as bins fill
+//   bin         NA# (1-3 digits) — storage bins, ascending as bins fill;
+//               older bins are unpadded (NA59), newer are 3-digit (NA313)
 //   jewelry     J# — jewelry bins (J1, J12)
 //   longtail    LT### or LT###.# — compact paper/ephemera/photo storage;
 //               the .# suffix is a sub-SKU within the long-tail sleeve
@@ -37,7 +38,7 @@ export const SKU_CLASSES = [
 export type SkuClass = (typeof SKU_CLASSES)[number];
 
 export const SKU_CLASS_LABELS: Record<SkuClass, string> = {
-  bin: "Bin (NA###)",
+  bin: "Bin (NA#)",
   jewelry: "Jewelry (J#)",
   longtail: "Long Tail (LT#)",
   vinyl: "Vinyl (RPM YYMMDD)",
@@ -56,7 +57,7 @@ export function skuClassSql(): SQL<SkuClass> {
   return sql<SkuClass>`CASE
     WHEN ${sku} IS NULL OR ${sku} = '' THEN 'none'
     WHEN ${sku} = 'Apps' THEN 'oversize'
-    WHEN ${sku} ~ '^NA[0-9]{3}$' THEN 'bin'
+    WHEN ${sku} ~ '^NA[0-9]{1,3}$' THEN 'bin'
     WHEN ${sku} ~ '^J[0-9]+$' THEN 'jewelry'
     WHEN ${sku} ~ '^LT[0-9]+(\\.[0-9]+)?$' THEN 'longtail'
     WHEN ${sku} ~ '^(16|33|45|78) [0-9]{6}$' THEN 'vinyl'
@@ -80,7 +81,7 @@ export function skuClassSql(): SQL<SkuClass> {
 export function skuNumericSql(): SQL<number | null> {
   const sku = ebayListings.sku;
   return sql<number | null>`CASE
-    WHEN ${sku} ~ '^NA[0-9]{3}$' THEN (substring(${sku} from '^NA([0-9]{3})$'))::bigint
+    WHEN ${sku} ~ '^NA[0-9]{1,3}$' THEN (substring(${sku} from '^NA([0-9]+)$'))::bigint
     WHEN ${sku} ~ '^J[0-9]+$' THEN (substring(${sku} from '^J([0-9]+)$'))::bigint
     WHEN ${sku} ~ '^LT[0-9]+(\\.[0-9]+)?$' THEN (substring(${sku} from '^LT([0-9]+)'))::bigint
     WHEN ${sku} ~ '^(16|33|45|78) [0-9]{6}$' THEN (substring(${sku} from '([0-9]{6})$'))::bigint

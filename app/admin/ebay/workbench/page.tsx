@@ -206,8 +206,8 @@ export default async function Workbench({
               SKU # / date range
             </label>
             <div className="flex gap-1">
-              <input className={`${inputCls} w-full`} name="skuNumFrom" placeholder="from" defaultValue={p.skuNumFrom ?? ""} inputMode="numeric" />
-              <input className={`${inputCls} w-full`} name="skuNumTo" placeholder="to" defaultValue={p.skuNumTo ?? ""} inputMode="numeric" />
+              <input className={`${inputCls} w-full`} name="skuNumFrom" placeholder="59 / NA59" defaultValue={p.skuNumFrom ?? ""} />
+              <input className={`${inputCls} w-full`} name="skuNumTo" placeholder="100 / NA100" defaultValue={p.skuNumTo ?? ""} />
             </div>
           </div>
           <div>
