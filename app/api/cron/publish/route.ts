@@ -34,13 +34,23 @@ export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
 // GitHub's */15 schedule fires unreliably (observed ~every 2 hours), so
-// each tick must clear as much as it safely can inside Vercel's 60s cap:
-// publish due drafts until PUBLISH_BUDGET_MS is spent (a Publer post can
-// take ~40s; BlueSky takes ~2s, so light ticks clear several), then run
-// one auto-generation whenever enough budget remains — generation no
-// longer waits for an idle tick.
-const PUBLISH_BUDGET_MS = 38_000;
-const GENERATE_IF_UNDER_MS = 32_000; // generation takes ~15-25s
+// each tick clears as much as it safely can inside Vercel's 60s cap.
+// CRUCIAL: budget by the WORST CASE of the next post, not elapsed time —
+// a Publer post (media upload + job polling) can take ~40s, so starting
+// one at 35s elapsed means a 504 and a killed function. Before each
+// post we peek the draft's channel and only proceed if its worst case
+// still fits under the hard cap. Same rule gates auto-generation
+// (~15-25s Claude vision call).
+const HARD_CAP_MS = 55_000; // leave headroom under maxDuration=60
+const HEAVY_POST_MS = 42_000; // Publer channels (IG/FB/X)
+const LIGHT_POST_MS = 10_000; // direct APIs (BlueSky, Pinterest)
+const GENERATION_MS = 26_000;
+const HEAVY_CHANNELS = new Set([
+  "instagram_feed",
+  "instagram_story",
+  "facebook",
+  "twitter",
+]);
 const SCHEDULE_BATCH = 24;
 
 async function authorized(req: NextRequest): Promise<boolean> {
@@ -143,10 +153,10 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // ── Step 2: publish due drafts until the budget is spent ─────────────────
+  // ── Step 2: publish due drafts while their worst case fits the cap ───────
   try {
     const attempted: string[] = [];
-    while (Date.now() - tickStart < PUBLISH_BUDGET_MS) {
+    while (true) {
       const [draft] = await db
         .select()
         .from(socialDrafts)
@@ -162,6 +172,12 @@ export async function GET(req: NextRequest) {
         .orderBy(asc(socialDrafts.scheduledFor))
         .limit(1);
       if (!draft) break;
+
+      // Would this post's worst case blow the cap? Stop — next tick gets it.
+      const costMs = HEAVY_CHANNELS.has(draft.channel)
+        ? HEAVY_POST_MS
+        : LIGHT_POST_MS;
+      if (Date.now() - tickStart + costMs > HARD_CAP_MS) break;
       attempted.push(draft.id);
       // Claim the row first so an overlapping run can't double-post:
       // only proceed if we're the one who flipped it out of "scheduled".
@@ -227,10 +243,10 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Step 3: auto-generate drafts (Phase B) ───────────────────────────────
-  // Runs whenever enough budget remains after publishing — with GitHub
-  // delivering far fewer ticks than scheduled, generation can't afford
-  // to wait for idle runs.
-  if (Date.now() - tickStart < GENERATE_IF_UNDER_MS) {
+  // Runs whenever generation's worst case still fits under the cap —
+  // with GitHub delivering far fewer ticks than scheduled, generation
+  // can't afford to wait for idle runs.
+  if (Date.now() - tickStart + GENERATION_MS < HARD_CAP_MS) {
     try {
       const gen = await runAutoGeneration(now);
       if (gen.generated) {
