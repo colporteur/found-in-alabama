@@ -30,7 +30,7 @@ import {
 import { db, items, socialDrafts } from "@/db";
 import { getAllPosts } from "@/lib/posts";
 import { generateChannelDrafts } from "@/lib/social/generate";
-import { centralDayKey } from "@/lib/social/schedule";
+import { centralDayKey, disabledChannels } from "@/lib/social/schedule";
 import type { ChannelKey } from "@/lib/social/channel-styles";
 
 /** Marker stored in the notes column so auto-created drafts are identifiable. */
@@ -38,7 +38,7 @@ export const AUTO_NOTE = "auto-generated";
 /** Marker for Phase C drafts (backfill + recycling) — separate daily budget. */
 export const AUTO_RECYCLE_NOTE = "auto-recycled";
 
-const ITEM_GENERATIONS_PER_DAY = 1;
+const ITEM_GENERATIONS_PER_DAY = 2;
 /** Only consider items captured in the last N days; older inventory is Phase C's job. */
 const ITEM_FRESHNESS_DAYS = 14;
 /** Only consider hauls published in the last N days. */
@@ -46,7 +46,7 @@ const HAUL_FRESHNESS_DAYS = 14;
 
 // Phase C — recycling unsold inventory.
 /** Max re-promotion generations per Central-time day. */
-const RECYCLE_GENERATIONS_PER_DAY = 1;
+const RECYCLE_GENERATIONS_PER_DAY = 2;
 /** An item must be unsold this long before recycling kicks in. */
 const RECYCLE_MIN_AGE_DAYS = 30;
 /** ...and this long since its last promotion (research: ~21-day repost rule). */
@@ -331,6 +331,14 @@ export async function runAutoGeneration(
           : channelsForRecycle(recycle.id, recycle.rounds);
       contentType = recycle.rounds === 0 ? "just-listed" : "throwback";
     }
+  }
+
+  // Paused channels (e.g. Pinterest while API approval is pending) are
+  // skipped at generation time — no drafts created to rot in Failed.
+  const disabled = disabledChannels();
+  channels = channels.filter((c) => !disabled.has(c));
+  if (channels.length === 0) {
+    return { generated: false, skippedReason: "All target channels disabled" };
   }
 
   try {

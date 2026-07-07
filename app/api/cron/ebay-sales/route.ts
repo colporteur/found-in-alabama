@@ -31,6 +31,7 @@ import {
   listingIdsForBinTier,
   listingIdsForTier,
 } from "@/lib/ebay/sale-tiers";
+import { enqueueSaleAnnouncement } from "@/lib/ebay/sale-announcements";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -55,6 +56,7 @@ type RunSummary = {
   ageTiersEnabled: number;
   binTiersEnabled: number;
   salesCreated: number;
+  announcementsQueued: number;
   skipped: string[];
   errors: string[];
 };
@@ -211,6 +213,7 @@ export async function GET(req: NextRequest) {
     ageTiersEnabled: 0,
     binTiersEnabled: 0,
     salesCreated: 0,
+    announcementsQueued: 0,
     skipped: [],
     errors: [],
   };
@@ -239,14 +242,32 @@ export async function GET(req: NextRequest) {
         continue;
       }
       const months = Math.round(tier.minAgeDays / 30);
-      summary.salesCreated += await createTierSales({
+      const baseName = `Vault find ${tier.discountPercent}% off (${months}+ months)`;
+      const created = await createTierSales({
         tierKey: tier.key,
-        baseName: `Vault find ${tier.discountPercent}% off (${months}+ months)`,
+        baseName,
         discountPercent: tier.discountPercent,
         listingIds,
         now,
         summary,
       });
+      summary.salesCreated += created;
+      if (created > 0) {
+        try {
+          const queued = await enqueueSaleAnnouncement({
+            tierKey: tier.key,
+            saleName: baseName,
+            discountPercent: tier.discountPercent,
+            listingCount: listingIds.length,
+            startsAt: new Date(now.getTime() + 86_400_000),
+          });
+          if (queued) summary.announcementsQueued++;
+        } catch (err) {
+          summary.errors.push(
+            `announce ${tier.key}: ${err instanceof Error ? err.message : "unknown"}`
+          );
+        }
+      }
     } catch (err) {
       summary.errors.push(
         `${tier.key}: ${err instanceof Error ? err.message : "unknown"}`
@@ -270,14 +291,32 @@ export async function GET(req: NextRequest) {
         tier.maxBin !== null
           ? `bins ${tier.minBin}–${tier.maxBin}`
           : `bins ${tier.minBin}+`;
-      summary.salesCreated += await createTierSales({
+      const baseName = `Back room ${tier.discountPercent}% off (${rangeLabel})`;
+      const created = await createTierSales({
         tierKey: `bin:${tier.key}`,
-        baseName: `Back room ${tier.discountPercent}% off (${rangeLabel})`,
+        baseName,
         discountPercent: tier.discountPercent,
         listingIds,
         now,
         summary,
       });
+      summary.salesCreated += created;
+      if (created > 0) {
+        try {
+          const queued = await enqueueSaleAnnouncement({
+            tierKey: `bin:${tier.key}`,
+            saleName: baseName,
+            discountPercent: tier.discountPercent,
+            listingCount: listingIds.length,
+            startsAt: new Date(now.getTime() + 86_400_000),
+          });
+          if (queued) summary.announcementsQueued++;
+        } catch (err) {
+          summary.errors.push(
+            `announce bin:${tier.key}: ${err instanceof Error ? err.message : "unknown"}`
+          );
+        }
+      }
     } catch (err) {
       summary.errors.push(
         `bin:${tier.key}: ${err instanceof Error ? err.message : "unknown"}`

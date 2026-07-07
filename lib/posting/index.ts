@@ -60,6 +60,28 @@ export function channelCoverage(): Record<ChannelKey, string | null> {
   return out;
 }
 
+/**
+ * Append UTM parameters so Vercel Web Analytics can attribute site
+ * visits to the channel + content type that drove them. Harmless on
+ * non-site links (eBay ignores unknown params).
+ */
+function withUtm(
+  url: string | null,
+  channel: string,
+  contentType?: string | null
+): string | null {
+  if (!url) return null;
+  try {
+    const u = new URL(url);
+    u.searchParams.set("utm_source", channel);
+    u.searchParams.set("utm_medium", "social");
+    if (contentType) u.searchParams.set("utm_campaign", contentType);
+    return u.toString();
+  } catch {
+    return url; // malformed URL — post it untagged rather than fail
+  }
+}
+
 /** Post a draft now. Loads the image, picks the adapter, returns the result. */
 export async function postDraft({
   channel,
@@ -67,12 +89,15 @@ export async function postDraft({
   sourceImage,
   sourceTitle,
   sourceUrl,
+  contentType,
 }: {
   channel: ChannelKey;
   content: Record<string, unknown>;
   sourceImage: string | null;
   sourceTitle: string;
   sourceUrl: string | null;
+  /** Draft contentType ("just-listed", "sale-announcement", …) → utm_campaign. */
+  contentType?: string | null;
 }): Promise<PostResult> {
   const adapter = adapterFor(channel);
   if (!adapter) {
@@ -92,6 +117,6 @@ export async function postDraft({
     image,
     imageSrc: absolutizeImageSrc(sourceImage),
     sourceTitle,
-    sourceUrl,
+    sourceUrl: withUtm(sourceUrl, channel, contentType),
   });
 }

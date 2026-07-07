@@ -49,6 +49,7 @@ export async function POST(
     sourceImage: draft.sourceImage,
     sourceTitle: draft.sourceTitle,
     sourceUrl: draft.sourceUrl ?? null,
+    contentType: draft.contentType,
   });
 
   // Persist the outcome

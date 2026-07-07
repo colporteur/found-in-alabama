@@ -237,3 +237,18 @@ export function nextSlotFor(
 export function staggerFor(channel: ChannelKey): number {
   return POSTING_SCHEDULE[channel]?.staggerDays ?? 0;
 }
+
+/**
+ * Channels paused via env (comma-separated SOCIAL_DISABLED_CHANNELS,
+ * e.g. "pinterest" while its API approval is pending). Auto-generation
+ * skips them and the scheduler leaves their existing drafts untouched —
+ * unset the var and everything resumes.
+ */
+export function disabledChannels(): Set<string> {
+  return new Set(
+    (process.env.SOCIAL_DISABLED_CHANNELS ?? "")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean)
+  );
+}

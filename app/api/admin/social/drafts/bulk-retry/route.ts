@@ -80,6 +80,7 @@ export async function POST(req: NextRequest) {
       sourceImage: draft.sourceImage,
       sourceTitle: draft.sourceTitle,
       sourceUrl: draft.sourceUrl ?? null,
+      contentType: draft.contentType,
     });
 
     type DraftPatch = Partial<typeof socialDrafts.$inferInsert>;

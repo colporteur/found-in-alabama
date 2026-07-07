@@ -19,9 +19,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db, socialDrafts } from "@/db";
-import { and, asc, eq, gt, inArray, lte } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, lte, notInArray } from "drizzle-orm";
 import { postDraft } from "@/lib/posting";
-import { nextSlotFor, staggerFor } from "@/lib/social/schedule";
+import {
+  disabledChannels,
+  nextSlotFor,
+  staggerFor,
+} from "@/lib/social/schedule";
 import { runAutoGeneration } from "@/lib/social/auto-generate";
 import type { ChannelKey } from "@/lib/social/channel-styles";
 
@@ -29,11 +33,14 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 export const dynamic = "force-dynamic";
 
-// Publishing can take up to ~40s per Publer draft (media upload + job
-// polling), and Vercel kills the function at 60s — so publish exactly
-// ONE draft per run. The 15-minute cadence provides ample volume
-// (~96 posts/day of capacity).
-const PUBLISH_BATCH = 1;
+// GitHub's */15 schedule fires unreliably (observed ~every 2 hours), so
+// each tick must clear as much as it safely can inside Vercel's 60s cap:
+// publish due drafts until PUBLISH_BUDGET_MS is spent (a Publer post can
+// take ~40s; BlueSky takes ~2s, so light ticks clear several), then run
+// one auto-generation whenever enough budget remains — generation no
+// longer waits for an idle tick.
+const PUBLISH_BUDGET_MS = 38_000;
+const GENERATE_IF_UNDER_MS = 32_000; // generation takes ~15-25s
 const SCHEDULE_BATCH = 24;
 
 async function authorized(req: NextRequest): Promise<boolean> {
@@ -49,7 +56,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const tickStart = Date.now();
   const now = new Date();
+  const disabled = disabledChannels();
   const summary = {
     generated: 0,
     scheduled: 0,
@@ -99,6 +108,9 @@ export async function GET(req: NextRequest) {
 
       for (const draft of drafts) {
         const channel = draft.channel as ChannelKey;
+        // Paused channels: leave their drafts unscheduled (they resume
+        // automatically when SOCIAL_DISABLED_CHANNELS is cleared).
+        if (disabled.has(channel)) continue;
         // Stagger multi-channel rollouts of the same item.
         const notBefore = new Date(
           now.getTime() + staggerFor(channel) * 86_400_000
@@ -131,21 +143,26 @@ export async function GET(req: NextRequest) {
     );
   }
 
-  // ── Step 2: publish due drafts ────────────────────────────────────────────
+  // ── Step 2: publish due drafts until the budget is spent ─────────────────
   try {
-    const due = await db
-      .select()
-      .from(socialDrafts)
-      .where(
-        and(
-          eq(socialDrafts.status, "scheduled"),
-          lte(socialDrafts.scheduledFor, now)
+    const attempted: string[] = [];
+    while (Date.now() - tickStart < PUBLISH_BUDGET_MS) {
+      const [draft] = await db
+        .select()
+        .from(socialDrafts)
+        .where(
+          and(
+            eq(socialDrafts.status, "scheduled"),
+            lte(socialDrafts.scheduledFor, new Date()),
+            attempted.length > 0
+              ? notInArray(socialDrafts.id, attempted)
+              : undefined
+          )
         )
-      )
-      .orderBy(asc(socialDrafts.scheduledFor))
-      .limit(PUBLISH_BATCH);
-
-    for (const draft of due) {
+        .orderBy(asc(socialDrafts.scheduledFor))
+        .limit(1);
+      if (!draft) break;
+      attempted.push(draft.id);
       // Claim the row first so an overlapping run can't double-post:
       // only proceed if we're the one who flipped it out of "scheduled".
       const claimed = await db
@@ -172,6 +189,7 @@ export async function GET(req: NextRequest) {
         sourceImage: draft.sourceImage,
         sourceTitle: draft.sourceTitle,
         sourceUrl: draft.sourceUrl ?? null,
+        contentType: draft.contentType,
       });
 
       if (result.ok) {
@@ -209,10 +227,10 @@ export async function GET(req: NextRequest) {
   }
 
   // ── Step 3: auto-generate drafts (Phase B) ───────────────────────────────
-  // Only when this run did no publishing — generation takes a Claude
-  // vision call (~15-25s) and we stay inside the 60s function budget.
-  // With 96 runs/day there are plenty of idle runs to generate in.
-  if (summary.published === 0 && summary.failed === 0) {
+  // Runs whenever enough budget remains after publishing — with GitHub
+  // delivering far fewer ticks than scheduled, generation can't afford
+  // to wait for idle runs.
+  if (Date.now() - tickStart < GENERATE_IF_UNDER_MS) {
     try {
       const gen = await runAutoGeneration(now);
       if (gen.generated) {
