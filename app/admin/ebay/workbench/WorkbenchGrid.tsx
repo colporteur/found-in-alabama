@@ -78,6 +78,42 @@ export default function WorkbenchGrid({
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Express selection: top-N most-neglected items for one op.
+  const [expressN, setExpressN] = useState("25");
+  const [expressOp, setExpressOp] = useState<OpKey>("price_adjust");
+
+  async function expressSelect() {
+    const n = Number(expressN);
+    if (!Number.isFinite(n) || n <= 0) {
+      setError("Express select: enter how many items.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const opDef = OPS.find((o) => o.key === expressOp)!;
+      const expressBy = opDef.section === "substantive" ? "subst" : "wiggle";
+      const qs = filterQuery ? `${filterQuery}&` : "";
+      const res = await fetch(
+        `/api/admin/workbench/item-ids?${qs}express=${Math.floor(n)}&expressBy=${expressBy}`
+      );
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? `Express select failed (${res.status})`);
+        return;
+      }
+      const ids = data.itemIds as string[];
+      setSel((prev) => ({ ...prev, [expressOp]: ids }));
+      setNotice(
+        `Express-selected ${ids.length} for ${opDef.label} — never-actioned first, then longest idle, oldest listings breaking ties. Includes items beyond this page.`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Express select failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   // Per-op "apply to ALL matching current filter" flags (resolved at create).
   const [allMatching, setAllMatching] = useState<Record<OpKey, boolean>>({
     price_adjust: false,
@@ -300,6 +336,37 @@ export default function WorkbenchGrid({
     <div>
       {/* ── Action toolbar ── */}
       <div className="bg-white border border-brand-ink/15 rounded-lg p-3 mb-4 flex items-center gap-4 flex-wrap sticky top-0 z-10 shadow-sm">
+        <div className="flex items-center gap-2 text-sm border-r border-brand-ink/10 pr-4">
+          <span className="text-xs uppercase tracking-wider text-brand-ink/50">
+            Express
+          </span>
+          <input
+            className="border border-brand-ink/20 rounded px-2 py-1 text-sm w-16"
+            value={expressN}
+            onChange={(e) => setExpressN(e.target.value)}
+            inputMode="numeric"
+            title="How many items"
+          />
+          <select
+            className="border border-brand-ink/20 rounded px-2 py-1 text-sm"
+            value={expressOp}
+            onChange={(e) => setExpressOp(e.target.value as OpKey)}
+          >
+            {OPS.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={expressSelect}
+            disabled={busy}
+            className="bg-white border border-brand-ink/30 hover:border-brand-ink rounded px-3 py-1 text-sm disabled:opacity-50"
+            title="Select the N most-neglected items matching the current filter: never actioned first, then longest idle, oldest listings first"
+          >
+            Select
+          </button>
+        </div>
         <div className="text-sm">
           <span className="text-xs uppercase tracking-wider text-brand-ink/50 mr-2">Wiggles</span>
           {OPS.filter((o) => o.section === "wiggle").map((o) => (

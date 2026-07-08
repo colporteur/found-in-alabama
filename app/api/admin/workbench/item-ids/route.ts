@@ -1,6 +1,10 @@
 // GET /api/admin/workbench/item-ids — resolve the item IDs matching the
-// current workbench filters, for "apply to ALL matching" in the apply
-// modal. Same filter builder as the page, so the sets always agree.
+// current workbench filters. Two modes:
+//   default            — all matching ids (for "apply to ALL matching")
+//   express=N&expressBy — the N most-neglected items: never-actioned
+//     first, then longest since last action, oldest listings breaking
+//     ties (expressBy "wiggle" or "subst" picks which action date).
+// Same filter builder as the page, so the sets always agree.
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
@@ -35,6 +39,30 @@ export async function GET(req: NextRequest) {
 
   const filters = workbenchFilters(params);
   const whereClause = filters.length > 0 ? and(...filters) : undefined;
+
+  // ── Express mode: prioritized top-N ──
+  const express = Number(sp.get("express") ?? "");
+  if (Number.isFinite(express) && express > 0) {
+    const col =
+      sp.get("expressBy") === "subst"
+        ? ebayListings.lastSubstantiveAt
+        : ebayListings.lastWiggleAt;
+    const rows = await db
+      .select({ itemId: ebayListings.itemId })
+      .from(ebayListings)
+      .where(whereClause)
+      .orderBy(
+        sql`${col} ASC NULLS FIRST`,
+        sql`${ebayListings.startTime} ASC NULLS LAST`,
+        asc(ebayListings.itemId)
+      )
+      .limit(Math.min(Math.floor(express), CAP));
+    return NextResponse.json({
+      itemIds: rows.map((r) => r.itemId),
+      total: rows.length,
+      capped: false,
+    });
+  }
 
   const [rows, [countRow]] = await Promise.all([
     db

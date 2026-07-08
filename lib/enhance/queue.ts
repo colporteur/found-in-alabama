@@ -173,6 +173,32 @@ export async function processTick(budgetMs: number): Promise<TickSummary> {
       }
     }
 
+    // Mirror hygiene: a job that discovered its listing is gone (eBay
+    // "Invalid item ID" / "Item not found") or no longer Active becomes
+    // a clean skip, and the dead row leaves the mirror so future
+    // batches and the workbench stop targeting it. The sync sweep
+    // re-adds anything genuinely active.
+    const deadByError =
+      outcome.status === "failed" &&
+      !!outcome.errorMessage &&
+      /invalid item|item not found|item cannot be accessed/i.test(outcome.errorMessage);
+    const deadByStatus =
+      outcome.status === "skipped" &&
+      /not Active/.test(String(outcome.result?.reason ?? ""));
+    if (deadByError || deadByStatus) {
+      await db
+        .delete(ebayListings)
+        .where(eq(ebayListings.itemId, job.ebayItemId));
+      if (deadByError) {
+        outcome = {
+          status: "skipped" as const,
+          result: {
+            reason: `Listing gone from eBay — removed from mirror (${outcome.errorMessage?.slice(0, 100)})`,
+          },
+        };
+      }
+    }
+
     // "waiting" = async work in flight (APR job running). Re-queue for a
     // later tick, merging any state the handler stashed (e.g. aprJobId).
     // Batch counters and cost stay untouched until a final outcome.

@@ -13,10 +13,19 @@
 // route is load-bearing for categorization and we don't want this to
 // perturb it.
 
-import { sql } from "drizzle-orm";
+import { lt, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { ebayListings, ebaySyncLog, appSettings } from "@/db/schema";
 import { tradingCall } from "@/lib/ebay/client";
+
+// When a full sweep completes, rows the sweep didn't touch are listings
+// eBay no longer returns as active (ended/sold/removed) — purge them so
+// the workbench and enhance batches stop targeting ghosts. A 3-day grace
+// below the sweep start protects listings created mid-sweep on pages the
+// walker had already passed. NOTE: this only cleans the eBay mirror; the
+// Nifty `items` table (which drives sold-item display on haul pages) is
+// a separate record and is never touched here.
+const PURGE_GRACE_MS = 3 * 86_400_000;
 
 const CURSOR_KEY = "listingSyncCursor";
 const ENTRIES_PER_PAGE = 200;
@@ -259,11 +268,26 @@ export async function syncListingsBudgeted(
     if (cursor.page >= cursor.totalPages || arr.length === 0) {
       cursor.completedAt = new Date().toISOString();
       await saveCursor(cursor);
+
+      // Purge rows this sweep never saw (minus grace) — they're gone
+      // from eBay. Anything actually active reappears next sweep anyway.
+      let purged = 0;
+      if (cursor.startedAt) {
+        const graceCutoff = new Date(
+          new Date(cursor.startedAt).getTime() - PURGE_GRACE_MS
+        );
+        const gone = await db
+          .delete(ebayListings)
+          .where(lt(ebayListings.lastSyncedAt, graceCutoff))
+          .returning({ itemId: ebayListings.itemId });
+        purged = gone.length;
+      }
+
       await db.insert(ebaySyncLog).values({
         action: "full-listing-sweep-complete",
         success: true,
         itemCount: cursor.syncedThisSweep,
-        details: { totalPages: cursor.totalPages },
+        details: { totalPages: cursor.totalPages, purgedDeadListings: purged },
         startedAt: new Date(start),
         endedAt: new Date(),
       });
