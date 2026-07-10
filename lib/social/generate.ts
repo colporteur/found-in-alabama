@@ -11,7 +11,7 @@ import fs from "fs/promises";
 import path from "path";
 import { db, items } from "@/db";
 import { eq } from "drizzle-orm";
-import { getClaude } from "@/lib/claude";
+import { gatewayMessages } from "@/lib/gateway";
 import { getPost, displayLocation } from "@/lib/posts";
 import type { ChannelKey } from "@/lib/social/channel-styles";
 import {
@@ -26,7 +26,9 @@ import {
   formatVoiceSamplesPrompt,
 } from "@/lib/social/voice-samples";
 
-const MODEL = "claude-sonnet-5";
+// Gateway alias — actual model set in the gateway routing table
+// (Admin → AI Models). Seeded to anthropic/claude-sonnet-5.
+const MODEL = "fia-social";
 
 export type ImageMediaType =
   | "image/jpeg"
@@ -217,8 +219,7 @@ export async function generateChannelDrafts(input: {
   }
   content.push({ type: "text", text: userText });
 
-  const claude = getClaude();
-  const response = await claude.messages.create({
+  const response = await gatewayMessages({
     model: MODEL,
     max_tokens: 3500, // Sonnet 5: +30% tokenizer + adaptive thinking budget
     system: buildSystemPrompt(),

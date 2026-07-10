@@ -124,6 +124,11 @@ export default async function AdminDashboard() {
           desc="Nifty-captured items across all six marketplaces."
         />
         <Tool
+          href="/admin/ai-models"
+          title="AI Models"
+          desc="Gateway routing table: which model each alias and app uses. Swap models with no deploy."
+        />
+        <Tool
           href="/admin/api-keys"
           title="API keys"
           desc="Keys for the Chrome extension's inventory capture."

@@ -15,13 +15,15 @@
 
 import { db, items, ebayListings, ebayStoreCategories } from "@/db";
 import { eq } from "drizzle-orm";
-import { getClaude } from "@/lib/claude";
+import { gatewayMessages } from "@/lib/gateway";
 import { ebayItemIdFromUrl } from "@/lib/ebay/store-url";
 import type { MarketplaceKey } from "@/db/schema";
 
 type ItemRow = typeof items.$inferSelect;
 
-const HAIKU_MODEL = "claude-haiku-4-5-20251001";
+// Gateway alias — actual model set in the gateway routing table
+// (Admin → AI Models). Seeded to anthropic/claude-haiku-4.5.
+const HAIKU_MODEL = "fia-cheap";
 
 /**
  * Fast resolution — tries only the cache and the eBay-listing join.
@@ -109,8 +111,7 @@ async function pickCategoryWithClaude(title: string): Promise<string | null> {
 
   let resp;
   try {
-    const claude = getClaude();
-    resp = await claude.messages.create({
+    resp = await gatewayMessages({
       model: HAIKU_MODEL,
       max_tokens: 80,
       system:

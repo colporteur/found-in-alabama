@@ -15,14 +15,16 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getClaude } from "@/lib/claude";
+import { gatewayMessages } from "@/lib/gateway";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
-const SPLIT_MODEL = "claude-haiku-4-5-20251001";
+const TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe"; // direct OpenAI (audio API isn't proxied by OpenRouter)
+// Gateway alias — actual model set in the gateway routing table
+// (Admin → AI Models). Seeded to anthropic/claude-haiku-4.5.
+const SPLIT_MODEL = "fia-cheap";
 const MAX_BYTES = 4_200_000;
 
 const SPLIT_SYSTEM = `You organize a reseller's spoken haul notes into form fields. The speaker runs "Found in Alabama" and has just recorded themselves describing a haul (estate sale, auction, thrift find).
@@ -106,8 +108,7 @@ export async function POST(req: NextRequest) {
     vagueLocation: "",
   };
   try {
-    const claude = getClaude();
-    const resp = await claude.messages.create({
+    const resp = await gatewayMessages({
       model: SPLIT_MODEL,
       max_tokens: 1500,
       system: SPLIT_SYSTEM,

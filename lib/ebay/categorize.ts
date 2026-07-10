@@ -5,9 +5,11 @@
 // Strongly biases toward Alabama-flagged categories when an item has
 // Alabama relevance (state name, place name, team, author, etc.).
 
-import { getClaude } from "@/lib/claude";
+import { gatewayMessages } from "@/lib/gateway";
 
-export const CATEGORIZE_MODEL = "claude-haiku-4-5-20251001";
+// Gateway alias — actual model set in the gateway routing table
+// (Admin → AI Models). Seeded to anthropic/claude-haiku-4.5.
+export const CATEGORIZE_MODEL = "fia-cheap";
 
 export interface CategoryOption {
   id: string;
@@ -65,8 +67,6 @@ export async function suggestCategoryForListing(input: {
   imageUrl?: string | null;
   categories: CategoryOption[];
 }): Promise<SuggestionResult> {
-  const claude = getClaude();
-
   const lines = input.categories
     .map((c) => `${c.id}\t${c.isAlabama ? "[AL] " : ""}${c.name}`)
     .join("\n");
@@ -78,7 +78,7 @@ ${lines}
 
 Return your JSON suggestion.`;
 
-  const response = await claude.messages.create({
+  const response = await gatewayMessages({
     model: CATEGORIZE_MODEL,
     max_tokens: 500,
     system: SYSTEM_PROMPT,

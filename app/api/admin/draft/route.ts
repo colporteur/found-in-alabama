@@ -11,7 +11,8 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getClaude, DRAFT_MODEL, DRAFT_SYSTEM_PROMPT } from "@/lib/claude";
+import { DRAFT_MODEL, DRAFT_SYSTEM_PROMPT } from "@/lib/claude";
+import { gatewayMessages } from "@/lib/gateway";
 import { fetchUrlAsText } from "@/lib/url-fetch";
 
 // Use the Node runtime — the Anthropic SDK's streaming and large body
@@ -135,8 +136,6 @@ export async function POST(req: NextRequest) {
     urlText = await fetchUrlAsText(contextUrl);
   }
 
-  const claude = getClaude();
-
   // Describe what was uploaded. Hero and context photos are presented
   // as equally-weighted evidence — the seller chooses the mix.
   const photoSummary = (() => {
@@ -203,7 +202,7 @@ Generate the draft journal post as JSON. Stick strictly to facts derivable from 
   content.push({ type: "text", text: userMessage });
 
   try {
-    const response = await claude.messages.create({
+    const response = await gatewayMessages({
       model: DRAFT_MODEL,
       max_tokens: 2500, // Sonnet 5: +30% tokenizer + adaptive thinking budget
       system: DRAFT_SYSTEM_PROMPT,

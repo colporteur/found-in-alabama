@@ -9,7 +9,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db, newsletterDrafts, newsletterSubscribers } from "@/db";
 import { eq, count } from "drizzle-orm";
-import { getClaude, DRAFT_MODEL } from "@/lib/claude";
+import { DRAFT_MODEL } from "@/lib/claude";
+import { gatewayMessages } from "@/lib/gateway";
 import { collectNewsletterFacts } from "@/lib/newsletter/data";
 import {
   buildEmailSystemPrompt,
@@ -39,8 +40,7 @@ async function callClaudeForFlavor({
   userMessage: string;
   flavor: "email" | "ebay";
 }): Promise<FlavorOutput> {
-  const claude = getClaude();
-  const response = await claude.messages.create({
+  const response = await gatewayMessages({
     model: DRAFT_MODEL,
     max_tokens: 5000, // Sonnet 5: absorb tokenizer + thinking; stays under 60s gateway when paralleled
     system: systemPrompt,

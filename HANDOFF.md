@@ -95,7 +95,9 @@ found-in-alabama/
 ## 5. Environment variables (Vercel prod + `.env.local`)
 
 - Auth: `AUTH_URL`, `AUTH_RESEND_KEY`, `AUTH_EMAIL_FROM`, `ADMIN_EMAIL`
-- Anthropic: `ANTHROPIC_API_KEY`
+- AI Gateway: `AI_GATEWAY_URL`, `AI_GATEWAY_TOKEN` — all LLM calls route through the ai-gateway Worker (OpenRouter) as of 2026-07-09; replaces `ANTHROPIC_API_KEY`/`GEMINI_API_KEY` for chat calls (see `lib/gateway.ts`). Model constants are gateway ALIASES (`fia-drafts`, `fia-social`, `fia-cheap`) — the real models are set in the gateway routing table via Admin → AI Models.
+- AI Gateway admin: `AI_GATEWAY_ADMIN_TOKEN` — the gateway's ADMIN_TOKEN; powers the Admin → AI Models routing-table editor (`/api/admin/ai-models`). Server-side only.
+- OpenAI: `OPENAI_API_KEY` — still required, but ONLY for audio transcription (`/api/admin/draft/transcribe`); OpenRouter doesn't proxy the audio API
 - Database: `POSTGRES_URL` (Neon)
 - eBay Trading: `EBAY_APP_ID`, `EBAY_DEV_ID`, `EBAY_CERT_ID`, `EBAY_AUTH_TOKEN`, `EBAY_ENV` (`production`), `EBAY_SITE_ID`, `EBAY_STORE_USERNAME`, `EBAY_PROMOTION_IMAGE_URL`
 - eBay OAuth (Sell APIs): `EBAY_OAUTH_STATE_SECRET`

@@ -1,24 +1,14 @@
-// Anthropic Claude client setup. Used by /api/admin/draft to generate
-// haul narratives from a hero photo + brief notes.
+// Haul-narrative model + prompt constants. The Anthropic SDK client that
+// used to live here was replaced by the AI Gateway (2026-07-09) — all LLM
+// calls now go through lib/gateway.ts (gatewayMessages / gatewayChat),
+// which routes via the ai-gateway Cloudflare Worker -> OpenRouter.
 
-import Anthropic from "@anthropic-ai/sdk";
-
-let cached: Anthropic | null = null;
-
-export function getClaude(): Anthropic {
-  if (cached) return cached;
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error(
-      "ANTHROPIC_API_KEY is not set. Add it to .env.local and Vercel env vars."
-    );
-  }
-  cached = new Anthropic({ apiKey });
-  return cached;
-}
-
-// Default model for haul-narrative generation. Sonnet gives noticeably
-// better creative writing than Haiku for this use case; cost is still
+// Model for haul-narrative generation (also used by the newsletter).
+// "fia-drafts" is a GATEWAY ALIAS, not a real model id — the actual model
+// is set in the gateway routing table, editable from Admin → AI Models
+// (or the Cloudflare KV dashboard). Changing models needs no deploy.
+// Current mapping is seeded to anthropic/claude-sonnet-5: Sonnet gives
+// noticeably better creative writing than Haiku here; cost is still
 // pennies per generation at this scale.
 //
 // Sonnet 5 notes (migration from 4.6):
@@ -28,8 +18,7 @@ export function getClaude(): Anthropic {
 //     plus the new tokenizer's ~30% per-text increase.
 //   - Sampling params (temperature, top_p, top_k) return 400 if set to
 //     non-default values. We don't set any of these.
-//   - Manual extended thinking is removed (use adaptive thinking).
-export const DRAFT_MODEL = "claude-sonnet-5";
+export const DRAFT_MODEL = "fia-drafts";
 
 // System prompt that defines the voice and structure. Shared across all
 // haul-draft calls so you get consistent output.
