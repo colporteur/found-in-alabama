@@ -10,6 +10,8 @@ featured: true
 items: []
 ---
 
+UPDATE: This estate is from the late Col. Patricia June Harrington.  Obituary available online here: https://www.legacy.com/us/obituaries/legacyremembers/col-patricia-harrington-obituary?id=60939970
+
 We made it out to a Douglasville estate sale on Sunday, June 28, for a home belonging to an Air Force colonel and pilot. The listing described it as a packed house full of treasures, and by the time we got there plenty of it had already been picked through, but we still came away with a good box for around $135.
 
 The haul leans heavily into military life. There's a hardback titled "The Air Force," along with several Air Force manuals and doctrine booklets, a Marine Corps publication on the role of the Marines in national defense, and a copy of "Sea Power" magazine. A pair of aviator-style sunglasses was tucked in with the books. Alongside the military material, we picked up a stack of cookbooks, including "Atlanta Cooknotes," "Savor the Flavor," and "Georgia Grub," plus a set of nesting wooden bowls and a larger matching wooden dish. There are also several photo albums with decorative covers (with 100's maybe 1000's of photos) and a few additional paperback titles, including one on games and training exercises. 
