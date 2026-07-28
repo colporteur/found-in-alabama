@@ -134,6 +134,13 @@
       "when": 1783011826901,
       "tag": "0018_complex_madame_hydra",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785268007558,
+      "tag": "0019_chief_skreet",
+      "breakpoints": true
     }
   ]
 }

@@ -56,6 +56,76 @@ export function JobRollbackButton({ jobId }: { jobId: string }) {
   );
 }
 
+type RedoResponse = {
+  ok?: boolean;
+  error?: string;
+  restored?: boolean;
+  batchId?: string;
+  status?: string;
+  after?: Record<string, unknown> | null;
+  errorMessage?: string | null;
+  skipReason?: string | null;
+};
+
+export function JobRedoButton({ jobId }: { jobId: string }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    if (
+      !confirm(
+        "Redo this rewrite? The original will be restored first, then the AI runs again from it."
+      )
+    )
+      return;
+    setBusy(true);
+    setError(null);
+    setNote(null);
+    try {
+      const res = await fetch(`/api/admin/enhance/jobs/${jobId}/redo`, {
+        method: "POST",
+      });
+      const data = (await res.json()) as RedoResponse;
+      if (!res.ok) {
+        setError(data.error ?? `Failed (${res.status})`);
+        return;
+      }
+      if (data.status === "completed") {
+        setNote("✓ Redone");
+      } else if (data.status === "failed") {
+        setError(data.errorMessage ?? "Redo failed — see its batch log");
+      } else if (data.status === "skipped") {
+        setError(data.skipReason ?? "Redo was skipped — see its batch log");
+      } else {
+        // Still pending/running (claimed by an overlapping cron tick or
+        // out of time budget) — the queue will finish it.
+        setNote("Queued — still running, check its batch log");
+      }
+      router.refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Request failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <span>
+      <button
+        onClick={run}
+        disabled={busy}
+        className="text-xs border border-brand-ink/25 hover:border-brand-ink rounded px-2 py-0.5 disabled:opacity-50 whitespace-nowrap"
+      >
+        {busy ? "Redoing…" : "Redo"}
+      </button>
+      {note && <span className="block text-xs text-brand-ink/60 mt-1">{note}</span>}
+      {error && <span className="block text-xs text-red-700 mt-1">{error}</span>}
+    </span>
+  );
+}
+
 function useSliceLoop(url: string, body?: Record<string, unknown>) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);

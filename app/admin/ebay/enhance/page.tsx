@@ -6,6 +6,8 @@ import { db, enhanceBatches, aiCallLog, aiModelPricing, ebayStoreCategories } fr
 import { asc, desc, gte, sql } from "drizzle-orm";
 import Link from "next/link";
 import { listGuides } from "@/lib/enhance/guides";
+import { getActiveAutorunStatus } from "@/lib/enhance/autorun";
+import AutorunCard, { type AutorunCardStatus } from "./AutorunControls";
 import NewBatchForm from "./NewBatchForm";
 import RunQueueButton from "./RunQueueButton";
 
@@ -43,7 +45,7 @@ export default async function EnhancePortal() {
   const weekAgo = new Date(now - 7 * 86_400_000);
   const monthAgo = new Date(now - 30 * 86_400_000);
 
-  const [today, week, month, batches, pricing, categories] = await Promise.all([
+  const [today, week, month, batches, pricing, categories, autorun] = await Promise.all([
     spendSince(dayAgo),
     spendSince(weekAgo),
     spendSince(monthAgo),
@@ -60,7 +62,23 @@ export default async function EnhancePortal() {
       })
       .from(ebayStoreCategories)
       .orderBy(asc(ebayStoreCategories.name)),
+    getActiveAutorunStatus(),
   ]);
+
+  const autorunStatus: AutorunCardStatus | null = autorun
+    ? {
+        amount: String(autorun.run.amount),
+        floor: String(autorun.run.floor),
+        minDaysBetween: autorun.run.minDaysBetween,
+        maxCycles: autorun.run.maxCycles,
+        cycleCount: autorun.run.cycleCount,
+        totalWiggled: autorun.run.totalWiggled,
+        doneThisCycle: autorun.doneThisCycle,
+        totalItems: autorun.totalItems,
+        outstanding: autorun.outstanding,
+        startedAt: autorun.run.createdAt.toISOString(),
+      }
+    : null;
 
   const total = (rows: SpendRow[]) => rows.reduce((s, r) => s + r.costUsd, 0);
 
@@ -84,6 +102,9 @@ export default async function EnhancePortal() {
         categories={categories}
         guides={listGuides().map((g) => ({ id: g.id, name: g.name }))}
       />
+
+      {/* ── Autorun price bump ── */}
+      <AutorunCard status={autorunStatus} />
 
       {/* ── Spend widgets ── */}
       <div className="grid gap-4 sm:grid-cols-3 mb-4">

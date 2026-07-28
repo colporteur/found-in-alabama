@@ -7,8 +7,9 @@ import { ENHANCE_OPS, type EnhanceOp } from "@/db/schema";
 import { desc, eq } from "drizzle-orm";
 import Link from "next/link";
 import { decodeEntities } from "@/lib/ebay/entities";
-import { rollbackEligibility } from "@/lib/enhance/rollback";
+import { redoEligibility, rollbackEligibility } from "@/lib/enhance/rollback";
 import {
+  JobRedoButton,
   JobRollbackButton,
   SessionRollbackButton,
 } from "../RollbackControls";
@@ -150,13 +151,25 @@ export default async function EnhanceHistory({
                     {renderDiff(j.before, j.after)}
                   </td>
                   <td className="py-2 text-right">
-                    {j.rolledBack ? (
-                      <span className="text-xs uppercase tracking-wider px-2 py-0.5 rounded bg-brand-ink/10 text-brand-ink/60 whitespace-nowrap">
-                        rolled back
-                      </span>
-                    ) : rollbackEligibility(j, op).ok ? (
-                      <JobRollbackButton jobId={j.id} />
-                    ) : null}
+                    <div className="flex flex-col items-end gap-1">
+                      {redoBatchId(j.result) ? (
+                        <Link
+                          href={`/admin/ebay/enhance/${redoBatchId(j.result)}`}
+                          className="text-xs uppercase tracking-wider px-2 py-0.5 rounded bg-brand-ink/10 text-brand-ink/60 whitespace-nowrap hover:underline"
+                        >
+                          redone →
+                        </Link>
+                      ) : redoEligibility(j, op).ok ? (
+                        <JobRedoButton jobId={j.id} />
+                      ) : null}
+                      {j.rolledBack ? (
+                        <span className="text-xs uppercase tracking-wider px-2 py-0.5 rounded bg-brand-ink/10 text-brand-ink/60 whitespace-nowrap">
+                          rolled back
+                        </span>
+                      ) : rollbackEligibility(j, op).ok ? (
+                        <JobRollbackButton jobId={j.id} />
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}
@@ -175,6 +188,12 @@ export default async function EnhanceHistory({
       </div>
     </section>
   );
+}
+
+/** Batch id of a redo launched from this job, if the log recorded one. */
+function redoBatchId(result: Record<string, unknown> | null): string | null {
+  const id = result?.redoBatchId;
+  return typeof id === "string" && id ? id : null;
 }
 
 function renderDiff(

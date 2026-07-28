@@ -28,6 +28,8 @@ export type CreateBatchParams = {
   label?: string;
   config?: Record<string, unknown>;
   modelOverride?: string | null;
+  /** Low-priority batches (Autorun slices) run only when nothing normal is pending. */
+  lowPriority?: boolean;
   items: Array<{ ebayItemId: string; sku?: string | null; title?: string | null }>;
 };
 
@@ -49,6 +51,7 @@ export async function createBatch(p: CreateBatchParams) {
       label: p.label ?? "",
       config: p.config ?? {},
       modelOverride: p.modelOverride ?? null,
+      lowPriority: p.lowPriority ?? false,
       totalJobs: p.items.length,
       estimatedCostUsd: estimate.toFixed(4),
     })
@@ -97,8 +100,15 @@ export type TickSummary = {
  * Process pending jobs until budgetMs is spent. Runs jobs strictly
  * one-at-a-time (eBay Trading API rate limits + Vercel memory are both
  * happier that way; parallelism can come later if throughput demands it).
+ *
+ * `onlyBatchId` restricts the tick to a single batch — used by the
+ * per-job Redo quick link so it runs its one job immediately without
+ * chewing through unrelated pending batches first.
  */
-export async function processTick(budgetMs: number): Promise<TickSummary> {
+export async function processTick(
+  budgetMs: number,
+  onlyBatchId?: string
+): Promise<TickSummary> {
   const deadline = Date.now() + budgetMs;
   const summary: TickSummary = {
     processed: 0,
@@ -113,7 +123,8 @@ export async function processTick(budgetMs: number): Promise<TickSummary> {
   const seenThisTick: string[] = [];
 
   while (Date.now() < deadline) {
-    // Oldest pending job from the oldest active batch.
+    // Oldest pending job from the oldest active batch — except low-priority
+    // (Autorun) batches, which only get claimed when nothing normal is left.
     const [next] = await db
       .select({ job: enhanceJobs, batch: enhanceBatches })
       .from(enhanceJobs)
@@ -122,12 +133,17 @@ export async function processTick(budgetMs: number): Promise<TickSummary> {
         and(
           eq(enhanceJobs.status, "pending"),
           sql`${enhanceBatches.status} IN ('pending', 'running')`,
+          onlyBatchId ? eq(enhanceJobs.batchId, onlyBatchId) : undefined,
           seenThisTick.length > 0
             ? notInArray(enhanceJobs.id, seenThisTick)
             : undefined
         )
       )
-      .orderBy(asc(enhanceBatches.createdAt), asc(enhanceJobs.createdAt))
+      .orderBy(
+        asc(enhanceBatches.lowPriority),
+        asc(enhanceBatches.createdAt),
+        asc(enhanceJobs.createdAt)
+      )
       .limit(1);
 
     if (!next) break; // queue empty (or everything left is waiting)

@@ -11,7 +11,7 @@
 // they write the new value back to the mirror so the admin UI stays
 // consistent without waiting for the next sync cron.
 
-import { db, ebayListings, enhanceJobs } from "@/db";
+import { db, ebayListings, enhanceAutoruns, enhanceJobs } from "@/db";
 import { and, eq, sql } from "drizzle-orm";
 import type { EnhanceOp, enhanceBatches } from "@/db/schema";
 import {
@@ -156,6 +156,144 @@ const priceAdjustHandler: OpHandler = {
         delta: cfg.delta,
         floorApplied: newPrice === (cfg.floor ?? 0.99),
       },
+      costUsd: 0,
+    };
+  },
+};
+
+// ─── price_wiggle (Autorun) ──────────────────────────────────────────────────
+//
+// Random ±amount around the listing's stored PRICE ANCHOR — not its current
+// price — so repeated wiggles orbit the true price instead of random-walking
+// away from it. The anchor is set on first touch; if the live price has
+// moved outside the wiggle band since (Todd or APR repriced), the new price
+// becomes the anchor rather than being clobbered back.
+//
+// Config shape:
+//   autorunId: string — owning enhance_autoruns row (stats bookkeeping)
+//   amount:    number — max absolute wiggle in dollars (0.05 → ±5¢)
+//   floor:     number — never go below (default 0.99)
+
+/**
+ * Draw a wiggled price: anchor + uniform integer cents in [-amount, +amount],
+ * clamped to floor, guaranteed to DIFFER from the current price (a wiggle
+ * that changes nothing accomplishes nothing). Returns null when no viable
+ * draw exists (e.g. the whole band is clamped onto the floor).
+ */
+export function drawWiggledPrice(
+  anchor: number,
+  current: number,
+  amount: number,
+  floor: number,
+  rand: () => number = Math.random
+): number | null {
+  const cents = Math.round(amount * 100);
+  if (cents < 1) return null;
+  for (let i = 0; i < 12; i++) {
+    const deltaCents = Math.floor(rand() * (2 * cents + 1)) - cents;
+    let next = Math.round(anchor * 100 + deltaCents) / 100;
+    if (next < floor) next = floor;
+    if (Math.abs(next - current) >= 0.005) return next;
+  }
+  return null;
+}
+
+const priceWiggleHandler: OpHandler = {
+  estimateCostPerJob: () => 0, // no AI — Trading API calls are free
+  async run(job, batch) {
+    const cfg = batch.config ?? {};
+    const amount = Number(cfg.amount);
+    const floor = Number.isFinite(Number(cfg.floor)) ? Number(cfg.floor) : 0.99;
+    if (!Number.isFinite(amount) || amount < 0.01) {
+      return {
+        status: "failed",
+        errorMessage: "Invalid price_wiggle config — need { amount: number ≥ 0.01 }",
+      };
+    }
+
+    const live = await fetchItemCore(job.ebayItemId);
+    if (!live) {
+      return { status: "failed", errorMessage: "GetItem returned no item" };
+    }
+    if (live.listingStatus && live.listingStatus !== "Active") {
+      return {
+        status: "skipped",
+        result: { reason: `Listing status is ${live.listingStatus}, not Active` },
+      };
+    }
+    if (live.listingType === "Chinese") {
+      return {
+        status: "skipped",
+        result: { reason: "Auction-style listing — price revision not supported" },
+      };
+    }
+    if (live.price == null) {
+      return { status: "failed", errorMessage: "GetItem returned no price" };
+    }
+
+    // Resolve the anchor (see block comment above).
+    const [row] = await db
+      .select({ anchor: ebayListings.priceAnchor })
+      .from(ebayListings)
+      .where(eq(ebayListings.itemId, job.ebayItemId))
+      .limit(1);
+    let anchor = row?.anchor != null ? Number(row.anchor) : NaN;
+    let reAnchored = false;
+    if (
+      !Number.isFinite(anchor) ||
+      anchor <= 0 ||
+      Math.abs(live.price - anchor) > amount + 0.005
+    ) {
+      reAnchored = Number.isFinite(anchor) && anchor > 0;
+      anchor = live.price;
+      await db
+        .update(ebayListings)
+        .set({ priceAnchor: anchor.toFixed(2) })
+        .where(eq(ebayListings.itemId, job.ebayItemId));
+    }
+
+    // An anchor below the floor means wiggling could only RAISE the price
+    // to the floor — almost certainly a misconfigured floor, not intent.
+    // Leave the item untouched.
+    if (anchor < floor) {
+      return {
+        status: "skipped",
+        before: { price: live.price },
+        result: {
+          reason: `Anchor $${anchor.toFixed(2)} is below the floor $${floor.toFixed(2)} — left untouched`,
+        },
+      };
+    }
+
+    const newPrice = drawWiggledPrice(anchor, live.price, amount, floor);
+    if (newPrice == null) {
+      return {
+        status: "skipped",
+        before: { price: live.price },
+        result: { reason: "No viable wiggle (anchor pinned at the floor)" },
+      };
+    }
+
+    await reviseItemPrice(job.ebayItemId, newPrice);
+    await db
+      .update(ebayListings)
+      .set({ price: newPrice.toFixed(2) })
+      .where(eq(ebayListings.itemId, job.ebayItemId));
+
+    // Lifetime stats on the owning autorun (display only — best effort).
+    const autorunId = typeof cfg.autorunId === "string" ? cfg.autorunId : null;
+    if (autorunId) {
+      await db
+        .update(enhanceAutoruns)
+        .set({ totalWiggled: sql`${enhanceAutoruns.totalWiggled} + 1` })
+        .where(eq(enhanceAutoruns.id, autorunId));
+    }
+
+    return {
+      status: "completed",
+      before: { price: live.price },
+      after: { price: newPrice },
+      result: { anchor, amount, ...(reAnchored ? { reAnchored: true } : {}) },
       costUsd: 0,
     };
   },
@@ -529,6 +667,45 @@ function remixEstimate(provider: LlmProvider, op: "title" | "desc"): number {
   return provider === "anthropic" ? 0.03 : 0.025;
 }
 
+/** Matches a leading label the model sometimes prepends despite instructions,
+ *  e.g. "New Title:", "Revised Title -", "**Updated title:**", "Here is the
+ *  new title:". Anchored to the start so real titles containing the word
+ *  "title" mid-string are untouched. */
+const TITLE_LABEL_PREFIX =
+  /^(?:[*_#`"'\s]*)(?:here(?:'s| is)\s+(?:the|your|a|an)\s+)?(?:new|revised|updated|improved|optimized|suggested|final|rewritten|remixed|enhanced|better)?\s*title\s*(?:[*_`]*)\s*[:\-–—]\s*/i;
+
+/** A line that is ONLY a label/preamble (the title follows on the next line),
+ *  e.g. "New Title:" or "Here is the revised title:". */
+const TITLE_LABEL_LINE =
+  /^(?:[*_#`"'\s]*)(?:here(?:'s| is)\s+(?:the|your|a|an)\s+)?(?:new|revised|updated|improved|optimized|suggested|final|rewritten|remixed|enhanced|better)?\s*title\s*(?:[*_`]*)\s*[:\-–—]?\s*$/i;
+
+/** Strip label prefixes / preamble lines / wrapping quotes from model output
+ *  so junk like "New Title: ..." never lands on a live eBay listing. */
+export function sanitizeRemixedTitle(raw: string): string {
+  // Work line-by-line first: drop leading lines that are pure labels or
+  // preamble, then take the first substantive line (titles are single-line).
+  const lines = raw.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  while (lines.length > 1 && TITLE_LABEL_LINE.test(lines[0])) lines.shift();
+  let title = lines[0] ?? "";
+  // Strip inline label prefixes, repeatedly in case of "New Title: Title: ...".
+  for (let i = 0; i < 3 && TITLE_LABEL_PREFIX.test(title); i++) {
+    title = title.replace(TITLE_LABEL_PREFIX, "");
+  }
+  // Strip wrapping quotes/backticks/markdown emphasis and collapse whitespace.
+  title = title
+    .replace(/^["'`*_]+|["'`*_]+$/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return title;
+}
+
+/** Same defense for descriptions: a leading "New Description:" / "Revised
+ *  Description —" / "Here is the updated description:" label, either inline
+ *  or on its own line before the HTML. Anchored to the start only — prose
+ *  that mentions "description" mid-document is untouched. */
+const DESC_LABEL_PREFIX =
+  /^(?:[*_#`"'\s]*)(?:here(?:'s| is)\s+(?:the|your|a|an)\s+)?(?:new|revised|updated|improved|optimized|suggested|final|rewritten|remixed|enhanced|better)?\s*description\s*(?:[*_`]*)\s*(?:[:\-–—][*_`]*|\r?\n)\s*/i;
+
 function guideFromConfig(cfg: Record<string, unknown>) {
   const guideId = typeof cfg.guideId === "string" ? cfg.guideId : "";
   if (!guideId) return { guide: null, error: "No guideId in batch config" };
@@ -561,7 +738,7 @@ const titleRemixHandler: OpHandler = {
       provider,
       model,
       cacheableSystem: `EXPERT GUIDE — "${guide.name}":\n\n${guide.content}`,
-      system: `You rewrite eBay listing titles using the expert guide's terminology to maximize buyer-search relevance.\n\n${REMIX_HARD_RULES}\n\nTitle rules:\n- HARD LIMIT 80 characters including spaces. Aim for 65-80.\n- No ALL-CAPS words (proper acronyms like RPPC are fine), no promotional filler (WOW, L@@K, RARE unless factually supported).\n- Front-load the most searched terms per the guide.\n- Return ONLY the new title text — no quotes, no commentary.`,
+      system: `You rewrite eBay listing titles using the expert guide's terminology to maximize buyer-search relevance.\n\n${REMIX_HARD_RULES}\n\nTitle rules:\n- HARD LIMIT 80 characters including spaces. Aim for 65-80.\n- No ALL-CAPS words (proper acronyms like RPPC are fine), no promotional filler (WOW, L@@K, RARE unless factually supported).\n- Front-load the most searched terms per the guide.\n- Return ONLY the new title text — no quotes, no commentary, and NO label or prefix of any kind. Never begin with "New Title:", "Revised Title:", "Title:", or similar. Your entire response must be exactly the title as it should appear on eBay.`,
       prompt: [
         `Current title: ${live.title}`,
         live.categoryName ? `eBay category: ${live.categoryName}` : null,
@@ -576,7 +753,9 @@ const titleRemixHandler: OpHandler = {
       jobId: job.id,
     });
 
-    let newTitle = llm.text.trim().replace(/^["'`]+|["'`]+$/g, "").replace(/\s+/g, " ");
+    // Strip "New Title:" / "Revised Title:"-style labels the model sometimes
+    // prepends despite instructions, plus wrapping quotes and preamble lines.
+    let newTitle = sanitizeRemixedTitle(llm.text);
     // Defense from the Nifty project: never let a bin SKU land in a title.
     newTitle = newTitle.replace(/\bNA\d{3}\b/g, "").replace(/\s+/g, " ").trim();
     if (!newTitle) {
@@ -651,7 +830,7 @@ const descriptionRemixHandler: OpHandler = {
       provider,
       model,
       cacheableSystem: `EXPERT GUIDE — "${guide.name}":\n\n${guide.content}`,
-      system: `You rewrite eBay listing descriptions using the expert guide's knowledge to add collector-relevant detail and better organization.\n\n${REMIX_HARD_RULES}\n\nDescription rules:\n- The description is HTML. Return the COMPLETE revised HTML document/fragment.\n- Preserve ALL existing HTML tags, images, links, and attributes — edit prose only. If the input is plain text, return plain text paragraphs separated by blank lines.\n- Keep roughly the same length (never more than ~1.5x the original).\n- Return ONLY the revised description — no commentary, no code fences.`,
+      system: `You rewrite eBay listing descriptions using the expert guide's knowledge to add collector-relevant detail and better organization.\n\n${REMIX_HARD_RULES}\n\nDescription rules:\n- The description is HTML. Return the COMPLETE revised HTML document/fragment.\n- Preserve ALL existing HTML tags, images, links, and attributes — edit prose only. If the input is plain text, return plain text paragraphs separated by blank lines.\n- Keep roughly the same length (never more than ~1.5x the original).\n- Return ONLY the revised description — no commentary, no code fences, and NO label or prefix of any kind. Never begin with "New Description:", "Revised Description:", or similar. Your entire response must be exactly the description as it should appear on eBay.`,
       prompt: [
         `Title: ${live.title}`,
         live.categoryName ? `eBay category: ${live.categoryName}` : null,
@@ -666,7 +845,15 @@ const descriptionRemixHandler: OpHandler = {
       jobId: job.id,
     });
 
-    let newDesc = llm.text.trim().replace(/^```(?:html)?\s*|\s*```$/g, "").trim();
+    let newDesc = llm.text.trim();
+    // Peel code fences and "New Description:"-style labels in either order
+    // (the label can appear outside or inside a fence).
+    for (let i = 0; i < 3; i++) {
+      const before = newDesc;
+      newDesc = newDesc.replace(/^```(?:html)?\s*|\s*```$/g, "").trim();
+      newDesc = newDesc.replace(DESC_LABEL_PREFIX, "").trim();
+      if (newDesc === before) break;
+    }
     if (!newDesc) {
       return { status: "failed", errorMessage: "Model returned an empty description", costUsd: llm.costUsd };
     }
@@ -952,6 +1139,7 @@ const priceResearchHandler: OpHandler = {
 
 export const OP_HANDLERS: Partial<Record<EnhanceOp, OpHandler>> = {
   price_adjust: priceAdjustHandler,
+  price_wiggle: priceWiggleHandler,
   sku_rename: skuRenameHandler,
   item_specifics: itemSpecificsHandler,
   title_remix: titleRemixHandler,

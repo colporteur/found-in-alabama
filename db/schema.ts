@@ -145,6 +145,14 @@ export const ebayListings = pgTable(
     // enhance_jobs history via /api/admin/enhance/backfill-last-actions.
     lastWiggleAt: timestamp("last_wiggle_at"),
     lastSubstantiveAt: timestamp("last_substantive_at"),
+    // Autorun price bump (see enhance_autoruns + lib/enhance/autorun.ts).
+    // priceAnchor is the item's "true" price — wiggles orbit it, so repeated
+    // random adjustments never drift. Set on first autorun touch; re-anchored
+    // automatically if the live price moves outside the wiggle band (manual
+    // or APR reprice).
+    priceAnchor: numeric("price_anchor", { precision: 10, scale: 2 }),
+    /** Stamped when autorun SELECTS the item for a slice (cycle bookkeeping). */
+    lastAutorunAt: timestamp("last_autorun_at"),
   },
   (t) => ({
     storeCat1Idx: index("ebay_listings_store_cat1_idx").on(t.storeCategory1Id),
@@ -153,6 +161,7 @@ export const ebayListings = pgTable(
     lastSubstantiveIdx: index("ebay_listings_last_substantive_idx").on(
       t.lastSubstantiveAt
     ),
+    lastAutorunIdx: index("ebay_listings_last_autorun_idx").on(t.lastAutorunAt),
   })
 );
 
@@ -695,11 +704,12 @@ export const ENHANCE_OPS = [
   "title_remix", // Phase 3 — expert-guide title rewrite (Haiku, cached prompt)
   "description_remix", // Phase 3 — expert-guide description rewrite (Sonnet, cached)
   "price_research", // Phase 4 — Agent Price Researcher reprice
+  "price_wiggle", // Autorun — random ±cents around a stored anchor. No AI.
 ] as const;
 export type EnhanceOp = (typeof ENHANCE_OPS)[number];
 
 /** Workbench action classes: "wiggles" freshen the listing cheaply… */
-export const WIGGLE_OPS: EnhanceOp[] = ["price_adjust", "sku_rename"];
+export const WIGGLE_OPS: EnhanceOp[] = ["price_adjust", "sku_rename", "price_wiggle"];
 /** …"substantive changes" add real value via AI or comp research. */
 export const SUBSTANTIVE_OPS: EnhanceOp[] = [
   "item_specifics",
@@ -737,6 +747,9 @@ export const enhanceBatches = pgTable(
       .default("0")
       .notNull(),
     errorMessage: text("error_message"),
+    /** Low-priority batches (Autorun slices) only run when nothing normal
+     *  is pending — so autorun never starves interactive work. */
+    lowPriority: boolean("low_priority").default(false).notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     startedAt: timestamp("started_at"),
     completedAt: timestamp("completed_at"),
@@ -744,6 +757,45 @@ export const enhanceBatches = pgTable(
   (t) => ({
     statusIdx: index("enhance_batches_status_idx").on(t.status),
     createdAtIdx: index("enhance_batches_created_at_idx").on(t.createdAt),
+  })
+);
+
+// ─── Autorun price bump ──────────────────────────────────────────────────────
+//
+// A standing background process that slowly cycles the whole inventory,
+// nudging each price by a random ±amount around its stored anchor (see
+// ebay_listings.price_anchor). One autorun active at a time. The cron tick
+// refills low-priority price_wiggle slice batches while it runs; cycle
+// bookkeeping lives here. See lib/enhance/autorun.ts.
+
+export const enhanceAutoruns = pgTable(
+  "enhance_autoruns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    status: text("status", {
+      enum: ["running", "stopped", "completed"],
+    })
+      .default("running")
+      .notNull(),
+    /** Max absolute wiggle in dollars (e.g. 0.05 → ±5¢ around anchor). */
+    amount: numeric("amount", { precision: 10, scale: 2 }).notNull(),
+    /** Never price below this. */
+    floor: numeric("floor", { precision: 10, scale: 2 }).default("0.99").notNull(),
+    /** Per-item pacing: don't re-wiggle an item within this many days. */
+    minDaysBetween: integer("min_days_between").default(4).notNull(),
+    /** Stop after this many full passes through inventory. Null = run until stopped. */
+    maxCycles: integer("max_cycles"),
+    /** Completed full passes so far. */
+    cycleCount: integer("cycle_count").default(0).notNull(),
+    /** Items wiggled at/after this instant count toward the current cycle. */
+    cycleStartedAt: timestamp("cycle_started_at").defaultNow().notNull(),
+    /** Lifetime completed wiggles across all cycles (display only). */
+    totalWiggled: integer("total_wiggled").default(0).notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    stoppedAt: timestamp("stopped_at"),
+  },
+  (t) => ({
+    statusIdx: index("enhance_autoruns_status_idx").on(t.status),
   })
 );
 

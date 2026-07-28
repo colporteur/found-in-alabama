@@ -48,6 +48,7 @@ export function rollbackEligibility(
   switch (op) {
     case "price_adjust":
     case "price_research":
+    case "price_wiggle":
       if (typeof before.price !== "number") {
         return { ok: false, reason: "No price snapshot" };
       }
@@ -85,6 +86,28 @@ export function rollbackEligibility(
     default:
       return { ok: false, reason: `Unknown op "${op}"` };
   }
+}
+
+// ─── Redo (quick link on batch/history logs) ─────────────────────────────────
+//
+// A "redo" re-runs the AI rewrite for one item: restore the before-snapshot
+// first (when possible), then queue + immediately run a fresh single-item
+// batch with the original batch's config. Only the remix ops make sense to
+// redo — the other ops are deterministic or externally priced.
+
+export const REDOABLE_OPS = ["title_remix", "description_remix"] as const;
+
+export function redoEligibility(
+  job: EnhanceJobRow,
+  op: string
+): RollbackEligibility {
+  if (!(REDOABLE_OPS as readonly string[]).includes(op)) {
+    return { ok: false, reason: "Only title/description remixes can be redone" };
+  }
+  if (job.status !== "completed" && job.status !== "failed") {
+    return { ok: false, reason: "Only completed or failed jobs can be redone" };
+  }
+  return { ok: true };
 }
 
 export type RollbackResult = { ok: true } | { ok: false; error: string };
@@ -135,7 +158,7 @@ export async function rollbackJob(
         throw new Error(`Listing status is ${live.listingStatus}, not Active`);
       }
 
-      if (op === "price_adjust" || op === "price_research") {
+      if (op === "price_adjust" || op === "price_research" || op === "price_wiggle") {
         const price = before.price as number;
         await reviseItemPrice(job.ebayItemId, price);
         await db

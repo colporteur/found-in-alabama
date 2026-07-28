@@ -13,6 +13,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { processTick } from "@/lib/enhance/queue";
+import { autorunTick } from "@/lib/enhance/autorun";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -33,12 +34,27 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Feed the Autorun price bump first (cheap no-op when none is running).
+  // Isolated so an autorun hiccup never blocks the normal queue tick.
+  let autorun = null;
+  try {
+    autorun = await autorunTick();
+    if (autorun && (autorun.refilled > 0 || autorun.cycleCompleted)) {
+      console.log("[enhance-cron] autorun:", JSON.stringify(autorun));
+    }
+  } catch (err) {
+    console.error(
+      "[enhance-cron] autorun tick failed:",
+      err instanceof Error ? err.message : err
+    );
+  }
+
   try {
     const summary = await processTick(TICK_BUDGET_MS);
     if (summary.processed > 0) {
       console.log("[enhance-cron] tick summary:", JSON.stringify(summary));
     }
-    return NextResponse.json(summary);
+    return NextResponse.json({ ...summary, autorun });
   } catch (err) {
     const message = err instanceof Error ? err.message : "unknown";
     console.error("[enhance-cron] tick failed:", message);
