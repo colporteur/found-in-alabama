@@ -43,6 +43,8 @@ export type LlmCallParams = {
   op: string;
   batchId?: string | null;
   jobId?: string | null;
+  /** Extra OpenRouter body fields (e.g. { reasoning: { max_tokens } }). */
+  extra?: Record<string, unknown>;
 };
 
 export type LlmResult = {
@@ -132,6 +134,7 @@ async function callGateway(
     system: systemParts.length > 0 ? systemParts : undefined,
     content,
     maxTokens: p.maxTokens,
+    extra: p.extra,
   });
 
   const usage: LlmUsage = {

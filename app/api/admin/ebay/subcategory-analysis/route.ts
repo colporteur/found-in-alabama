@@ -109,15 +109,27 @@ export async function POST(req: NextRequest) {
     `Titles:\n${titleBlock}`,
   ].join("\n\n");
 
+  // Sonnet 5's adaptive thinking shares max_tokens — a 1500-title
+  // clustering can burn thousands of reasoning tokens before any JSON
+  // appears, so give a big budget and cap the reasoning share.
   const llm = await callLlm({
     provider: "anthropic",
     model: "claude-sonnet-5",
     system: SYSTEM,
     prompt,
-    maxTokens: 4000,
+    maxTokens: 12_000,
+    extra: { reasoning: { max_tokens: 4000 } },
     op: "subcategory_analysis",
   });
 
+  if (!llm.text.trim()) {
+    return NextResponse.json(
+      {
+        error: `Model returned no visible text (${llm.usage.outputTokens} output tokens consumed — likely all reasoning). Try again; if it persists the reasoning cap needs tuning.`,
+      },
+      { status: 502 }
+    );
+  }
   const start = llm.text.indexOf("{");
   const end = llm.text.lastIndexOf("}");
   if (start === -1 || end <= start) {
