@@ -1,4 +1,5 @@
-# Social publishing heartbeat.
+# Social publishing heartbeat (+ a categorize tick, piggybacked for
+# extra Other-bucket drain cadence).
 #
 # Vercel's Hobby plan only allows once-daily crons, so the vercel.json
 # cron (daily, 13:00 UTC) is just a backstop. This workflow does the
@@ -28,7 +29,13 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: Ping publish endpoint
+        continue-on-error: true
         run: |
           curl --silent --show-error --fail --max-time 90 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             https://www.foundinalabama.com/api/cron/publish
+      - name: Ping categorize endpoint
+        run: |
+          curl --silent --show-error --fail --max-time 120 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://www.foundinalabama.com/api/cron/categorize

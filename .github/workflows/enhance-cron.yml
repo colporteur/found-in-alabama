@@ -23,7 +23,15 @@ jobs:
     timeout-minutes: 3
     steps:
       - name: Ping enhance endpoint
+        continue-on-error: true
         run: |
           curl --silent --show-error --fail --max-time 120 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             https://www.foundinalabama.com/api/cron/enhance
+      # Piggybacked so the categorizer drains the Other bucket on the
+      # same (throttled) heartbeat instead of needing its own workflow.
+      - name: Ping categorize endpoint
+        run: |
+          curl --silent --show-error --fail --max-time 120 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://www.foundinalabama.com/api/cron/categorize
