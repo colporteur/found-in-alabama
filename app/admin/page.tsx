@@ -70,7 +70,12 @@ export default async function AdminDashboard() {
         <Tool
           href="/admin/ebay/auto-categorize"
           title="Auto-categorize"
-          desc='One-button Claude re-categorization of listings stuck in "Other."'
+          desc='One-button Claude re-categorization of listings stuck in "Other." Also runs automatically on the cron.'
+        />
+        <Tool
+          href="/admin/ebay/subcategories"
+          title="Subcategory analyzer"
+          desc="Propose data-driven subcategories for crowded store categories from real listing titles."
         />
         <Tool
           href="/admin/ebay/categories"
