@@ -49,9 +49,21 @@ export default function SubcategoryAnalyzer({
           ...(keyword.trim() ? { keyword: keyword.trim() } : {}),
         }),
       });
-      const data = await res.json();
+      // Vercel timeouts return plain text, not JSON — surface them sanely.
+      const raw = await res.text();
+      let data: Record<string, unknown>;
+      try {
+        data = JSON.parse(raw);
+      } catch {
+        setError(
+          res.status === 504 || raw.startsWith("An error")
+            ? "The analysis timed out on the server — try again (results vary with load)."
+            : `Unexpected response (${res.status}): ${raw.slice(0, 120)}`
+        );
+        return;
+      }
       if (!res.ok) {
-        setError(data.error ?? `Analysis failed (${res.status})`);
+        setError((data.error as string) ?? `Analysis failed (${res.status})`);
         return;
       }
       setResult(data as AnalysisResult);

@@ -22,7 +22,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MAX_TITLES = 1500;
+// Sized to finish inside Vercel's 60s cap: 600 random titles is plenty
+// of signal for a taxonomy, and keeps Sonnet's read+reason+write time
+// down. (1500 titles with a 12k output budget hit the timeout.)
+const MAX_TITLES = 600;
 
 const SYSTEM = `You design eBay Store category taxonomies for "Found in Alabama", a reseller of estate finds, vintage paper, books, and small antiques. Given real listing titles from ONE crowded store category, propose subcategories that would help buyers browse and help the seller assign categories at listing time.
 
@@ -117,8 +120,8 @@ export async function POST(req: NextRequest) {
     model: "claude-sonnet-5",
     system: SYSTEM,
     prompt,
-    maxTokens: 12_000,
-    extra: { reasoning: { max_tokens: 4000 } },
+    maxTokens: 8_000,
+    extra: { reasoning: { max_tokens: 2000 } },
     op: "subcategory_analysis",
   });
 
