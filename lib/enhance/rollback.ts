@@ -26,6 +26,7 @@ import {
   reviseItemSku,
   reviseItemSpecifics,
   reviseItemTitle,
+  reviseStoreCategories,
 } from "@/lib/ebay/calls";
 import type { EnhanceJobRow } from "@/lib/enhance/ops";
 
@@ -56,6 +57,12 @@ export function rollbackEligibility(
     case "sku_rename":
       if (typeof before.sku !== "string") {
         return { ok: false, reason: "No SKU snapshot" };
+      }
+      return { ok: true };
+    case "store_category":
+      // Restoring requires a prior slot-1 value (eBay rejects empty).
+      if (typeof before.category1Id !== "string" || !before.category1Id) {
+        return { ok: false, reason: "No prior store category to restore" };
       }
       return { ok: true };
     case "title_remix":
@@ -181,6 +188,20 @@ export async function rollbackJob(
           .where(eq(ebayListings.itemId, job.ebayItemId));
       } else if (op === "description_remix") {
         await reviseItemDescription(job.ebayItemId, before.description as string);
+      } else if (op === "store_category") {
+        const cat1 = before.category1Id as string;
+        const cat2 =
+          typeof before.category2Id === "string" && before.category2Id
+            ? before.category2Id
+            : null;
+        await reviseStoreCategories(job.ebayItemId, cat1, cat2);
+        await db
+          .update(ebayListings)
+          .set({
+            storeCategory1Id: cat1,
+            ...(cat2 ? { storeCategory2Id: cat2 } : {}),
+          })
+          .where(eq(ebayListings.itemId, job.ebayItemId));
       } else {
         throw new Error(`Unknown op "${op}"`);
       }

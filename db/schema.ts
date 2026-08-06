@@ -705,11 +705,17 @@ export const ENHANCE_OPS = [
   "description_remix", // Phase 3 — expert-guide description rewrite (Sonnet, cached)
   "price_research", // Phase 4 — Agent Price Researcher reprice
   "price_wiggle", // Autorun — random ±cents around a stored anchor. No AI.
+  "store_category", // Redistribute — set store category slots. No AI.
 ] as const;
 export type EnhanceOp = (typeof ENHANCE_OPS)[number];
 
 /** Workbench action classes: "wiggles" freshen the listing cheaply… */
-export const WIGGLE_OPS: EnhanceOp[] = ["price_adjust", "sku_rename", "price_wiggle"];
+export const WIGGLE_OPS: EnhanceOp[] = [
+  "price_adjust",
+  "sku_rename",
+  "price_wiggle",
+  "store_category",
+];
 /** …"substantive changes" add real value via AI or comp research. */
 export const SUBSTANTIVE_OPS: EnhanceOp[] = [
   "item_specifics",

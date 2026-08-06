@@ -280,6 +280,9 @@ export interface ItemCore {
   listingType: string | null;
   /** "Active" | "Completed" | "Ended" — mutations only make sense on Active. */
   listingStatus: string | null;
+  /** Store category slots (for the store_category op's before-snapshot). */
+  storeCategory1Id: string | null;
+  storeCategory2Id: string | null;
 }
 
 export async function fetchItemCore(itemId: string): Promise<ItemCore | null> {
@@ -305,6 +308,10 @@ export async function fetchItemCore(itemId: string): Promise<ItemCore | null> {
 
   const sellingStatus =
     (item.SellingStatus as Record<string, unknown> | undefined) ?? {};
+  const storefront =
+    (item.Storefront as Record<string, unknown> | undefined) ?? {};
+  const cat = (v: unknown) =>
+    v != null && String(v) !== "" && String(v) !== "0" ? String(v) : null;
 
   return {
     itemId: String(item.ItemID ?? itemId),
@@ -316,6 +323,8 @@ export async function fetchItemCore(itemId: string): Promise<ItemCore | null> {
       sellingStatus.ListingStatus != null
         ? String(sellingStatus.ListingStatus)
         : null,
+    storeCategory1Id: cat(storefront.StoreCategoryID),
+    storeCategory2Id: cat(storefront.StoreCategory2ID),
   };
 }
 

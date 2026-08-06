@@ -32,6 +32,73 @@ export default function SubcategoryAnalyzer({
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [showJson, setShowJson] = useState(false);
 
+  // Distribute panel: per proposed subcategory → real store category id.
+  const [mapping, setMapping] = useState<Record<string, string>>({});
+  const [distributing, setDistributing] = useState(false);
+  const [distributeNote, setDistributeNote] = useState<string | null>(null);
+
+  /** Best-effort default: a synced category whose name matches the proposal. */
+  function autoMatch(name: string): string {
+    const n = name.toLowerCase();
+    const hit =
+      categories.find((c) => c.name.toLowerCase() === n) ??
+      categories.find(
+        (c) => c.name.toLowerCase().includes(n) || n.includes(c.name.toLowerCase())
+      );
+    return hit?.categoryId ?? "";
+  }
+
+  async function distribute(map: Record<string, string>) {
+    if (!result) return;
+    const assignments = result.proposal.subcategories
+      .filter((s) => map[s.name])
+      .map((s) => ({
+        storeCategoryId: map[s.name],
+        hints: s.matchHints ?? [],
+        label: s.name,
+      }));
+    if (assignments.length === 0) {
+      setError("Map at least one subcategory to a real store category first.");
+      return;
+    }
+    if (
+      !confirm(
+        `Create ${assignments.length} distribution batch(es)? Items route by title keywords, first match wins, and run on the enhance queue (with rollback).`
+      )
+    )
+      return;
+    setDistributing(true);
+    setError(null);
+    setDistributeNote(null);
+    try {
+      const res = await fetch("/api/admin/ebay/redistribute", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(categoryId ? { categoryId } : {}),
+          ...(keyword.trim() ? { keyword: keyword.trim() } : {}),
+          assignments,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? `Distribute failed (${res.status})`);
+        return;
+      }
+      fetch("/api/cron/enhance").catch(() => {}); // kick the queue
+      const lines = (data.batches as Array<{ name: string; matched: number }>)
+        .map((b) => `${b.name}: ${b.matched}`)
+        .join(" · ");
+      setDistributeNote(
+        `Batches created — ${lines}. Leftovers: ${data.leftovers}. ${data.note ?? ""} Watch progress on the Expert Enhance dashboard.`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Distribute failed");
+    } finally {
+      setDistributing(false);
+    }
+  }
+
   async function analyze() {
     if (!categoryId && !keyword.trim()) {
       setError("Pick a category, enter a keyword, or both.");
@@ -151,6 +218,62 @@ export default function SubcategoryAnalyzer({
               {result.proposal.notes}
             </p>
           )}
+          {/* ── Distribute panel ── */}
+          <div className="bg-white border border-brand-ink/15 rounded-lg p-4 mt-6">
+            <p className="font-medium mb-1">Distribute into real categories</p>
+            <p className="text-xs text-brand-ink/50 mb-3 max-w-2xl">
+              After creating the subcategories on eBay and running Sync
+              categories, map each proposal to its real category and
+              distribute. Items route by the keywords above (first match
+              wins, top to bottom — leave a mapping blank to skip it). Runs
+              as normal batches: queued, tracked, rollback-able.
+            </p>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {result.proposal.subcategories?.map((s) => (
+                <div key={s.name} className="flex items-center gap-2">
+                  <span className="text-sm w-44 truncate" title={s.name}>
+                    {s.name}
+                  </span>
+                  <select
+                    className="border border-brand-ink/20 rounded px-2 py-1 text-sm flex-1"
+                    value={mapping[s.name] ?? autoMatch(s.name)}
+                    onChange={(e) =>
+                      setMapping((prev) => ({ ...prev, [s.name]: e.target.value }))
+                    }
+                  >
+                    <option value="">(skip)</option>
+                    {categories.map((c) => (
+                      <option key={c.categoryId} value={c.categoryId}>
+                        {c.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center gap-3 mt-3">
+              <button
+                onClick={() => {
+                  // Materialize auto-matches, then distribute with that
+                  // exact map (state updates land too late to read back).
+                  const next = { ...mapping };
+                  for (const s of result.proposal.subcategories ?? []) {
+                    if (next[s.name] === undefined) next[s.name] = autoMatch(s.name);
+                  }
+                  setMapping(next);
+                  void distribute(next);
+                }}
+                disabled={distributing}
+                className="bg-brand-ink text-brand-paper hover:bg-brand-ink/85 rounded px-4 py-2 text-sm disabled:opacity-50"
+              >
+                {distributing ? "Creating batches…" : "Create distribution batches"}
+              </button>
+              {distributeNote && (
+                <span className="text-xs text-brand-ink/60">{distributeNote}</span>
+              )}
+            </div>
+          </div>
+
           <div className="mt-4">
             <button
               onClick={() => setShowJson((v) => !v)}

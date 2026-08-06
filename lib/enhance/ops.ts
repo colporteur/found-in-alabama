@@ -23,6 +23,7 @@ import {
   reviseItemSku,
   reviseItemSpecifics,
   reviseItemTitle,
+  reviseStoreCategories,
   type ItemSpecific,
 } from "@/lib/ebay/calls";
 import {
@@ -1135,6 +1136,76 @@ const priceResearchHandler: OpHandler = {
   },
 };
 
+// ─── store_category (Redistribute) ───────────────────────────────────────────
+//
+// Sets the store category slots on a listing — the workhorse behind
+// distributing a crowded parent category's items into new subcategories
+// (analyzer → matchHint routing → one batch per subcategory). Config:
+//   category1Id: string   — required target for slot 1
+//   category2Id?: string  — optional slot 2 (omitted = leave unchanged)
+// No AI, no cost. Counts as a wiggle for last-action tracking.
+
+const storeCategoryHandler: OpHandler = {
+  estimateCostPerJob: () => 0,
+  async run(job, batch) {
+    const cfg = batch.config ?? {};
+    const category1Id =
+      typeof cfg.category1Id === "string" && cfg.category1Id ? cfg.category1Id : null;
+    const category2Id =
+      typeof cfg.category2Id === "string" && cfg.category2Id ? cfg.category2Id : null;
+    if (!category1Id) {
+      return {
+        status: "failed",
+        errorMessage: "Invalid store_category config — need { category1Id }",
+      };
+    }
+
+    const live = await fetchItemCore(job.ebayItemId);
+    if (!live) return { status: "failed", errorMessage: "GetItem returned no item" };
+    if (live.listingStatus && live.listingStatus !== "Active") {
+      return {
+        status: "skipped",
+        result: { reason: `Listing status is ${live.listingStatus}, not Active` },
+      };
+    }
+    if (
+      live.storeCategory1Id === category1Id &&
+      (category2Id === null || live.storeCategory2Id === category2Id)
+    ) {
+      return {
+        status: "skipped",
+        before: {
+          category1Id: live.storeCategory1Id,
+          category2Id: live.storeCategory2Id,
+        },
+        result: { reason: "Already in the target category" },
+      };
+    }
+
+    await reviseStoreCategories(job.ebayItemId, category1Id, category2Id);
+    await db
+      .update(ebayListings)
+      .set({
+        storeCategory1Id: category1Id,
+        ...(category2Id ? { storeCategory2Id: category2Id } : {}),
+      })
+      .where(eq(ebayListings.itemId, job.ebayItemId));
+
+    return {
+      status: "completed",
+      before: {
+        category1Id: live.storeCategory1Id,
+        category2Id: live.storeCategory2Id,
+      },
+      after: {
+        category1Id,
+        category2Id: category2Id ?? live.storeCategory2Id,
+      },
+      costUsd: 0,
+    };
+  },
+};
+
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
 export const OP_HANDLERS: Partial<Record<EnhanceOp, OpHandler>> = {
@@ -1145,6 +1216,7 @@ export const OP_HANDLERS: Partial<Record<EnhanceOp, OpHandler>> = {
   title_remix: titleRemixHandler,
   description_remix: descriptionRemixHandler,
   price_research: priceResearchHandler,
+  store_category: storeCategoryHandler,
 };
 
 export function getOpHandler(op: string): OpHandler | undefined {
