@@ -16,8 +16,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db, ebayListings, ebayStoreCategories } from "@/db";
 import { and, eq, gt, ilike, or, sql } from "drizzle-orm";
-import { getClaude } from "@/lib/claude";
-import { computeLlmCost, getRate, logAiCall } from "@/lib/enhance/cost";
+import { callLlm } from "@/lib/enhance/providers";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -113,45 +112,23 @@ export async function POST(req: NextRequest) {
     `Titles:\n${titleBlock}`,
   ].join("\n\n");
 
-  // Direct Anthropic with thinking DISABLED — the gateway path kept
-  // timing out because Sonnet 5's adaptive reasoning over hundreds of
-  // titles is slow and unbounded (OpenRouter's reasoning cap wasn't
-  // reliably applied). Non-thinking Sonnet on this input runs ~15-25s,
-  // the same pattern the haul generator uses inside the 60s limit.
-  const started = Date.now();
-  const claude = getClaude();
-  const resp = (await claude.messages.create({
-    model: "claude-sonnet-5",
-    max_tokens: 3000,
-    system: SYSTEM,
-    messages: [{ role: "user", content: prompt }],
-    thinking: { type: "disabled" },
-  } as never)) as {
-    content: Array<{ type: string; text?: string }>;
-    usage?: { input_tokens?: number; output_tokens?: number };
-  };
-  const text = resp.content
-    .filter((b) => b.type === "text" && typeof b.text === "string")
-    .map((b) => b.text as string)
-    .join("");
-
-  // Log the spend to the same dashboard as everything else.
-  const usage = {
-    inputTokens: resp.usage?.input_tokens ?? 0,
-    outputTokens: resp.usage?.output_tokens ?? 0,
-  };
-  const rate = await getRate("anthropic", "claude-sonnet-5");
-  const costUsd = computeLlmCost(rate, usage);
-  await logAiCall({
-    op: "subcategory_analysis",
-    category: "llm",
+  // Sonnet 5 via the gateway with reasoning fully DISABLED — earlier
+  // attempts used a reasoning max_tokens cap, which limits but doesn't
+  // turn off Sonnet's adaptive thinking; the unbounded read-and-reason
+  // over hundreds of titles is what blew the 60s limit. OpenRouter's
+  // documented off-switch is reasoning.enabled=false; non-thinking
+  // Sonnet on this input runs ~15-25s.
+  const llm = await callLlm({
     provider: "anthropic",
     model: "claude-sonnet-5",
-    usage,
-    costUsd,
-    durationMs: Date.now() - started,
-    success: true,
+    system: SYSTEM,
+    prompt,
+    maxTokens: 3000,
+    extra: { reasoning: { enabled: false } },
+    op: "subcategory_analysis",
   });
+  const text = llm.text;
+  const costUsd = llm.costUsd;
 
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
