@@ -30,19 +30,20 @@ const MAX_TITLES = 600;
 const SYSTEM = `You design eBay Store category taxonomies for "Found in Alabama", a reseller of estate finds, vintage paper, books, and small antiques. Given real listing titles from ONE crowded store category, propose subcategories that would help buyers browse and help the seller assign categories at listing time.
 
 Rules:
-- Propose 5-12 subcategories. Every one must be justified by the titles actually present — no aspirational empty categories.
+- Propose 5-9 subcategories. Every one must be justified by the titles actually present — no aspirational empty categories.
 - Prefer collector-oriented splits (topic, region, era, format) over generic ones. Alabama/Southern material deserves its own subcategory when the titles support it.
 - Short names buyers scan easily (2-4 words), no punctuation eBay store categories can't hold.
 - Aim for reasonably balanced sizes; fold slivers into a broader sibling. Include one catch-all subcategory for the remainder.
-- For each subcategory provide matchHints: lowercase keywords/phrases from the titles that would route an item there automatically.
+- For each subcategory provide matchHints: up to 6 lowercase keywords/phrases from the titles that would route an item there automatically.
+
+BE TERSE — this must fit a small output budget:
+- exampleTitles: exactly 2 per subcategory, truncated to ~50 chars each.
+- rationale: 12 words max.
+- notes: 30 words max.
+- Output COMPACT single-line JSON (no pretty-printing, no code fences).
 
 Return ONLY JSON:
-{
-  "subcategories": [
-    { "name": str, "estimatedCount": int, "exampleTitles": [str, str, str], "matchHints": [str, ...], "rationale": str }
-  ],
-  "notes": str
-}`;
+{"subcategories":[{"name":str,"estimatedCount":int,"exampleTitles":[str,str],"matchHints":[str,...],"rationale":str}],"notes":str}`;
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -142,8 +143,13 @@ export async function POST(req: NextRequest) {
   try {
     proposal = JSON.parse(text.slice(start, end + 1));
   } catch {
+    const truncated = !text.trimEnd().endsWith("}");
     return NextResponse.json(
-      { error: "Model JSON failed to parse — try again" },
+      {
+        error: truncated
+          ? `Model output was cut off at the token limit (${text.length} chars) — try again; the terser schema should fit`
+          : `Model JSON failed to parse — tail: …${text.slice(-120)}`,
+      },
       { status: 502 }
     );
   }
