@@ -16,7 +16,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db, ebayListings, ebayStoreCategories } from "@/db";
 import { and, eq, gt, ilike, or, sql } from "drizzle-orm";
-import { callLlm } from "@/lib/enhance/providers";
+import { getClaude } from "@/lib/claude";
+import { computeLlmCost, getRate, logAiCall } from "@/lib/enhance/cost";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -112,38 +113,57 @@ export async function POST(req: NextRequest) {
     `Titles:\n${titleBlock}`,
   ].join("\n\n");
 
-  // Sonnet 5's adaptive thinking shares max_tokens — a 1500-title
-  // clustering can burn thousands of reasoning tokens before any JSON
-  // appears, so give a big budget and cap the reasoning share.
-  const llm = await callLlm({
+  // Direct Anthropic with thinking DISABLED — the gateway path kept
+  // timing out because Sonnet 5's adaptive reasoning over hundreds of
+  // titles is slow and unbounded (OpenRouter's reasoning cap wasn't
+  // reliably applied). Non-thinking Sonnet on this input runs ~15-25s,
+  // the same pattern the haul generator uses inside the 60s limit.
+  const started = Date.now();
+  const claude = getClaude();
+  const resp = (await claude.messages.create({
+    model: "claude-sonnet-5",
+    max_tokens: 3000,
+    system: SYSTEM,
+    messages: [{ role: "user", content: prompt }],
+    thinking: { type: "disabled" },
+  } as never)) as {
+    content: Array<{ type: string; text?: string }>;
+    usage?: { input_tokens?: number; output_tokens?: number };
+  };
+  const text = resp.content
+    .filter((b) => b.type === "text" && typeof b.text === "string")
+    .map((b) => b.text as string)
+    .join("");
+
+  // Log the spend to the same dashboard as everything else.
+  const usage = {
+    inputTokens: resp.usage?.input_tokens ?? 0,
+    outputTokens: resp.usage?.output_tokens ?? 0,
+  };
+  const rate = await getRate("anthropic", "claude-sonnet-5");
+  const costUsd = computeLlmCost(rate, usage);
+  await logAiCall({
+    op: "subcategory_analysis",
+    category: "llm",
     provider: "anthropic",
     model: "claude-sonnet-5",
-    system: SYSTEM,
-    prompt,
-    maxTokens: 8_000,
-    extra: { reasoning: { max_tokens: 2000 } },
-    op: "subcategory_analysis",
+    usage,
+    costUsd,
+    durationMs: Date.now() - started,
+    success: true,
   });
 
-  if (!llm.text.trim()) {
-    return NextResponse.json(
-      {
-        error: `Model returned no visible text (${llm.usage.outputTokens} output tokens consumed — likely all reasoning). Try again; if it persists the reasoning cap needs tuning.`,
-      },
-      { status: 502 }
-    );
-  }
-  const start = llm.text.indexOf("{");
-  const end = llm.text.lastIndexOf("}");
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
   if (start === -1 || end <= start) {
     return NextResponse.json(
-      { error: `Model returned unparseable output: ${llm.text.slice(0, 200)}` },
+      { error: `Model returned unparseable output: ${text.slice(0, 200)}` },
       { status: 502 }
     );
   }
   let proposal: unknown;
   try {
-    proposal = JSON.parse(llm.text.slice(start, end + 1));
+    proposal = JSON.parse(text.slice(start, end + 1));
   } catch {
     return NextResponse.json(
       { error: "Model JSON failed to parse — try again" },
@@ -156,7 +176,7 @@ export async function POST(req: NextRequest) {
     categoryName,
     keyword,
     sampleSize: rows.length,
-    costUsd: llm.costUsd,
+    costUsd,
     proposal,
   });
 }
