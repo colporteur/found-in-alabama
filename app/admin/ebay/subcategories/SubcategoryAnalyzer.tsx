@@ -32,33 +32,41 @@ export default function SubcategoryAnalyzer({
   const [result, setResult] = useState<AnalysisResult | null>(null);
   const [showJson, setShowJson] = useState(false);
 
-  // Distribute panel: per proposed subcategory → real store category id.
-  const [mapping, setMapping] = useState<Record<string, string>>({});
+  // Distribute panel: fully editable routing rows. Row order = routing
+  // order (first match wins), so custom rows added at the top let finer
+  // categories (Christmas, Easter) claim items before broad ones.
+  type RouteRow = {
+    key: string;
+    label: string;
+    storeCategoryId: string;
+    hintsText: string;
+  };
+  const [rows, setRows] = useState<RouteRow[]>([]);
   const [distributing, setDistributing] = useState(false);
   const [distributeNote, setDistributeNote] = useState<string | null>(null);
 
   /** Best-effort default: a synced category whose name matches the proposal. */
   function autoMatch(name: string): string {
-    const n = name.toLowerCase();
+    const norm = (s: string) =>
+      s.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9 ]/g, "").trim();
+    const n = norm(name);
     const hit =
-      categories.find((c) => c.name.toLowerCase() === n) ??
-      categories.find(
-        (c) => c.name.toLowerCase().includes(n) || n.includes(c.name.toLowerCase())
-      );
+      categories.find((c) => norm(c.name) === n) ??
+      categories.find((c) => norm(c.name).includes(n) || n.includes(norm(c.name)));
     return hit?.categoryId ?? "";
   }
 
-  async function distribute(map: Record<string, string>) {
+  async function distribute(routeRows: RouteRow[]) {
     if (!result) return;
-    const assignments = result.proposal.subcategories
-      .filter((s) => map[s.name])
-      .map((s) => ({
-        storeCategoryId: map[s.name],
-        hints: s.matchHints ?? [],
-        label: s.name,
+    const assignments = routeRows
+      .filter((r) => r.storeCategoryId)
+      .map((r) => ({
+        storeCategoryId: r.storeCategoryId,
+        hints: r.hintsText.split(",").map((h) => h.trim()).filter(Boolean),
+        label: r.label,
       }));
     if (assignments.length === 0) {
-      setError("Map at least one subcategory to a real store category first.");
+      setError("Map at least one row to a real store category first.");
       return;
     }
     if (
@@ -133,7 +141,17 @@ export default function SubcategoryAnalyzer({
         setError((data.error as string) ?? `Analysis failed (${res.status})`);
         return;
       }
-      setResult(data as AnalysisResult);
+      const analysis = data as AnalysisResult;
+      setResult(analysis);
+      // Seed editable routing rows from the proposal.
+      setRows(
+        (analysis.proposal.subcategories ?? []).map((s, i) => ({
+          key: `p${i}`,
+          label: s.name,
+          storeCategoryId: autoMatch(s.name),
+          hintsText: (s.matchHints ?? []).join(", "),
+        }))
+      );
     } catch (err) {
       setError(err instanceof Error ? err.message : "Analysis failed");
     } finally {
@@ -222,47 +240,97 @@ export default function SubcategoryAnalyzer({
           <div className="bg-white border border-brand-ink/15 rounded-lg p-4 mt-6">
             <p className="font-medium mb-1">Distribute into real categories</p>
             <p className="text-xs text-brand-ink/50 mb-3 max-w-2xl">
-              After creating the subcategories on eBay and running Sync
-              categories, map each proposal to its real category and
-              distribute. Items route by the keywords above (first match
-              wins, top to bottom — leave a mapping blank to skip it). Runs
-              as normal batches: queued, tracked, rollback-able.
+              Rows route TOP TO BOTTOM, first keyword match wins — put fine
+              categories (Christmas, Easter) above broad ones. Edit the
+              keywords freely; add rows for categories you created that the
+              proposal didn&rsquo;t suggest. A row with no keywords is a
+              catch-all (claims everything left — keep it last). Blank
+              category = row skipped. Runs as normal batches: queued,
+              tracked, rollback-able.
             </p>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {result.proposal.subcategories?.map((s) => (
-                <div key={s.name} className="flex items-center gap-2">
-                  <span className="text-sm w-44 truncate" title={s.name}>
-                    {s.name}
-                  </span>
+            <div className="space-y-2">
+              {rows.map((r, i) => (
+                <div key={r.key} className="flex items-center gap-2 flex-wrap">
                   <select
-                    className="border border-brand-ink/20 rounded px-2 py-1 text-sm flex-1"
-                    value={mapping[s.name] ?? autoMatch(s.name)}
+                    className="border border-brand-ink/20 rounded px-2 py-1 text-sm w-56"
+                    value={r.storeCategoryId}
                     onChange={(e) =>
-                      setMapping((prev) => ({ ...prev, [s.name]: e.target.value }))
+                      setRows((prev) =>
+                        prev.map((x) =>
+                          x.key === r.key
+                            ? { ...x, storeCategoryId: e.target.value }
+                            : x
+                        )
+                      )
                     }
                   >
-                    <option value="">(skip)</option>
+                    <option value="">(skip — pick category)</option>
                     {categories.map((c) => (
                       <option key={c.categoryId} value={c.categoryId}>
                         {c.name}
                       </option>
                     ))}
                   </select>
+                  <input
+                    className="border border-brand-ink/20 rounded px-2 py-1 text-sm flex-1 min-w-64 font-mono"
+                    value={r.hintsText}
+                    onChange={(e) =>
+                      setRows((prev) =>
+                        prev.map((x) =>
+                          x.key === r.key ? { ...x, hintsText: e.target.value } : x
+                        )
+                      )
+                    }
+                    placeholder="routing keywords, comma-separated (empty = catch-all)"
+                    title={`Proposed as: ${r.label}`}
+                  />
+                  <button
+                    onClick={() =>
+                      setRows((prev) => {
+                        const idx = prev.findIndex((x) => x.key === r.key);
+                        if (idx <= 0) return prev;
+                        const next = [...prev];
+                        [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                        return next;
+                      })
+                    }
+                    disabled={i === 0}
+                    className="text-xs border border-brand-ink/25 rounded px-2 py-1 disabled:opacity-30"
+                    title="Move up (routes earlier)"
+                  >
+                    ↑
+                  </button>
+                  <button
+                    onClick={() =>
+                      setRows((prev) => prev.filter((x) => x.key !== r.key))
+                    }
+                    className="text-xs border border-brand-ink/25 rounded px-2 py-1 text-red-700"
+                    title="Remove row"
+                  >
+                    ×
+                  </button>
                 </div>
               ))}
             </div>
-            <div className="flex items-center gap-3 mt-3">
+            <div className="flex items-center gap-3 mt-3 flex-wrap">
               <button
-                onClick={() => {
-                  // Materialize auto-matches, then distribute with that
-                  // exact map (state updates land too late to read back).
-                  const next = { ...mapping };
-                  for (const s of result.proposal.subcategories ?? []) {
-                    if (next[s.name] === undefined) next[s.name] = autoMatch(s.name);
-                  }
-                  setMapping(next);
-                  void distribute(next);
-                }}
+                onClick={() =>
+                  setRows((prev) => [
+                    {
+                      key: `c${Date.now()}`,
+                      label: "Custom",
+                      storeCategoryId: "",
+                      hintsText: "",
+                    },
+                    ...prev,
+                  ])
+                }
+                className="bg-white border border-brand-ink/30 hover:border-brand-ink rounded px-3 py-2 text-sm"
+              >
+                + Add row (routes first)
+              </button>
+              <button
+                onClick={() => void distribute(rows)}
                 disabled={distributing}
                 className="bg-brand-ink text-brand-paper hover:bg-brand-ink/85 rounded px-4 py-2 text-sm disabled:opacity-50"
               >
