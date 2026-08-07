@@ -67,8 +67,40 @@ Output format: JSON only, no code fences, no preamble. Exact shape:
   "primaryCategoryId": "12345" | null,
   "secondaryCategoryId": "67890" | null,
   "confidence": 0.85,
-  "reasoning": "1-2 sentence explanation, plain English"
+  "reasoning": "explanation, 15 words max"
 }`;
+
+/**
+ * Field-by-field recovery from output that isn't valid JSON — almost
+ * always a response truncated by the token ceiling. Returns null when
+ * there's no usable category id to be found.
+ *
+ * Accepts a quoted id or a bare null for the two id fields, and tolerates
+ * a `reasoning` string that simply stops mid-sentence with no closing
+ * quote or brace.
+ */
+function salvage(text: string): Partial<SuggestionResult> | null {
+  const str = (field: string): string | null => {
+    const m = new RegExp(`"${field}"\\s*:\\s*"([^"]*)"`).exec(text);
+    return m ? m[1] : null;
+  };
+  const primaryCategoryId = str("primaryCategoryId");
+  if (!primaryCategoryId) return null;
+
+  const confMatch = /"confidence"\s*:\s*([0-9.]+)/.exec(text);
+  const reasonMatch = /"reasoning"\s*:\s*"([^"]*)/.exec(text);
+
+  return {
+    primaryCategoryId,
+    secondaryCategoryId: str("secondaryCategoryId"),
+    // No confidence in a truncated response means it was cut before that
+    // field — treat it as borderline rather than inventing certainty.
+    confidence: confMatch ? Number(confMatch[1]) : 0.5,
+    reasoning: reasonMatch
+      ? `${reasonMatch[1]}… (response truncated)`
+      : "(response truncated before reasoning)",
+  };
+}
 
 export async function suggestCategoryForListing(input: {
   title: string;
@@ -94,7 +126,13 @@ export async function suggestCategoryForListing(input: {
   // (and re-billed at full rate) 1,800 times. Only the title varies.
   const response = await gatewayChat({
     model: CATEGORIZE_MODEL,
-    maxTokens: 500,
+    // 500 was enough when the answer was pure JSON, but any model with
+    // adaptive thinking spends this budget on reasoning FIRST and can be
+    // cut off mid-object. Disabling reasoning is the actual fix (same
+    // knob the subcategory analyzer needed); the raised ceiling is belt
+    // and braces for a long `reasoning` string.
+    maxTokens: 900,
+    extra: { reasoning: { enabled: false } },
     system: [
       {
         type: "text",
@@ -124,7 +162,17 @@ Return your JSON suggestion.`,
   try {
     parsed = JSON.parse(cleaned) as Partial<SuggestionResult>;
   } catch {
-    throw new Error(`Claude returned non-JSON: ${cleaned.slice(0, 300)}`);
+    // Salvage pass. The schema puts `reasoning` LAST precisely so that a
+    // truncated response still contains the fields that matter. Rather
+    // than throw away a perfectly good category pick because the
+    // explanation got cut off mid-sentence, pull the values out directly.
+    const salvaged = salvage(cleaned);
+    if (!salvaged) {
+      throw new Error(
+        `Model returned unparseable output (${cleaned.length} chars): ${cleaned.slice(0, 200)}`
+      );
+    }
+    parsed = salvaged;
   }
 
   if (typeof parsed.confidence !== "number") {
