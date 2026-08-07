@@ -24,9 +24,17 @@ export type GridRow = {
 
 export type GuideOption = { id: string; name: string };
 
+export type CategoryOption = {
+  categoryId: string;
+  name: string;
+  /** Parents can't hold items on eBay — offered only as disabled options. */
+  isLeaf?: boolean;
+};
+
 type OpKey =
   | "price_adjust"
   | "sku_rename"
+  | "store_category"
   | "item_specifics"
   | "title_remix"
   | "description_remix"
@@ -43,6 +51,7 @@ type OpDef = {
 const OPS: OpDef[] = [
   { key: "price_adjust", short: "$", label: "Price bump / discount", section: "wiggle", estPerJob: 0 },
   { key: "sku_rename", short: "SKU", label: "Set SKU", section: "wiggle", estPerJob: 0 },
+  { key: "store_category", short: "Cat", label: "Set store category", section: "wiggle", estPerJob: 0 },
   { key: "item_specifics", short: "Spec", label: "Item specifics fill", section: "substantive", estPerJob: 0.001 },
   { key: "title_remix", short: "Title", label: "Title remix", section: "substantive", estPerJob: 0.005 },
   { key: "description_remix", short: "Desc", label: "Description remix", section: "substantive", estPerJob: 0.03 },
@@ -53,6 +62,7 @@ type Selections = Record<OpKey, string[]>;
 const EMPTY_SELECTIONS: Selections = {
   price_adjust: [],
   sku_rename: [],
+  store_category: [],
   item_specifics: [],
   title_remix: [],
   description_remix: [],
@@ -62,11 +72,13 @@ const EMPTY_SELECTIONS: Selections = {
 export default function WorkbenchGrid({
   rows,
   guides,
+  categories,
   filterQuery,
   matchingTotal,
 }: {
   rows: GridRow[];
   guides: GuideOption[];
+  categories: CategoryOption[];
   /** Current filter params as a querystring, for the all-matching fetch. */
   filterQuery: string;
   matchingTotal: number;
@@ -118,6 +130,7 @@ export default function WorkbenchGrid({
   const [allMatching, setAllMatching] = useState<Record<OpKey, boolean>>({
     price_adjust: false,
     sku_rename: false,
+    store_category: false,
     item_specifics: false,
     title_remix: false,
     description_remix: false,
@@ -130,6 +143,8 @@ export default function WorkbenchGrid({
   const [priceFloor, setPriceFloor] = useState("");
   const [priceRound87, setPriceRound87] = useState(true);
   const [skuSetTo, setSkuSetTo] = useState("");
+  const [storeCat1, setStoreCat1] = useState("");
+  const [storeCat2, setStoreCat2] = useState("");
   const [specList, setSpecList] = useState("Brand, Color, Size, Material, Style, Type");
   const [specModel, setSpecModel] = useState("gemini:gemini-2.5-flash");
   const [specPhoto, setSpecPhoto] = useState(true);
@@ -195,6 +210,16 @@ export default function WorkbenchGrid({
         if (!skuSetTo.trim())
           return { config: {}, error: "Set SKU: enter the target SKU" };
         return { config: { mode: "set", replace: skuSetTo.trim() } };
+      }
+      case "store_category": {
+        if (!storeCat1)
+          return { config: {}, error: "Store category: pick the primary category" };
+        return {
+          config: {
+            category1Id: storeCat1,
+            ...(storeCat2 ? { category2Id: storeCat2 } : {}),
+          },
+        };
       }
       case "item_specifics":
         return {
@@ -407,7 +432,7 @@ export default function WorkbenchGrid({
           <thead>
             <tr className="text-left text-[10px] uppercase tracking-wider text-brand-ink/30">
               <th colSpan={5}></th>
-              <th colSpan={2} className="text-center border-l border-brand-ink/10">Item wiggles</th>
+              <th colSpan={3} className="text-center border-l border-brand-ink/10">Item wiggles</th>
               <th colSpan={4} className="text-center border-l border-brand-ink/10">Substantive changes</th>
               <th colSpan={2} className="border-l border-brand-ink/10"></th>
             </tr>
@@ -478,7 +503,7 @@ export default function WorkbenchGrid({
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={13} className="py-8 text-center text-sm text-brand-ink/50">
+                <td colSpan={14} className="py-8 text-center text-sm text-brand-ink/50">
                   Nothing matches these filters.
                 </td>
               </tr>
@@ -558,6 +583,36 @@ export default function WorkbenchGrid({
                       </div>
                       <p className="text-xs text-brand-ink/50 self-end pb-1">
                         Every checked item gets exactly this SKU.
+                      </p>
+                    </div>
+                  )}
+
+                  {op.key === "store_category" && (
+                    <div className="grid gap-2 sm:grid-cols-3">
+                      <div>
+                        <label className={labelCls}>Primary category</label>
+                        <select className={`${inputCls} w-full`} value={storeCat1} onChange={(e) => setStoreCat1(e.target.value)}>
+                          <option value="">Pick a category…</option>
+                          {categories.map((c) => (
+                            <option key={c.categoryId} value={c.categoryId} disabled={c.isLeaf === false}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className={labelCls}>Secondary (optional)</label>
+                        <select className={`${inputCls} w-full`} value={storeCat2} onChange={(e) => setStoreCat2(e.target.value)}>
+                          <option value="">(none)</option>
+                          {categories.map((c) => (
+                            <option key={c.categoryId} value={c.categoryId} disabled={c.isLeaf === false}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <p className="text-xs text-brand-ink/50 self-end pb-1">
+                        Every checked item moves to this store category. Rollback-able.
                       </p>
                     </div>
                   )}

@@ -149,22 +149,70 @@ export async function startRun(phase: RunPhase, queue: QueueItem[]) {
 
 /**
  * Build the list of store-category options Claude can pick from.
- * Excludes the Other bucket itself (no point suggesting Other → Other)
- * and de-duplicates by id.
+ *
+ * Two things matter here beyond the raw name list:
+ *
+ * 1. LEAF-ONLY. eBay refuses to hold items in a store category that has
+ *    children, so offering a parent guarantees a ReviseItem failure. Once
+ *    Postcards gained 14 children, "Postcards" itself became unusable —
+ *    every postcard routed there would fail. We drop non-leaf nodes.
+ *
+ * 2. FULL PATH. A bare leaf name like "Christmas & New Year's" is
+ *    ambiguous out of context — it reads like a holiday-decor category
+ *    rather than a postcard subcategory. We hand the model the ancestry
+ *    ("Postcards › Christmas & New Year's") so the parent's meaning is
+ *    carried into the child.
+ *
+ * The Other bucket is excluded from the results either way (no point
+ * suggesting Other → Other) and is trimmed out of ancestry paths, so a
+ * category nested under Other doesn't read as "Other › X".
  */
 export async function buildCategoryOptions() {
   const rows = await db
     .select({
       id: ebayStoreCategories.categoryId,
+      parentId: ebayStoreCategories.parentCategoryId,
       name: ebayStoreCategories.name,
       isAlabama: ebayStoreCategories.isAlabamaRelated,
       isOtherBucket: ebayStoreCategories.isOtherBucket,
     })
     .from(ebayStoreCategories);
 
+  const byId = new Map(rows.map((r) => [r.id, r]));
+  const parentIds = new Set(
+    rows.map((r) => r.parentId).filter((p): p is string => !!p)
+  );
+
+  /** Walk a node's ancestry, nearest parent last. Cycle-safe. */
+  function ancestry(id: string): typeof rows {
+    const chain: typeof rows = [];
+    let cursor: string | null = id;
+    const guard = new Set<string>();
+    while (cursor && !guard.has(cursor)) {
+      guard.add(cursor);
+      const node = byId.get(cursor);
+      if (!node) break;
+      chain.unshift(node);
+      cursor = node.parentId;
+    }
+    return chain;
+  }
+
   return rows
     .filter((r) => !r.isOtherBucket)
-    .map((r) => ({ id: r.id, name: r.name, isAlabama: r.isAlabama }));
+    .filter((r) => !parentIds.has(r.id)) // leaf-only: parents can't hold items
+    .map((r) => {
+      const chain = ancestry(r.id).filter((n) => !n.isOtherBucket || n.id === r.id);
+      return {
+        id: r.id,
+        name: r.name,
+        // "Postcards › Christmas & New Year's"
+        path: chain.map((n) => n.name).join(" › "),
+        // A child of an Alabama-flagged parent is Alabama-related too,
+        // even when nobody re-checked the box on the subcategory.
+        isAlabama: chain.some((n) => n.isAlabama),
+      };
+    });
 }
 
 /**
@@ -280,6 +328,26 @@ export async function processNext(runId: string): Promise<{
       await recordOutcome(runId, item, {
         outcome: "skipped",
         errorMessage: "Claude returned no usable 2nd category",
+        confidence: suggestion.confidence,
+        reasoning: suggestion.reasoning,
+      });
+      await db
+        .update(ebayAutoCategorizeRuns)
+        .set({ totalSkipped: sql`${ebayAutoCategorizeRuns.totalSkipped} + 1` })
+        .where(eq(ebayAutoCategorizeRuns.id, runId));
+      return {
+        done: run.queueIndex + 1 >= queue.length,
+        processedItemId: item.itemId,
+        outcome: "skipped",
+      };
+    }
+    // eBay rejects an item whose two store categories are the same, and
+    // the prompt never sees the existing cat 1 — so it can and does pick
+    // it. Skip rather than burn a guaranteed ReviseItem failure.
+    if (suggestion.primaryCategoryId === item.storeCategory1Id) {
+      await recordOutcome(runId, item, {
+        outcome: "skipped",
+        errorMessage: "Suggested 2nd category duplicates the existing 1st",
         confidence: suggestion.confidence,
         reasoning: suggestion.reasoning,
       });

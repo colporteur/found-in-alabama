@@ -19,6 +19,7 @@ import {
   workbenchFilters,
   type WorkbenchParams,
 } from "@/lib/enhance/workbench-query";
+import { buildCategoryTree } from "@/lib/ebay/category-tree";
 import WorkbenchGrid, { type GridRow } from "./WorkbenchGrid";
 
 export const dynamic = "force-dynamic";
@@ -115,6 +116,7 @@ export default async function Workbench({
     db
       .select({
         categoryId: ebayStoreCategories.categoryId,
+        parentCategoryId: ebayStoreCategories.parentCategoryId,
         name: ebayStoreCategories.name,
       })
       .from(ebayStoreCategories)
@@ -124,6 +126,10 @@ export default async function Workbench({
       .from(ebayListings)
       .groupBy(skuClassSql()),
   ]);
+
+  // Paths + leaf flags, so dropdowns show "Postcards › Christmas" rather
+  // than a bare "Christmas" floating in a flat list.
+  const categoryTree = buildCategoryTree(categories);
 
   const total = countRow?.n ?? 0;
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -214,9 +220,10 @@ export default async function Workbench({
             <label className={labelCls}>Store category</label>
             <select className={`${inputCls} w-full`} name="categoryId" defaultValue={p.categoryId ?? ""}>
               <option value="">Any</option>
-              {categories.map((c) => (
+              {categoryTree.map((c) => (
                 <option key={c.categoryId} value={c.categoryId}>
-                  {c.name}
+                  {c.path}
+                  {c.isLeaf ? "" : " (parent — holds no items)"}
                 </option>
               ))}
             </select>
@@ -276,6 +283,13 @@ export default async function Workbench({
       <WorkbenchGrid
         rows={gridRows}
         guides={listGuides().map((g) => ({ id: g.id, name: g.name }))}
+        categories={categoryTree.map((c) => ({
+          categoryId: c.categoryId,
+          // Parents are listed but flagged — eBay rejects items assigned
+          // to a category that has children.
+          name: c.isLeaf ? c.path : `${c.path} (parent — can't hold items)`,
+          isLeaf: c.isLeaf,
+        }))}
         filterQuery={filterQueryString(p)}
         matchingTotal={total}
       />

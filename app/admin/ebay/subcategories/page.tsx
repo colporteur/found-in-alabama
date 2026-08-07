@@ -7,18 +7,28 @@
 import { db, ebayStoreCategories } from "@/db";
 import { asc } from "drizzle-orm";
 import Link from "next/link";
+import { buildCategoryTree } from "@/lib/ebay/category-tree";
 import SubcategoryAnalyzer from "./SubcategoryAnalyzer";
 
 export const dynamic = "force-dynamic";
 
 export default async function SubcategoriesPage() {
-  const categories = await db
+  const rawCategories = await db
     .select({
       categoryId: ebayStoreCategories.categoryId,
+      parentCategoryId: ebayStoreCategories.parentCategoryId,
       name: ebayStoreCategories.name,
     })
     .from(ebayStoreCategories)
     .orderBy(asc(ebayStoreCategories.name));
+
+  // Show ancestry in the pickers — a bare "Christmas & New Year's" is
+  // indistinguishable from a holiday-decor category otherwise.
+  const categories = buildCategoryTree(rawCategories).map((c) => ({
+    categoryId: c.categoryId,
+    name: c.isLeaf ? c.path : `${c.path} (parent — can't hold items)`,
+    isLeaf: c.isLeaf,
+  }));
 
   return (
     <section className="container-content py-12">

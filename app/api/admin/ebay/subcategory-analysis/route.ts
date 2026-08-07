@@ -16,6 +16,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db, ebayListings, ebayStoreCategories } from "@/db";
 import { and, eq, gt, ilike, or, sql } from "drizzle-orm";
+import { buildCategoryTree } from "@/lib/ebay/category-tree";
 import { callLlm } from "@/lib/enhance/providers";
 
 export const runtime = "nodejs";
@@ -66,14 +67,21 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  // Use the full path, not the bare name — subdividing "Christmas & New
+  // Year's" is a meaningless instruction, while subdividing "Postcards ›
+  // Christmas & New Year's" tells the model what it's actually splitting.
   let categoryName: string | null = null;
   if (categoryId) {
-    const [cat] = await db
-      .select({ name: ebayStoreCategories.name })
-      .from(ebayStoreCategories)
-      .where(eq(ebayStoreCategories.categoryId, categoryId))
-      .limit(1);
-    categoryName = cat?.name ?? null;
+    const allCats = await db
+      .select({
+        categoryId: ebayStoreCategories.categoryId,
+        parentCategoryId: ebayStoreCategories.parentCategoryId,
+        name: ebayStoreCategories.name,
+      })
+      .from(ebayStoreCategories);
+    categoryName =
+      buildCategoryTree(allCats).find((c) => c.categoryId === categoryId)?.path ??
+      null;
   }
 
   // Titles: in the category (slot 1 or 2), plus keyword strays anywhere

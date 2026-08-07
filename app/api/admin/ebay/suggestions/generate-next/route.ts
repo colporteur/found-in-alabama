@@ -10,12 +10,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db } from "@/db";
-import {
-  ebayCategorySuggestions,
-  ebayListings,
-  ebayStoreCategories,
-} from "@/db/schema";
-import { count, eq, sql } from "drizzle-orm";
+import { ebayCategorySuggestions, ebayListings } from "@/db/schema";
+import { count, sql } from "drizzle-orm";
+import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 import { suggestCategoryForListing } from "@/lib/ebay/categorize";
 import { decodeEntities } from "@/lib/ebay/entities";
 
@@ -52,17 +49,10 @@ export async function POST(req: NextRequest) {
   try {
     // Eligible categories: anything in the synced tree EXCEPT the "Other"
     // bucket itself (suggesting "Other → Other" would be silly).
-    const cats = await db
-      .select({
-        id: ebayStoreCategories.categoryId,
-        name: ebayStoreCategories.name,
-        isAlabama: ebayStoreCategories.isAlabamaRelated,
-        isOtherBucket: ebayStoreCategories.isOtherBucket,
-      })
-      .from(ebayStoreCategories);
-    const eligible = cats
-      .filter((c) => !c.isOtherBucket)
-      .map((c) => ({ id: c.id, name: c.name, isAlabama: c.isAlabama }));
+    // Shared with the auto-categorizer: leaf-only (eBay won't hold items
+    // in a parent category) and path-annotated (a bare "Christmas & New
+    // Year's" doesn't say "postcard" on its own).
+    const eligible = await buildCategoryOptions();
 
     // Find the next batch of listings without an existing suggestion. We
     // use a NOT EXISTS subquery so re-running is idempotent. Also skip

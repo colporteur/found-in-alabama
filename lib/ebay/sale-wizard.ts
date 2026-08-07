@@ -26,6 +26,7 @@ import {
   ebayStoreCategories,
   socialDrafts,
 } from "@/db/schema";
+import { buildCategoryTree } from "@/lib/ebay/category-tree";
 import { sellApi, SellApiError } from "@/lib/ebay/sell-api";
 import { nextSlotFor } from "@/lib/social/schedule";
 import type { ChannelKey } from "@/lib/social/channel-styles";
@@ -52,21 +53,31 @@ export function wizardKeyFor(monthStart: Date, categoryId: string): string {
   return `wizard:${wizardMonthLabel(monthStart)}:${categoryId}`;
 }
 
-/** Eligible categories: everything except the "Other" bucket. */
+/**
+ * Eligible categories: every assignable (childless) category except the
+ * "Other" bucket. Names are full paths so a generated sale label reads
+ * "Postcards › Christmas & New Year's 20% off" rather than a bare
+ * "Christmas & New Year's 20% off", which says nothing about what's on
+ * sale.
+ */
 async function loadEligibleCategories(): Promise<
   { categoryId: string; name: string }[]
 > {
   const cats = await db
     .select({
       categoryId: ebayStoreCategories.categoryId,
+      parentCategoryId: ebayStoreCategories.parentCategoryId,
       name: ebayStoreCategories.name,
       isOtherBucket: ebayStoreCategories.isOtherBucket,
     })
     .from(ebayStoreCategories)
     .orderBy(asc(ebayStoreCategories.name));
-  return cats
-    .filter((c) => !c.isOtherBucket)
-    .map((c) => ({ categoryId: c.categoryId, name: c.name }));
+  const otherIds = new Set(
+    cats.filter((c) => c.isOtherBucket).map((c) => c.categoryId)
+  );
+  return buildCategoryTree(cats)
+    .filter((c) => c.isLeaf && !otherIds.has(c.categoryId))
+    .map((c) => ({ categoryId: c.categoryId, name: c.path }));
 }
 
 /** Build the deterministic month plan. */

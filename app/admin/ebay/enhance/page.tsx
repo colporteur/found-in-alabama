@@ -5,6 +5,7 @@
 import { db, enhanceBatches, aiCallLog, aiModelPricing, ebayStoreCategories } from "@/db";
 import { asc, desc, gte, sql } from "drizzle-orm";
 import Link from "next/link";
+import { buildCategoryTree } from "@/lib/ebay/category-tree";
 import { listGuides } from "@/lib/enhance/guides";
 import { getActiveAutorunStatus } from "@/lib/enhance/autorun";
 import AutorunCard, { type AutorunCardStatus } from "./AutorunControls";
@@ -58,6 +59,7 @@ export default async function EnhancePortal() {
     db
       .select({
         categoryId: ebayStoreCategories.categoryId,
+        parentCategoryId: ebayStoreCategories.parentCategoryId,
         name: ebayStoreCategories.name,
       })
       .from(ebayStoreCategories)
@@ -99,7 +101,10 @@ export default async function EnhancePortal() {
       </p>
 
       <NewBatchForm
-        categories={categories}
+        categories={buildCategoryTree(categories).map((c) => ({
+          categoryId: c.categoryId,
+          name: c.isLeaf ? c.path : `${c.path} (parent — holds no items)`,
+        }))}
         guides={listGuides().map((g) => ({ id: g.id, name: g.name }))}
       />
 

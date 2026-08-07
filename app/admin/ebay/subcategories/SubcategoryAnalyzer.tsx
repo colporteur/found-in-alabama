@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 
-type Category = { categoryId: string; name: string };
+type Category = { categoryId: string; name: string; isLeaf?: boolean };
 
 type Subcategory = {
   name: string;
@@ -45,14 +45,25 @@ export default function SubcategoryAnalyzer({
   const [distributing, setDistributing] = useState(false);
   const [distributeNote, setDistributeNote] = useState<string | null>(null);
 
-  /** Best-effort default: a synced category whose name matches the proposal. */
+  /**
+   * Best-effort default: a synced category whose name matches the
+   * proposal. Two subtleties:
+   * - Only LEAF categories are candidates. Parents are shown disabled,
+   *   but a disabled option can still be the selected value when set
+   *   programmatically — which would build a batch where every single
+   *   ReviseItem fails (eBay won't put items in a parent).
+   * - `c.name` is now a full path ("Postcards › Christmas & New Year's"),
+   *   so exact matching compares the LAST segment against the proposal.
+   */
   function autoMatch(name: string): string {
     const norm = (s: string) =>
       s.toLowerCase().replace(/&/g, "and").replace(/[^a-z0-9 ]/g, "").trim();
+    const leafOf = (s: string) => s.split("›").pop() ?? s;
     const n = norm(name);
+    const pool = categories.filter((c) => c.isLeaf !== false);
     const hit =
-      categories.find((c) => norm(c.name) === n) ??
-      categories.find((c) => norm(c.name).includes(n) || n.includes(norm(c.name)));
+      pool.find((c) => norm(leafOf(c.name)) === n) ??
+      pool.find((c) => norm(c.name).includes(n));
     return hit?.categoryId ?? "";
   }
 
@@ -266,7 +277,11 @@ export default function SubcategoryAnalyzer({
                   >
                     <option value="">(skip — pick category)</option>
                     {categories.map((c) => (
-                      <option key={c.categoryId} value={c.categoryId}>
+                      <option
+                        key={c.categoryId}
+                        value={c.categoryId}
+                        disabled={c.isLeaf === false}
+                      >
                         {c.name}
                       </option>
                     ))}

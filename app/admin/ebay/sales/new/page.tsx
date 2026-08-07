@@ -7,6 +7,7 @@ import { redirect } from "next/navigation";
 import { db } from "@/db";
 import { ebayStoreCategories } from "@/db/schema";
 import { asc } from "drizzle-orm";
+import { buildCategoryTree } from "@/lib/ebay/category-tree";
 import { getOAuthStatus } from "@/lib/ebay/oauth";
 import NewSaleForm from "./NewSaleForm";
 import MonthlySaleWizard from "@/components/MonthlySaleWizard";
@@ -27,7 +28,8 @@ export default async function NewSalePage() {
 
   const cats = await db
     .select({
-      id: ebayStoreCategories.categoryId,
+      categoryId: ebayStoreCategories.categoryId,
+      parentCategoryId: ebayStoreCategories.parentCategoryId,
       name: ebayStoreCategories.name,
       isAlabama: ebayStoreCategories.isAlabamaRelated,
       isOtherBucket: ebayStoreCategories.isOtherBucket,
@@ -37,10 +39,16 @@ export default async function NewSalePage() {
 
   // Don't allow targeting the "Other" bucket itself with a sale — it'd
   // be too unfocused. (Sales should target categories the items truly
-  // belong to.)
-  const eligible: CategoryDTO[] = cats
-    .filter((c) => !c.isOtherBucket)
-    .map((c) => ({ id: c.id, name: c.name, isAlabama: c.isAlabama }));
+  // belong to.) Names are full paths so sibling leaves with generic
+  // names ("Christmas & New Year's") stay distinguishable in the picker.
+  const meta = new Map(cats.map((c) => [c.categoryId, c]));
+  const eligible: CategoryDTO[] = buildCategoryTree(cats)
+    .filter((c) => !meta.get(c.categoryId)?.isOtherBucket)
+    .map((c) => ({
+      id: c.categoryId,
+      name: c.isLeaf ? c.path : `${c.path} (parent)`,
+      isAlabama: meta.get(c.categoryId)?.isAlabama ?? false,
+    }));
 
   return (
     <section className="container-content py-12">

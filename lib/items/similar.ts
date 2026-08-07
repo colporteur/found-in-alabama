@@ -16,6 +16,7 @@
 import { db, items, ebayListings, ebayStoreCategories } from "@/db";
 import { eq } from "drizzle-orm";
 import { gatewayMessages } from "@/lib/gateway";
+import { buildCategoryTree } from "@/lib/ebay/category-tree";
 import { ebayItemIdFromUrl } from "@/lib/ebay/store-url";
 import type { MarketplaceKey } from "@/db/schema";
 
@@ -98,15 +99,24 @@ async function pickCategoryWithClaude(title: string): Promise<string | null> {
   const categoryRows = await db
     .select({
       categoryId: ebayStoreCategories.categoryId,
+      parentCategoryId: ebayStoreCategories.parentCategoryId,
       name: ebayStoreCategories.name,
       isOtherBucket: ebayStoreCategories.isOtherBucket,
     })
     .from(ebayStoreCategories);
-  const usable = categoryRows.filter((r) => !r.isOtherBucket);
+  const otherIds = new Set(
+    categoryRows.filter((r) => r.isOtherBucket).map((r) => r.categoryId)
+  );
+  // Leaf-only, path-labelled: a bare "Christmas & New Year's" doesn't
+  // tell the model it means postcards, and a parent category holds no
+  // items to browse anyway.
+  const usable = buildCategoryTree(categoryRows).filter(
+    (c) => c.isLeaf && !otherIds.has(c.categoryId)
+  );
   if (usable.length === 0) return null;
 
   const list = usable
-    .map((c) => `${c.categoryId}\t${c.name}`)
+    .map((c) => `${c.categoryId}\t${c.path}`)
     .join("\n");
 
   let resp;
@@ -119,7 +129,7 @@ async function pickCategoryWithClaude(title: string): Promise<string | null> {
       messages: [
         {
           role: "user",
-          content: `Categories (format: id<TAB>name):
+          content: `Categories (format: id<TAB>full › category › path — match the WHOLE path, not just the last segment):
 ${list}
 
 Product title:

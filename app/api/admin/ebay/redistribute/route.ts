@@ -15,7 +15,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { db, ebayListings, ebayStoreCategories } from "@/db";
-import { and, eq, gt, ilike, inArray, isNull, notInArray, or } from "drizzle-orm";
+import { and, eq, gt, ilike, isNull, notInArray, or } from "drizzle-orm";
 import { createBatch } from "@/lib/enhance/queue";
 
 export const runtime = "nodejs";
@@ -58,18 +58,39 @@ export async function POST(req: NextRequest) {
 
   // Resolve target category names for labels.
   const targetIds = assignments.map((a) => a.storeCategoryId);
-  const targets = await db
+  const allCats = await db
     .select({
       categoryId: ebayStoreCategories.categoryId,
+      parentCategoryId: ebayStoreCategories.parentCategoryId,
       name: ebayStoreCategories.name,
     })
-    .from(ebayStoreCategories)
-    .where(inArray(ebayStoreCategories.categoryId, targetIds));
-  const nameById = new Map(targets.map((t) => [t.categoryId, t.name]));
+    .from(ebayStoreCategories);
+  const nameById = new Map(
+    allCats
+      .filter((c) => targetIds.includes(c.categoryId))
+      .map((t) => [t.categoryId, t.name])
+  );
   const unknown = targetIds.filter((id) => !nameById.has(id));
   if (unknown.length > 0) {
     return NextResponse.json(
       { error: `Unknown store category id(s): ${unknown.join(", ")} — run Sync categories first` },
+      { status: 400 }
+    );
+  }
+
+  // eBay rejects any item assigned to a category that has children, so a
+  // batch targeting a parent would fail on every single job. Catch it here
+  // rather than after 400 failed ReviseItem calls.
+  const parentIds = new Set(
+    allCats.map((c) => c.parentCategoryId).filter((p): p is string => !!p)
+  );
+  const nonLeaf = targetIds.filter((id) => parentIds.has(id));
+  if (nonLeaf.length > 0) {
+    const names = nonLeaf.map((id) => nameById.get(id) ?? id).join(", ");
+    return NextResponse.json(
+      {
+        error: `These targets have subcategories and can't hold items directly: ${names}. Pick a subcategory instead.`,
+      },
       { status: 400 }
     );
   }

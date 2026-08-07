@@ -44,6 +44,7 @@ const SUPPORTED_OPS: EnhanceOp[] = [
   "title_remix",
   "description_remix",
   "price_research",
+  "store_category",
 ];
 
 /**
@@ -168,6 +169,15 @@ export async function POST(req: NextRequest) {
   }
   const config = body.config ?? {};
   const sel: Selection = body.selection ?? {};
+
+  if (op === "store_category") {
+    if (typeof config.category1Id !== "string" || !config.category1Id) {
+      return NextResponse.json(
+        { error: "store_category requires a category1Id" },
+        { status: 400 }
+      );
+    }
+  }
 
   // Remix ops need a valid guide before anything runs.
   if (op === "title_remix" || op === "description_remix") {
