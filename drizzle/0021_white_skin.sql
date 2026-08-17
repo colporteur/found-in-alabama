@@ -1,0 +1,1 @@
+ALTER TABLE "ebay_store_categories" ADD COLUMN "ship_class" text DEFAULT 'paper' NOT NULL;

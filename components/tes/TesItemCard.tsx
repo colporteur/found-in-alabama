@@ -4,6 +4,7 @@
 // No haul-journal link — the journal is an FIA feature.
 
 import type { StorefrontItem } from "@/lib/ebay/storefront";
+import AddToCartButton from "@/components/tes/AddToCartButton";
 
 function formatPrice(p: string | null): string | null {
   if (!p) return null;
@@ -87,6 +88,19 @@ export default function TesItemCard({ item }: { item: StorefrontItem }) {
           </div>
         </div>
       </a>
+      <div className="px-3 pb-3">
+        <AddToCartButton
+          itemId={item.itemId}
+          title={item.title}
+          price={
+            item.price != null && Number.isFinite(parseFloat(item.price))
+              ? parseFloat(item.price)
+              : null
+          }
+          imageUrl={item.imageUrl}
+          shipClass={item.shipClass}
+        />
+      </div>
       {item.marketplaceLinks.length > 0 && (
         <div className="px-3 py-2 border-t border-tes-ink/10 flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] text-tes-ink/45 mr-0.5">Also on</span>

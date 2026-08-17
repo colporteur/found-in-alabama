@@ -112,6 +112,12 @@ export const ebayStoreCategories = pgTable(
     // Flag the "Found in Other States" parent once and all 50 state
     // children ride along. Manual edits survive re-syncs (same as Alabama).
     isEphemeralState: boolean("is_ephemeral_state").default(false).notNull(),
+    // Shipping class for The Ephemeral State cart: "paper" | "media" |
+    // "bulky". An item's class is the heaviest class among its two store
+    // categories (bulky > media > paper). Default paper — Todd flips the
+    // book/magazine categories to media and plates/bottles/signs to bulky
+    // in the categories admin.
+    shipClass: text("ship_class").default("paper").notNull(),
     lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
   },
   (t) => ({

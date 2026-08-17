@@ -4,6 +4,7 @@
 
 import Link from "next/link";
 import { tesHome, tesPrefix } from "@/lib/tes/host";
+import CartLink from "@/components/tes/CartLink";
 
 export default function TesHeader() {
   const prefix = tesPrefix();
@@ -31,6 +32,13 @@ export default function TesHeader() {
             Browse the states
           </Link>
           <a
+            href="sms:+12566841253"
+            className="hover:underline underline-offset-4 decoration-tes-kraft decoration-2"
+            title="Selling a collection? Text us."
+          >
+            We buy collections
+          </a>
+          <a
             href="https://www.foundinalabama.com"
             target="_blank"
             rel="noopener noreferrer"
@@ -38,6 +46,7 @@ export default function TesHeader() {
           >
             Found in Alabama
           </a>
+          <CartLink href={`${prefix}/cart`} />
         </nav>
       </div>
       {/* Keep prefix referenced so future nav additions remember to use it. */}

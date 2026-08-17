@@ -9,6 +9,7 @@ import { Inter, Special_Elite } from "next/font/google";
 import "../globals.css";
 import TesHeader from "@/components/tes/TesHeader";
 import TesFooter from "@/components/tes/TesFooter";
+import { CartProvider } from "@/components/tes/CartProvider";
 import { Analytics } from "@vercel/analytics/next";
 
 const inter = Inter({
@@ -77,9 +78,11 @@ export default function TesRootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${typewriter.variable}`}>
       <body className="bg-tes-cream text-tes-ink font-sans antialiased min-h-screen flex flex-col">
-        <TesHeader />
-        <main className="flex-1">{children}</main>
-        <TesFooter />
+        <CartProvider>
+          <TesHeader />
+          <main className="flex-1">{children}</main>
+          <TesFooter />
+        </CartProvider>
         <Analytics />
       </body>
     </html>

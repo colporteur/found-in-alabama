@@ -292,6 +292,8 @@ export type StorefrontItem = {
   price: string | null;
   imageUrl: string | null;
   ebayUrl: string;
+  /** TES cart shipping class (heaviest of the item's store categories). */
+  shipClass: "paper" | "media" | "bulky";
   sale: SaleBadge | null;
   /** Journal post slug when this item came from a documented haul. */
   haulSlug: string | null;
@@ -369,22 +371,38 @@ export async function getCategoryItems(
     .orderBy(desc(ebayListings.startTime))
     .limit(limit);
 
-  const [onSale, metaByEbayId] = await Promise.all([
+  const [onSale, metaByEbayId, classRows] = await Promise.all([
     getOnSaleLookup(),
     getItemMetaByEbayId(),
+    db
+      .select({
+        categoryId: ebayStoreCategories.categoryId,
+        shipClass: ebayStoreCategories.shipClass,
+      })
+      .from(ebayStoreCategories),
   ]);
+  const classByCat = new Map(
+    classRows.map((c) => [c.categoryId, c.shipClass])
+  );
+  const rank = { paper: 0, media: 1, bulky: 2 } as const;
+  const norm = (v: unknown): "paper" | "media" | "bulky" =>
+    v === "media" || v === "bulky" ? v : "paper";
   return rows.map((r) => {
     const sale =
       onSale.byListingId.get(r.itemId) ??
       onSale.byCategoryId.get(category.categoryId) ??
       null;
     const meta = metaByEbayId.get(r.itemId);
+    const c1 = norm(r.cat1 ? classByCat.get(r.cat1) : undefined);
+    const c2 = norm(r.cat2 ? classByCat.get(r.cat2) : undefined);
+    const shipClass = rank[c1] >= rank[c2] ? c1 : c2;
     return {
       itemId: r.itemId,
       title: r.title,
       price: r.price,
       imageUrl: r.imageUrl,
       ebayUrl: `https://www.ebay.com/itm/${r.itemId}`,
+      shipClass,
       sale,
       haulSlug: meta?.haulSlug ?? null,
       marketplaceLinks: meta?.marketplaceLinks ?? [],

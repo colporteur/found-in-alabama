@@ -18,6 +18,7 @@ export interface StoredCategory {
   isAlabamaRelated: boolean;
   isOtherBucket: boolean;
   isEphemeralState: boolean;
+  shipClass: string;
   lastSyncedAt: string;
 }
 
@@ -36,6 +37,7 @@ export default async function CategoriesPage() {
     isAlabamaRelated: r.isAlabamaRelated,
     isOtherBucket: r.isOtherBucket,
     isEphemeralState: r.isEphemeralState,
+    shipClass: r.shipClass,
     lastSyncedAt: r.lastSyncedAt.toISOString(),
   }));
 

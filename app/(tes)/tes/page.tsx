@@ -160,6 +160,7 @@ export default async function TesHomePage() {
           </p>
         </div>
 
+        {/* We-buy strip renders below the grid — see end of page. */}
         {groups.length === 0 ? (
           <div className="bg-white rounded-xl ring-1 ring-tes-ink/10 p-12 text-center">
             <p className="font-typewriter text-2xl text-tes-ink/40 mb-1">
@@ -181,6 +182,27 @@ export default async function TesHomePage() {
             ))}
           </div>
         )}
+      </section>
+
+      <section className="border-t border-tes-ink/10 bg-white">
+        <div className="container-content py-12 md:flex md:items-center md:justify-between md:gap-8">
+          <div className="max-w-prose">
+            <h2 className="font-typewriter text-2xl md:text-3xl mb-2">
+              Sitting on a collection?
+            </h2>
+            <p className="text-tes-ink/75 leading-relaxed">
+              We buy ephemera — postcards, photographs, letters, documents,
+              scrapbooks, whole boxes and whole estates. One piece or a
+              thousand, anywhere in the U.S.
+            </p>
+          </div>
+          <a
+            href="sms:+12566841253"
+            className="inline-block mt-5 md:mt-0 shrink-0 px-6 py-3 rounded-md bg-tes-ink text-tes-cream font-medium hover:bg-tes-ink/85 transition-colors"
+          >
+            Text us: 256-684-1253 →
+          </a>
+        </div>
       </section>
     </>
   );

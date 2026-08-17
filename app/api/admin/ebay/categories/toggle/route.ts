@@ -14,12 +14,17 @@ import { eq, ne } from "drizzle-orm";
 
 export const runtime = "nodejs";
 
-type ToggleField = "isAlabamaRelated" | "isOtherBucket" | "isEphemeralState";
+type ToggleField =
+  | "isAlabamaRelated"
+  | "isOtherBucket"
+  | "isEphemeralState"
+  | "shipClass";
 
 interface ToggleBody {
   categoryId?: string;
   field?: ToggleField;
-  value?: boolean;
+  /** boolean for the flag fields; "paper" | "media" | "bulky" for shipClass */
+  value?: boolean | string;
 }
 
 export async function PATCH(req: NextRequest) {
@@ -43,18 +48,26 @@ export async function PATCH(req: NextRequest) {
   if (
     field !== "isAlabamaRelated" &&
     field !== "isOtherBucket" &&
-    field !== "isEphemeralState"
+    field !== "isEphemeralState" &&
+    field !== "shipClass"
   ) {
     return NextResponse.json(
       {
         ok: false,
         error:
-          "field must be isAlabamaRelated, isOtherBucket, or isEphemeralState",
+          "field must be isAlabamaRelated, isOtherBucket, isEphemeralState, or shipClass",
       },
       { status: 400 }
     );
   }
-  if (typeof value !== "boolean") {
+  if (field === "shipClass") {
+    if (value !== "paper" && value !== "media" && value !== "bulky") {
+      return NextResponse.json(
+        { ok: false, error: "shipClass must be paper, media, or bulky" },
+        { status: 400 }
+      );
+    }
+  } else if (typeof value !== "boolean") {
     return NextResponse.json({ ok: false, error: "value must be boolean" }, { status: 400 });
   }
 
@@ -69,11 +82,13 @@ export async function PATCH(req: NextRequest) {
     }
 
     const setClause =
-      field === "isAlabamaRelated"
-        ? { isAlabamaRelated: value }
+      field === "shipClass"
+        ? { shipClass: value as string }
+        : field === "isAlabamaRelated"
+        ? { isAlabamaRelated: value as boolean }
         : field === "isEphemeralState"
-        ? { isEphemeralState: value }
-        : { isOtherBucket: value };
+        ? { isEphemeralState: value as boolean }
+        : { isOtherBucket: value as boolean };
 
     await db
       .update(ebayStoreCategories)

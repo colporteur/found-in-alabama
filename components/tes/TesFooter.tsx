@@ -19,6 +19,14 @@ export default function TesFooter() {
           <div className="md:text-right text-sm space-y-2">
             <p>
               <a
+                href="sms:+12566841253"
+                className="text-tes-kraft hover:text-tes-cream transition-colors font-medium"
+              >
+                We buy ephemera collections — text 256-684-1253
+              </a>
+            </p>
+            <p>
+              <a
                 href="https://www.foundinalabama.com"
                 target="_blank"
                 rel="noopener noreferrer"

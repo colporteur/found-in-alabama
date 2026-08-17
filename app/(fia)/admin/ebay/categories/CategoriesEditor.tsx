@@ -119,6 +119,36 @@ export default function CategoriesEditor({
     }
   }
 
+  async function saveShipClass(categoryId: string, nextValue: string) {
+    setSavingIds((s) => new Set(s).add(categoryId));
+    setCategories((prev) =>
+      prev.map((c) =>
+        c.categoryId === categoryId ? { ...c, shipClass: nextValue } : c
+      )
+    );
+    try {
+      const res = await fetch("/api/admin/ebay/categories/toggle", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categoryId, field: "shipClass", value: nextValue }),
+      });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        throw new Error(json.error || `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      console.error("[categories] shipClass save failed", err);
+      setCategories(initial);
+      alert(`Failed to save: ${(err as Error).message}`);
+    } finally {
+      setSavingIds((s) => {
+        const next = new Set(s);
+        next.delete(categoryId);
+        return next;
+      });
+    }
+  }
+
   async function toggleFlag(
     categoryId: string,
     field: "isAlabamaRelated" | "isOtherBucket" | "isEphemeralState",
@@ -258,10 +288,11 @@ export default function CategoriesEditor({
 
           {/* Categories list */}
           <div className="bg-white border border-brand-ink/15 rounded-lg overflow-hidden">
-            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-4 py-2 bg-brand-paper text-xs uppercase tracking-wider text-brand-ink/50">
+            <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 px-4 py-2 bg-brand-paper text-xs uppercase tracking-wider text-brand-ink/50">
               <div>Name</div>
               <div className="text-center">Alabama</div>
               <div className="text-center">Ephemeral</div>
+              <div className="text-center">Ship</div>
               <div className="text-center">Is &ldquo;Other&rdquo;</div>
             </div>
             <ul className="divide-y divide-brand-ink/5">
@@ -273,7 +304,7 @@ export default function CategoriesEditor({
                 filtered.map(({ cat, depth }) => (
                   <li
                     key={cat.categoryId}
-                    className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-4 py-2.5 items-center text-sm"
+                    className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 px-4 py-2.5 items-center text-sm"
                   >
                     <div
                       className="truncate"
@@ -304,6 +335,19 @@ export default function CategoriesEditor({
                       }
                       label="Ephemeral State"
                     />
+                    <select
+                      value={cat.shipClass}
+                      disabled={savingIds.has(cat.categoryId)}
+                      onChange={(e) =>
+                        saveShipClass(cat.categoryId, e.target.value)
+                      }
+                      aria-label="Shipping class"
+                      className="text-xs border border-brand-ink/15 rounded px-1.5 py-1 bg-white disabled:opacity-50"
+                    >
+                      <option value="paper">paper</option>
+                      <option value="media">media</option>
+                      <option value="bulky">bulky</option>
+                    </select>
                     <Toggle
                       checked={cat.isOtherBucket}
                       saving={savingIds.has(cat.categoryId)}

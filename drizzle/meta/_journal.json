@@ -148,6 +148,13 @@
       "when": 1786981733060,
       "tag": "0020_cheerful_warpath",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1786998026593,
+      "tag": "0021_white_skin",
+      "breakpoints": true
     }
   ]
 }
