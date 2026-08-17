@@ -983,3 +983,59 @@ export const verificationTokens = pgTable(
     compoundKey: primaryKey({ columns: [vt.identifier, vt.token] }),
   })
 );
+
+// ─── The Ephemeral State orders ───────────────────────────────────────────────
+// Orders placed through theephemeralstate.com's Stripe checkout (TES-2b).
+// An order is created "pending" when the Checkout Session is opened and
+// flipped to "paid" by the Stripe webhook, which also decrements mirror
+// quantities. delistStatus drives the phase-3 flow: paid orders sit
+// "pending" until the items are delisted from Nifty (manually via the
+// admin orders page for now; Chrome-extension actuator later).
+
+export const tesOrders = pgTable(
+  "tes_orders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    stripeSessionId: text("stripe_session_id").unique(),
+    stripePaymentIntentId: text("stripe_payment_intent_id"),
+    /** pending | paid | canceled */
+    status: text("status").default("pending").notNull(),
+    email: text("email"),
+    shippingName: text("shipping_name"),
+    shippingAddress: jsonb("shipping_address"),
+    subtotal: numeric("subtotal", { precision: 10, scale: 2 }).notNull(),
+    shipping: numeric("shipping", { precision: 10, scale: 2 }).notNull(),
+    total: numeric("total", { precision: 10, scale: 2 }).notNull(),
+    governingShipClass: text("governing_ship_class").notNull(),
+    freeShipping: boolean("free_shipping").default(false).notNull(),
+    /** pending | done — has every item been delisted from Nifty? */
+    delistStatus: text("delist_status").default("pending").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    paidAt: timestamp("paid_at"),
+  },
+  (t) => ({
+    statusIdx: index("tes_orders_status_idx").on(t.status),
+    delistIdx: index("tes_orders_delist_idx").on(t.delistStatus),
+  })
+);
+
+export const tesOrderItems = pgTable(
+  "tes_order_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => tesOrders.id, { onDelete: "cascade" }),
+    /** eBay item id — the cross-system match key (SKUs are bin numbers). */
+    itemId: text("item_id").notNull(),
+    title: text("title").notNull(),
+    sku: text("sku"),
+    unitPrice: numeric("unit_price", { precision: 10, scale: 2 }).notNull(),
+    quantity: integer("quantity").notNull(),
+    shipClass: text("ship_class").notNull(),
+    imageUrl: text("image_url"),
+  },
+  (t) => ({
+    orderIdx: index("tes_order_items_order_idx").on(t.orderId),
+  })
+);

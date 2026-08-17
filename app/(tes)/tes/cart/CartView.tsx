@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { useCart } from "@/components/tes/CartProvider";
 import {
@@ -12,6 +13,39 @@ const fmt = (n: number) => `$${n.toFixed(2)}`;
 
 export default function CartView({ home }: { home: string }) {
   const { lines, remove, setQuantity, ready } = useCart();
+  const [checkingOut, setCheckingOut] = useState(false);
+  const [checkoutError, setCheckoutError] = useState<string | null>(null);
+
+  async function startCheckout() {
+    setCheckingOut(true);
+    setCheckoutError(null);
+    try {
+      const res = await fetch("/api/tes/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          lines: lines.map((l) => ({ itemId: l.itemId, quantity: l.quantity })),
+        }),
+      });
+      const json = (await res.json()) as {
+        url?: string;
+        error?: string;
+        unavailable?: string[];
+      };
+      if (res.ok && json.url) {
+        window.location.href = json.url;
+        return;
+      }
+      if (json.unavailable?.length) {
+        for (const id of json.unavailable) remove(id);
+      }
+      setCheckoutError(json.error ?? "Checkout failed — please try again.");
+    } catch {
+      setCheckoutError("Checkout failed — please try again.");
+    } finally {
+      setCheckingOut(false);
+    }
+  }
 
   const quote = quoteShipping(
     lines.map(
@@ -130,17 +164,23 @@ export default function CartView({ home }: { home: string }) {
                 {fmt(quote.subtotal + quote.shipping)}
               </span>
             </div>
+            {checkoutError && (
+              <p className="text-xs bg-red-50 text-red-800 rounded px-3 py-2">
+                {checkoutError}
+              </p>
+            )}
             <button
               type="button"
-              disabled
-              title="Checkout opens soon"
-              className="w-full px-4 py-3 rounded-md bg-tes-ink text-tes-cream font-medium opacity-50 cursor-not-allowed"
+              onClick={startCheckout}
+              disabled={checkingOut || lines.length === 0}
+              className="w-full px-4 py-3 rounded-md bg-tes-ink text-tes-cream font-medium hover:bg-tes-ink/85 transition-colors disabled:opacity-50"
             >
-              Checkout — opening soon
+              {checkingOut ? "Preparing checkout…" : "Checkout"}
             </button>
             <p className="text-[11px] text-tes-ink/45 leading-snug">
-              Until checkout opens, every item&rsquo;s card links to its eBay
-              listing where you can buy today.
+              Secure payment by Stripe. We re-verify availability at
+              checkout — cross-listed inventory occasionally sells elsewhere
+              first.
             </p>
           </aside>
         </div>
