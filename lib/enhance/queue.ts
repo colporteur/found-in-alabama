@@ -16,6 +16,7 @@ import { db, ebayListings, enhanceBatches, enhanceJobs } from "@/db";
 import { SUBSTANTIVE_OPS, WIGGLE_OPS, type EnhanceOp } from "@/db/schema";
 import { and, asc, eq, notInArray, sql } from "drizzle-orm";
 import { getOpHandler } from "@/lib/enhance/ops";
+import { isQuotaError } from "@/lib/ebay/quota";
 
 // A job that returns "waiting" (async op in flight, e.g. an APR research
 // job) goes back to pending and is re-claimed on a LATER tick — the
@@ -93,6 +94,13 @@ export type TickSummary = {
   /** Jobs re-queued this tick because async work (APR) is still running. */
   waiting: number;
   batchesFinished: number;
+  /**
+   * True when the tick stopped early on an eBay call-limit error. The
+   * offending job is back in the queue, nothing was lost, and callers
+   * that loop ticks (the dashboard's "Run queue now") should stop rather
+   * than spin against the ceiling.
+   */
+  quotaExceeded?: boolean;
   errors: string[];
 };
 
@@ -187,6 +195,35 @@ export async function processTick(
           errorMessage: err instanceof Error ? err.message : String(err),
         };
       }
+    }
+
+    // eBay call-ceiling circuit breaker. A quota wall is not this job's
+    // fault and won't be fixed by trying the next one — every remaining
+    // job would fail identically, turning a temporary limit into a batch
+    // full of permanent-looking failures. Put the job back as pending and
+    // end the tick; the next tick after the quota resets carries on.
+    if (
+      outcome.status === "failed" &&
+      outcome.errorMessage &&
+      isQuotaError(outcome.errorMessage)
+    ) {
+      await db
+        .update(enhanceJobs)
+        .set({
+          status: "pending",
+          // Restore the pre-claim attempt count (`job` was read before
+          // the claim incremented it). A quota wall isn't an attempt at
+          // the work, and repeated hits would otherwise burn down
+          // MAX_WAIT_ATTEMPTS and fail an APR job as "timed out" without
+          // it ever having genuinely waited on anything.
+          attemptCount: job.attemptCount ?? 0,
+        })
+        .where(eq(enhanceJobs.id, job.id));
+      summary.quotaExceeded = true;
+      summary.errors.push(
+        `eBay call limit reached — tick stopped, ${job.ebayItemId} re-queued`
+      );
+      break;
     }
 
     // Mirror hygiene: a job that discovered its listing is gone (eBay

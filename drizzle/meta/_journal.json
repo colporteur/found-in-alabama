@@ -141,6 +141,13 @@
       "when": 1785268007558,
       "tag": "0019_chief_skreet",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1786981733060,
+      "tag": "0020_cheerful_warpath",
+      "breakpoints": true
     }
   ]
 }

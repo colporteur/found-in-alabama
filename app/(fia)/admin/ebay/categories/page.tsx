@@ -17,6 +17,7 @@ export interface StoredCategory {
   order: number;
   isAlabamaRelated: boolean;
   isOtherBucket: boolean;
+  isEphemeralState: boolean;
   lastSyncedAt: string;
 }
 
@@ -34,6 +35,7 @@ export default async function CategoriesPage() {
     order: r.order,
     isAlabamaRelated: r.isAlabamaRelated,
     isOtherBucket: r.isOtherBucket,
+    isEphemeralState: r.isEphemeralState,
     lastSyncedAt: r.lastSyncedAt.toISOString(),
   }));
 
@@ -48,9 +50,11 @@ export default async function CategoriesPage() {
       <p className="text-brand-ink/70 mb-8 max-w-prose">
         Pulls your full Store category tree from eBay and lets you mark
         which ones count as Alabama-related (those will get priority during
-        re-categorization) and which one is the &ldquo;Other&rdquo; bucket
-        (the source we&rsquo;ll move listings out of). Re-running sync is
-        safe — it preserves your manual flag edits.
+        re-categorization), which one is the &ldquo;Other&rdquo; bucket
+        (the source we&rsquo;ll move listings out of), and which belong to
+        The Ephemeral State storefront (flag a parent and its children ride
+        along). Re-running sync is safe — it preserves your manual flag
+        edits.
       </p>
 
       <CategoriesEditor initial={serialized} />

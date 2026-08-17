@@ -31,6 +31,15 @@ export type MarketplaceLink = { label: string; url: string };
 export const NEW_ARRIVALS_SLUG = "new-arrivals";
 export const NEW_ARRIVALS_NAME = "New Arrivals";
 
+/**
+ * Which storefront is asking. "fia" (default) = foundinalabama.com, all
+ * categories. "tes" = theephemeralstate.com — only categories flagged
+ * isEphemeralState (or descended from a flagged one), and no New
+ * Arrivals bucket (uncategorized stock isn't necessarily ephemera).
+ */
+export type StorefrontSegment = "fia" | "tes";
+export type StorefrontOpts = { segment?: StorefrontSegment };
+
 export type StorefrontCategory = {
   categoryId: string;
   name: string;
@@ -85,7 +94,10 @@ function inStock() {
  * All categories that currently have at least one in-stock listing,
  * with counts. New Arrivals (the Other bucket) is always last.
  */
-export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
+export async function getStorefrontCategories(
+  opts: StorefrontOpts = {}
+): Promise<StorefrontCategory[]> {
+  const segment: StorefrontSegment = opts.segment ?? "fia";
   const [cats, listingCats, onSale] = await Promise.all([
     db
       .select({
@@ -94,6 +106,7 @@ export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
         order: ebayStoreCategories.order,
         parentCategoryId: ebayStoreCategories.parentCategoryId,
         isOtherBucket: ebayStoreCategories.isOtherBucket,
+        isEphemeralState: ebayStoreCategories.isEphemeralState,
       })
       .from(ebayStoreCategories),
     db
@@ -133,11 +146,42 @@ export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
   }
   const otherId = cats.find((c) => c.isOtherBucket)?.categoryId ?? null;
 
+  // TES membership: a category qualifies if it is flagged isEphemeralState
+  // or any ancestor is (flagging "Found in Other States" once covers all
+  // its state children). Walk each category's parent chain against the
+  // flagged set; category rows are a few hundred at most, so this is cheap.
+  const tesQualifies = (() => {
+    if (segment !== "tes") return null;
+    const parentById = new Map(
+      cats.map((c) => [c.categoryId, c.parentCategoryId])
+    );
+    const flagged = new Set(
+      cats.filter((c) => c.isEphemeralState).map((c) => c.categoryId)
+    );
+    const qualifies = new Set<string>();
+    for (const c of cats) {
+      let cur: string | null = c.categoryId;
+      let hops = 0;
+      while (cur != null && hops < 20) {
+        if (flagged.has(cur)) {
+          qualifies.add(c.categoryId);
+          break;
+        }
+        cur = parentById.get(cur) ?? null;
+        hops++;
+      }
+    }
+    return qualifies;
+  })();
+
   // Slug uniqueness: append the id if two categories slugify the same.
   const slugSeen = new Map<string, number>();
   const result: StorefrontCategory[] = [];
   for (const cat of cats) {
     const isNewArrivals = cat.isOtherBucket;
+    // TES: no New Arrivals bucket, and only qualifying categories.
+    if (tesQualifies && (isNewArrivals || !tesQualifies.has(cat.categoryId)))
+      continue;
     const count = countById.get(cat.categoryId) ?? 0;
     if (count === 0) continue; // hide empty categories
     const displayName = isNewArrivals
@@ -170,8 +214,9 @@ export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
     return a.name.localeCompare(b.name);
   });
   // Defensive: if the Other bucket exists but somehow wasn't counted by
-  // category slot, surface it anyway when it has stock.
-  if (otherId && !result.some((r) => r.isNewArrivals)) {
+  // category slot, surface it anyway when it has stock. (FIA only — the
+  // TES storefront never shows New Arrivals.)
+  if (!tesQualifies && otherId && !result.some((r) => r.isNewArrivals)) {
     const n = countById.get(otherId) ?? 0;
     if (n > 0) {
       result.push({
@@ -195,10 +240,10 @@ export async function getStorefrontCategories(): Promise<StorefrontCategory[]> {
  * with no direct stock still appears if any child has stock. New
  * Arrivals is pinned last.
  */
-export async function getStorefrontCategoryTree(): Promise<
-  StorefrontCategoryGroup[]
-> {
-  const flat = await getStorefrontCategories();
+export async function getStorefrontCategoryTree(
+  opts: StorefrontOpts = {}
+): Promise<StorefrontCategoryGroup[]> {
+  const flat = await getStorefrontCategories(opts);
   const byId = new Map(flat.map((c) => [c.categoryId, c]));
   const childrenByParent = new Map<string, StorefrontCategory[]>();
   const topLevel: StorefrontCategory[] = [];
@@ -234,9 +279,10 @@ export async function getStorefrontCategoryTree(): Promise<
 
 /** Resolve a URL slug to its category, or null. */
 export async function resolveCategorySlug(
-  slug: string
+  slug: string,
+  opts: StorefrontOpts = {}
 ): Promise<StorefrontCategory | null> {
-  const cats = await getStorefrontCategories();
+  const cats = await getStorefrontCategories(opts);
   return cats.find((c) => c.slug === slug) ?? null;
 }
 

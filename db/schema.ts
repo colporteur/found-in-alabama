@@ -107,11 +107,19 @@ export const ebayStoreCategories = pgTable(
     order: integer("order").default(0).notNull(),
     isAlabamaRelated: boolean("is_alabama_related").default(false).notNull(),
     isOtherBucket: boolean("is_other_bucket").default(false).notNull(),
+    // The Ephemeral State segment (theephemeralstate.com). A category flagged
+    // here — or any descendant of one — appears in the TES storefront.
+    // Flag the "Found in Other States" parent once and all 50 state
+    // children ride along. Manual edits survive re-syncs (same as Alabama).
+    isEphemeralState: boolean("is_ephemeral_state").default(false).notNull(),
     lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
   },
   (t) => ({
     parentIdx: index("ebay_store_categories_parent_idx").on(t.parentCategoryId),
     alabamaIdx: index("ebay_store_categories_alabama_idx").on(t.isAlabamaRelated),
+    ephemeralIdx: index("ebay_store_categories_ephemeral_idx").on(
+      t.isEphemeralState
+    ),
   })
 );
 
@@ -322,8 +330,11 @@ export const ebayAutoCategorizeRuns = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     phase: text("phase", { enum: ["primary", "secondary"] }).notNull(),
+    // "paused" = stopped on an eBay call-quota wall with the queue intact;
+    // restarting after the limit resets resumes from queueIndex. (Drizzle
+    // text enums are type-level only — no DB constraint, no migration.)
     status: text("status", {
-      enum: ["running", "completed", "failed", "cancelled"],
+      enum: ["running", "completed", "failed", "cancelled", "paused"],
     })
       .default("running")
       .notNull(),

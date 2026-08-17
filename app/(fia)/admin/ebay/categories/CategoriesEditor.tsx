@@ -13,7 +13,7 @@ interface SyncResult {
   durationMs?: number;
 }
 
-type Filter = "all" | "alabama" | "other" | "unflagged";
+type Filter = "all" | "alabama" | "ephemeral" | "other" | "unflagged";
 
 export default function CategoriesEditor({
   initial,
@@ -78,8 +78,12 @@ export default function CategoriesEditor({
     return flat.filter(({ cat }) => {
       if (q && !cat.name.toLowerCase().includes(q)) return false;
       if (filter === "alabama" && !cat.isAlabamaRelated) return false;
+      if (filter === "ephemeral" && !cat.isEphemeralState) return false;
       if (filter === "other" && !cat.isOtherBucket) return false;
-      if (filter === "unflagged" && (cat.isAlabamaRelated || cat.isOtherBucket))
+      if (
+        filter === "unflagged" &&
+        (cat.isAlabamaRelated || cat.isOtherBucket || cat.isEphemeralState)
+      )
         return false;
       return true;
     });
@@ -89,6 +93,7 @@ export default function CategoriesEditor({
     () => ({
       total: categories.length,
       alabama: categories.filter((c) => c.isAlabamaRelated).length,
+      ephemeral: categories.filter((c) => c.isEphemeralState).length,
       other: categories.find((c) => c.isOtherBucket) ?? null,
     }),
     [categories]
@@ -116,7 +121,7 @@ export default function CategoriesEditor({
 
   async function toggleFlag(
     categoryId: string,
-    field: "isAlabamaRelated" | "isOtherBucket",
+    field: "isAlabamaRelated" | "isOtherBucket" | "isEphemeralState",
     nextValue: boolean
   ) {
     // Optimistic update.
@@ -205,9 +210,10 @@ export default function CategoriesEditor({
       {categories.length === 0 ? null : (
         <>
           {/* Stats */}
-          <div className="grid gap-4 sm:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Stat label="Total categories" value={counts.total} />
             <Stat label="Alabama-flagged" value={counts.alabama} />
+            <Stat label="Ephemeral State" value={counts.ephemeral} />
             <div className="bg-white border border-brand-ink/15 rounded-lg p-5">
               <p className="text-xs uppercase tracking-wider text-brand-ink/50 mb-2">
                 &ldquo;Other&rdquo; bucket
@@ -224,7 +230,9 @@ export default function CategoriesEditor({
           {/* Filter bar */}
           <div className="bg-white border border-brand-ink/15 rounded-lg p-4 flex flex-wrap items-center gap-3">
             <div className="flex flex-wrap gap-2">
-              {(["all", "alabama", "other", "unflagged"] as Filter[]).map((f) => (
+              {(
+                ["all", "alabama", "ephemeral", "other", "unflagged"] as Filter[]
+              ).map((f) => (
                 <button
                   key={f}
                   type="button"
@@ -250,9 +258,10 @@ export default function CategoriesEditor({
 
           {/* Categories list */}
           <div className="bg-white border border-brand-ink/15 rounded-lg overflow-hidden">
-            <div className="grid grid-cols-[1fr_auto_auto] gap-3 px-4 py-2 bg-brand-paper text-xs uppercase tracking-wider text-brand-ink/50">
+            <div className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-4 py-2 bg-brand-paper text-xs uppercase tracking-wider text-brand-ink/50">
               <div>Name</div>
               <div className="text-center">Alabama</div>
+              <div className="text-center">Ephemeral</div>
               <div className="text-center">Is &ldquo;Other&rdquo;</div>
             </div>
             <ul className="divide-y divide-brand-ink/5">
@@ -264,7 +273,7 @@ export default function CategoriesEditor({
                 filtered.map(({ cat, depth }) => (
                   <li
                     key={cat.categoryId}
-                    className="grid grid-cols-[1fr_auto_auto] gap-3 px-4 py-2.5 items-center text-sm"
+                    className="grid grid-cols-[1fr_auto_auto_auto] gap-3 px-4 py-2.5 items-center text-sm"
                   >
                     <div
                       className="truncate"
@@ -286,6 +295,14 @@ export default function CategoriesEditor({
                         toggleFlag(cat.categoryId, "isAlabamaRelated", v)
                       }
                       label="Alabama-related"
+                    />
+                    <Toggle
+                      checked={cat.isEphemeralState}
+                      saving={savingIds.has(cat.categoryId)}
+                      onChange={(v) =>
+                        toggleFlag(cat.categoryId, "isEphemeralState", v)
+                      }
+                      label="Ephemeral State"
                     />
                     <Toggle
                       checked={cat.isOtherBucket}

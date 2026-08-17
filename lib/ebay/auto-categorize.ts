@@ -24,6 +24,7 @@ import {
 import { and, desc, eq, gt, isNotNull, isNull, lt, ne, sql } from "drizzle-orm";
 import { fetchStoreCategoryTree, flattenCategoryTree, iterateActiveListings, reviseStoreCategories } from "./calls";
 import { suggestCategoryForListing } from "./categorize";
+import { isQuotaError } from "./quota";
 
 export type RunPhase = "primary" | "secondary";
 
@@ -253,15 +254,35 @@ export async function processNext(runId: string): Promise<{
 
   const item = queue[run.queueIndex];
 
-  // Advance the queueIndex first so a crash mid-item doesn't reprocess
-  // the same one.
-  await db
+  // Claim the item by advancing queueIndex, but ONLY if it still holds
+  // the value we read. Three things can drive this run concurrently —
+  // the enhance cron (*/5), the social cron (*/15, which also pings the
+  // categorize endpoint) and the browser advance loop — and an
+  // unconditional `set` writes an absolute index from a stale read. That
+  // let two callers process the same item (duplicate ReviseItem, duplicate
+  // result row, double the eBay call spend) and could even rewind
+  // progress when the slower write landed last.
+  //
+  // Advancing before the work, rather than after, also means a crash
+  // mid-item skips it instead of retrying it forever.
+  const claimed = await db
     .update(ebayAutoCategorizeRuns)
     .set({
       queueIndex: run.queueIndex + 1,
       totalAttempted: sql`${ebayAutoCategorizeRuns.totalAttempted} + 1`,
     })
-    .where(eq(ebayAutoCategorizeRuns.id, runId));
+    .where(
+      and(
+        eq(ebayAutoCategorizeRuns.id, runId),
+        eq(ebayAutoCategorizeRuns.queueIndex, run.queueIndex)
+      )
+    )
+    .returning({ id: ebayAutoCategorizeRuns.id });
+  if (claimed.length === 0) {
+    // Someone else took this item. Report no work done; the caller's next
+    // call picks up whatever is actually next.
+    return { done: false, processedItemId: null, outcome: null };
+  }
 
   const categories = await buildCategoryOptions();
   const otherId = await getOtherCategoryId();
@@ -381,6 +402,39 @@ export async function processNext(runId: string): Promise<{
       msg.toLowerCase().includes("not active") ||
       msg.includes("21916757") ||
       msg.includes("21916984");
+
+    // Quota wall. eBay's daily application call limit is a hard stop —
+    // every remaining item would fail identically, marking the whole
+    // queue failed and burning an LLM call apiece on the way. Pause the
+    // run instead; the queue and queueIndex survive, so restarting after
+    // the quota resets picks up exactly where this left off.
+    if (isQuotaError(msg)) {
+      // Deliberately NO recordOutcome and NO totalFailed bump: this item
+      // is going to be retried on resume, so writing a failure row would
+      // leave a permanent "eBay error" against an item that later
+      // succeeds, plus a duplicate row for the same itemId. The pause
+      // reason lives on the run itself. totalAttempted rewinds alongside
+      // queueIndex for the same reason.
+      await db
+        .update(ebayAutoCategorizeRuns)
+        .set({
+          status: "paused",
+          errorMessage: `Paused on eBay call limit: ${msg.slice(0, 400)}`,
+          // Doubles as the "when did this pause" stamp the cron reads to
+          // decide whether the quota has plausibly reset.
+          completedAt: new Date(),
+          // Rewind so the item we just burned gets retried on resume.
+          queueIndex: sql`GREATEST(${ebayAutoCategorizeRuns.queueIndex} - 1, 0)`,
+          totalAttempted: sql`GREATEST(${ebayAutoCategorizeRuns.totalAttempted} - 1, 0)`,
+        })
+        .where(eq(ebayAutoCategorizeRuns.id, runId));
+      return {
+        done: true,
+        processedItemId: item.itemId,
+        outcome: "quota_exceeded",
+      };
+    }
+
     await recordOutcome(runId, item, {
       outcome: isEnded ? "ebay_ended" : "ebay_failed",
       errorMessage: msg,
@@ -469,6 +523,24 @@ async function recordOutcome(
     outcome: fields.outcome,
     errorMessage: fields.errorMessage ?? null,
   });
+}
+
+/**
+ * Flip a quota-paused run back to running so its existing queue and
+ * position are reused. Returns the run, or null if it wasn't paused.
+ */
+export async function resumeRun(runId: string) {
+  const [run] = await db
+    .update(ebayAutoCategorizeRuns)
+    .set({ status: "running", errorMessage: null, completedAt: null })
+    .where(
+      and(
+        eq(ebayAutoCategorizeRuns.id, runId),
+        eq(ebayAutoCategorizeRuns.status, "paused")
+      )
+    )
+    .returning();
+  return run ?? null;
 }
 
 /**

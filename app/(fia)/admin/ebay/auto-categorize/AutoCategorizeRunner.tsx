@@ -13,7 +13,7 @@ const STATUS_REFRESH_MS = 3000; // when idle, refresh dashboard every Ns
 interface RunSummary {
   id: string;
   phase: "primary" | "secondary";
-  status: "running" | "completed" | "failed" | "cancelled";
+  status: "running" | "completed" | "failed" | "cancelled" | "paused";
   initialQueueCount: number;
   queueIndex: number;
   totalApplied: number;
@@ -94,8 +94,23 @@ export default function AutoCategorizeRunner({
             await sleep(5000);
             continue;
           }
-          const data = (await res.json()) as { done: boolean };
+          const data = (await res.json()) as {
+            done: boolean;
+            outcome?: string;
+          };
           await fetchStatus();
+          if (data.outcome === "quota_exceeded") {
+            // eBay call ceiling — every further item would fail the same
+            // way. Stop cleanly; the queue position is saved server-side.
+            setError(
+              "eBay call limit reached — run paused with its place saved. " +
+                "The hourly cron resumes it automatically once the quota " +
+                "resets, or press Start again (same phase) to pick up where " +
+                "it stopped."
+            );
+            advancingRef.current = false;
+            break;
+          }
           if (data.done) {
             advancingRef.current = false;
             break;
@@ -391,6 +406,7 @@ function StatusBadge({ status }: { status: RunSummary["status"] }) {
     completed: "bg-emerald-100 text-emerald-900",
     failed: "bg-red-100 text-red-900",
     cancelled: "bg-brand-ink/10 text-brand-ink/70",
+    paused: "bg-amber-100 text-amber-900",
   };
   return (
     <span

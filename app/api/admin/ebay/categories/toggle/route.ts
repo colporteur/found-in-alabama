@@ -1,5 +1,5 @@
 // PATCH /api/admin/ebay/categories/toggle
-// Body: { categoryId: string, field: "isAlabamaRelated" | "isOtherBucket", value: boolean }
+// Body: { categoryId: string, field: "isAlabamaRelated" | "isOtherBucket" | "isEphemeralState", value: boolean }
 //
 // Flips a single boolean flag on a stored eBay category row. Used by the
 // per-row toggles on /admin/ebay/categories. For "isOtherBucket" we enforce
@@ -14,7 +14,7 @@ import { eq, ne } from "drizzle-orm";
 
 export const runtime = "nodejs";
 
-type ToggleField = "isAlabamaRelated" | "isOtherBucket";
+type ToggleField = "isAlabamaRelated" | "isOtherBucket" | "isEphemeralState";
 
 interface ToggleBody {
   categoryId?: string;
@@ -40,9 +40,17 @@ export async function PATCH(req: NextRequest) {
   if (!categoryId || typeof categoryId !== "string") {
     return NextResponse.json({ ok: false, error: "categoryId required" }, { status: 400 });
   }
-  if (field !== "isAlabamaRelated" && field !== "isOtherBucket") {
+  if (
+    field !== "isAlabamaRelated" &&
+    field !== "isOtherBucket" &&
+    field !== "isEphemeralState"
+  ) {
     return NextResponse.json(
-      { ok: false, error: "field must be isAlabamaRelated or isOtherBucket" },
+      {
+        ok: false,
+        error:
+          "field must be isAlabamaRelated, isOtherBucket, or isEphemeralState",
+      },
       { status: 400 }
     );
   }
@@ -63,6 +71,8 @@ export async function PATCH(req: NextRequest) {
     const setClause =
       field === "isAlabamaRelated"
         ? { isAlabamaRelated: value }
+        : field === "isEphemeralState"
+        ? { isEphemeralState: value }
         : { isOtherBucket: value };
 
     await db

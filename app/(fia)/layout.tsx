@@ -1,6 +1,11 @@
+// Root layout for the Found in Alabama site (everything except The
+// Ephemeral State, which has its own root layout in app/(tes)/).
+// Moved here from app/layout.tsx when the repo went multi-site — the
+// content is unchanged apart from the globals.css import path.
+
 import type { Metadata } from "next";
 import { Inter, Permanent_Marker } from "next/font/google";
-import "./globals.css";
+import "../globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Analytics } from "@vercel/analytics/next";

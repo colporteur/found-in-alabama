@@ -1,0 +1,2 @@
+ALTER TABLE "ebay_store_categories" ADD COLUMN "is_ephemeral_state" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+CREATE INDEX IF NOT EXISTS "ebay_store_categories_ephemeral_idx" ON "ebay_store_categories" USING btree ("is_ephemeral_state");

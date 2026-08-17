@@ -173,8 +173,16 @@ export async function tradingCall<T = Record<string, unknown>>(
   if (ack === "Failure" || ack === "PartialFailure") {
     const errors = responseBody.Errors;
     const errArr = Array.isArray(errors) ? errors : errors ? [errors] : [];
+    // Include the numeric ErrorCode. Callers classify failures by parsing
+    // this message (dead-listing detection, call-quota circuit breakers),
+    // and eBay's prose wording varies by call and changes over time —
+    // the code is the only stable identifier.
     const msg = errArr
-      .map((e: Record<string, unknown>) => e.LongMessage || e.ShortMessage)
+      .map((e: Record<string, unknown>) => {
+        const text = e.LongMessage || e.ShortMessage;
+        if (!text) return null;
+        return e.ErrorCode ? `[${String(e.ErrorCode)}] ${text}` : text;
+      })
       .filter(Boolean)
       .join("; ");
     if (ack === "Failure") {

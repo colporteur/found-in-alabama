@@ -13,6 +13,7 @@ type TickSummary = {
   failed: number;
   skipped: number;
   waiting?: number;
+  quotaExceeded?: boolean;
   errors?: string[];
 };
 
@@ -39,6 +40,17 @@ export default function RunQueueButton() {
         }
         total += data.processed;
         const waiting = data.waiting ?? 0;
+
+        // eBay call ceiling — looping harder won't help. The unfinished
+        // job went back to pending, so nothing is lost.
+        if (data.quotaExceeded) {
+          setError(
+            `eBay call limit reached after ${total} job${total === 1 ? "" : "s"}. ` +
+              "Remaining jobs stay queued and resume automatically once the quota resets."
+          );
+          router.refresh();
+          return;
+        }
 
         if (data.processed > 0) {
           setProgress(`${total} job${total === 1 ? "" : "s"} processed…`);
