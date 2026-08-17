@@ -25,8 +25,8 @@ export default function CheckoutSuccessPage() {
       </h1>
       <p className="text-lg text-tes-ink/75 leading-relaxed mb-3">
         Thank you — a receipt is headed to your email. Paper survivors are
-        packed flat and carefully; most orders ship within two business
-        days.
+        packed flat and carefully; most orders ship within one business
+        day.
       </p>
       <p className="text-sm text-tes-ink/55 mb-10">
         Questions about your order? Text us at 256-684-1253.
