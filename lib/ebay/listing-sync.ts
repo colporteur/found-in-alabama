@@ -4,8 +4,9 @@
 // pages. Pulling all of them server-side would blow Vercel's 60s
 // function limit, so syncListingsBudgeted() pulls pages until a soft
 // deadline, persists a page cursor in app_settings, and returns. The
-// weekly GitHub Action calls the cron a handful of times to walk the
-// whole store across short invocations.
+// daily GitHub Action calls the cron a handful of times to walk the
+// whole store across short invocations. Intra-day freshness (sold/ended
+// items) is handled by the GetSellerEvents delta in events-sync.ts.
 //
 // This is the "full" sync (every active listing), distinct from the
 // categorizer's "Other-bucket only" pull in app/api/admin/ebay/pull-
@@ -29,8 +30,12 @@ const PURGE_GRACE_MS = 3 * 86_400_000;
 
 const CURSOR_KEY = "listingSyncCursor";
 const ENTRIES_PER_PAGE = 200;
-/** If the last completed sweep is older than this, start a fresh sweep. */
-const FRESH_SWEEP_AFTER_MS = 24 * 3600_000;
+/**
+ * If the last completed sweep is older than this, start a fresh sweep.
+ * 20h (not 24h) so the DAILY GitHub Action never no-ops when GitHub's
+ * scheduler fires it a little early relative to yesterday's late run.
+ */
+const FRESH_SWEEP_AFTER_MS = 20 * 3600_000;
 
 type Cursor = {
   page: number;

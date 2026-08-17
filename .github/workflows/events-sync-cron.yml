@@ -1,0 +1,47 @@
+# Listings freshness cron — every 15 minutes.
+#
+# One cheap GetSellerEvents delta call: patches quantity/price for
+# anything that sold, ended, or was revised since the last run, so the
+# storefronts (foundinalabama.com/shop and theephemeralstate.com) drop
+# sold items fast. The daily full sweep (sync-listings-cron.yml) remains
+# the safety net that inserts new listings and heals any drift.
+#
+# GitHub schedule jitter note: */15 can fire late under load. That's
+# fine — the endpoint's cursor + overlap means each run simply covers
+# whatever window has elapsed, and long outages clamp to ~46h lookback
+# (the daily sweep covers the rest).
+#
+# Uses the same CRON_SECRET repository secret as the other crons.
+
+name: Events sync cron
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  delta:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delta-sync changed listings
+        shell: bash
+        run: |
+          set +e
+          body=$(curl --silent --show-error --max-time 75 \
+            -w "\nHTTP_STATUS=%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://www.foundinalabama.com/api/cron/sync-events)
+          status=$(echo "$body" | grep -oE 'HTTP_STATUS=[0-9]+$' | cut -d= -f2)
+          payload=$(echo "$body" | sed '$d')
+          echo "status: ${status:-unknown}"
+          echo "$payload"
+          # Transient failures are fine — the cursor didn't advance, so
+          # the next tick covers this window too. Only flag hard 4xx
+          # (bad secret / broken route) as a real failure.
+          if [ -n "$status" ] && [ "$status" -ge 400 ] && [ "$status" -lt 500 ]; then
+            echo "Hard failure with HTTP $status."
+            exit 1
+          fi
+          exit 0
