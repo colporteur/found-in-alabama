@@ -9,7 +9,7 @@ import {
   CHANNELS,
   type ChannelKey,
 } from "@/lib/social/channel-styles";
-import type { DraftRow } from "@/app/admin/social/queue/QueueClient";
+import type { DraftRow } from "@/app/(fia)/admin/social/queue/QueueClient";
 
 // Convert an ISO UTC string into a "YYYY-MM-DDTHH:MM" string in the
 // user's local timezone, suitable for <input type="datetime-local">.
