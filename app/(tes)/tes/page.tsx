@@ -19,6 +19,9 @@ export const metadata: Metadata = {
   title: "The Ephemeral State — Antique paper Americana, state by state",
   description:
     "Browse postcards, photographs, documents, and other paper survivors by state and by kind. Every piece links straight to its eBay listing.",
+  // Canonical always points at the real domain, so the /tes preview path
+  // on foundinalabama.com never competes in search.
+  alternates: { canonical: "/" },
 };
 
 function SaleBadge({ cat }: { cat: StorefrontCategory }) {

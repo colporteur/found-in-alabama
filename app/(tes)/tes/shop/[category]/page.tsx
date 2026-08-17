@@ -25,6 +25,8 @@ export async function generateMetadata({
   return {
     title: `${cat.name} — The Ephemeral State`,
     description: `Browse ${cat.count} ${cat.name.toLowerCase()} pieces at The Ephemeral State. Every item links to its eBay listing.`,
+    // Canonical to the real domain (guards the /tes preview path).
+    alternates: { canonical: `/shop/${params.category}` },
   };
 }
 

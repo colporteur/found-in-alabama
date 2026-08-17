@@ -33,6 +33,16 @@ export const metadata: Metadata = {
   description:
     "Postcards, photographs, documents, and other paper survivors from all fifty states. Curated American ephemera from the Found in Alabama family.",
   metadataBase: new URL("https://theephemeralstate.com"),
+  icons: {
+    icon: [
+      { url: "/tes/favicon-192.png", sizes: "192x192", type: "image/png" },
+      { url: "/tes/favicon.png", sizes: "512x512", type: "image/png" },
+    ],
+    apple: "/tes/favicon-192.png",
+  },
+  // TES's own manifest — the root app/manifest.ts is the FIA *admin* PWA
+  // and must not be advertised on this site.
+  manifest: "/tes/site.webmanifest",
   openGraph: {
     title: "The Ephemeral State",
     description:
@@ -41,6 +51,21 @@ export const metadata: Metadata = {
     siteName: "The Ephemeral State",
     locale: "en_US",
     type: "website",
+    images: [
+      {
+        url: "/tes/og.png",
+        width: 1200,
+        height: 630,
+        alt: "The Ephemeral State — antique paper Americana, state by state",
+      },
+    ],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "The Ephemeral State",
+    description:
+      "Antique paper Americana, state by state. Every piece links to its live eBay listing.",
+    images: ["/tes/og.png"],
   },
 };
 
