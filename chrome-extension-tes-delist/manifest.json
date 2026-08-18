@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "TES Delist Actuator",
+  "version": "0.1.0",
+  "description": "When theephemeralstate.com sells an item, delists it from all marketplaces via Nifty. Polls the site's order queue and works it automatically.",
+  "permissions": ["storage", "alarms", "tabs", "notifications"],
+  "host_permissions": [
+    "https://app.nifty.ai/*",
+    "https://www.foundinalabama.com/*"
+  ],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    {
+      "matches": ["https://app.nifty.ai/*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "TES Delist Actuator"
+  }
+}

@@ -1,0 +1,51 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        width: 340px;
+        margin: 0;
+        padding: 14px;
+        background: #f7f1e4;
+        color: #332a1f;
+      }
+      h1 { font-size: 15px; margin: 0 0 10px; }
+      label { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: #5c5346; margin: 10px 0 3px; }
+      input {
+        width: 100%; box-sizing: border-box; padding: 6px 8px;
+        border: 1px solid #d0c6b2; border-radius: 6px; font-size: 12px; background: #fff;
+      }
+      .row { display: flex; gap: 8px; margin-top: 12px; }
+      button {
+        flex: 1; padding: 8px 10px; border: 0; border-radius: 6px;
+        font-weight: 600; font-size: 12px; cursor: pointer;
+      }
+      #save { background: #d9a25f; color: #332a1f; }
+      #run { background: #332a1f; color: #f7f1e4; }
+      #status { font-size: 12px; margin-top: 10px; min-height: 16px; }
+      #log {
+        margin-top: 10px; background: #fff; border: 1px solid #e5dcc8;
+        border-radius: 6px; padding: 8px; font-size: 11px; line-height: 1.5;
+        max-height: 180px; overflow-y: auto; white-space: pre-wrap;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>TES Delist Actuator</h1>
+    <label for="apiKey">API key (from /admin/api-keys)</label>
+    <input id="apiKey" type="password" placeholder="fia_..." />
+    <label for="apiBase">Site</label>
+    <input id="apiBase" type="text" />
+    <label for="pollMinutes">Poll every (minutes)</label>
+    <input id="pollMinutes" type="number" min="1" max="120" />
+    <div class="row">
+      <button id="save">Save</button>
+      <button id="run">Run now</button>
+    </div>
+    <div id="status"></div>
+    <div id="log"></div>
+    <script src="popup.js"></script>
+  </body>
+</html>
