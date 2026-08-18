@@ -59,6 +59,8 @@ export type StorefrontCategory = {
    * or the standalone "Alabama" tree. Everything else is an ephemera type.
    */
   isState: boolean;
+  /** Decoded display name of the parent category (null for top-level). */
+  parentName: string | null;
 };
 
 /** A top-level category plus any child categories nested under it. */
@@ -186,8 +188,11 @@ export async function getStorefrontCategories(
   const parentById = new Map(
     cats.map((c) => [c.categoryId, c.parentCategoryId])
   );
+  const displayNameById = new Map(
+    cats.map((c) => [c.categoryId, decodeEntities(c.name).trim()])
+  );
   const nameById = new Map(
-    cats.map((c) => [c.categoryId, decodeEntities(c.name).trim().toLowerCase()])
+    [...displayNameById].map(([id, n]) => [id, n.toLowerCase()])
   );
   const isStateCat = (id: string): boolean => {
     let cur: string | null = id;
@@ -232,6 +237,10 @@ export async function getStorefrontCategories(
       wholeCategoryOnSale: onSale.byCategoryId.has(cat.categoryId),
       imageUrl: repImageById.get(cat.categoryId)?.url ?? null,
       isState: isStateCat(cat.categoryId),
+      parentName:
+        cat.parentCategoryId != null
+          ? displayNameById.get(cat.parentCategoryId) ?? null
+          : null,
     });
   }
 
@@ -258,6 +267,7 @@ export async function getStorefrontCategories(
         wholeCategoryOnSale: onSale.byCategoryId.has(otherId),
         imageUrl: repImageById.get(otherId)?.url ?? null,
         isState: false,
+        parentName: null,
       });
     }
   }
@@ -285,7 +295,18 @@ export async function getStorefrontCategoryTree(
       arr.push(cat);
       childrenByParent.set(cat.parentCategoryId!, arr);
     } else {
-      topLevel.push(cat);
+      // Promoted child: its parent card isn't shown (no stock / not in
+      // this segment), so it floats to the top level. Append the parent
+      // name so near-duplicate child names ("US Views" under Postcards
+      // vs Photos) stay distinguishable — except under the "Found in
+      // Other States" umbrella, where the states section already says it.
+      const orphanedChild =
+        cat.parentCategoryId != null &&
+        cat.parentName != null &&
+        !/\bother states\b/i.test(cat.parentName);
+      topLevel.push(
+        orphanedChild ? { ...cat, name: `${cat.name}, ${cat.parentName}` } : cat
+      );
     }
   }
 
