@@ -53,6 +53,12 @@ export type StorefrontCategory = {
   wholeCategoryOnSale: boolean;
   /** Representative thumbnail (newest in-stock item in the category). */
   imageUrl: string | null;
+  /**
+   * TES navigation split: true when the category is a place — under the
+   * "Found in Other States" parent (50 states + Districts & Territories)
+   * or the standalone "Alabama" tree. Everything else is an ephemera type.
+   */
+  isState: boolean;
 };
 
 /** A top-level category plus any child categories nested under it. */
@@ -174,6 +180,27 @@ export async function getStorefrontCategories(
     return qualifies;
   })();
 
+  // State detection (for the TES states/types navigation split): a
+  // category is a "state" if it, or any ancestor, is the "Found in Other
+  // States" parent or is named exactly "Alabama".
+  const parentById = new Map(
+    cats.map((c) => [c.categoryId, c.parentCategoryId])
+  );
+  const nameById = new Map(
+    cats.map((c) => [c.categoryId, decodeEntities(c.name).trim().toLowerCase()])
+  );
+  const isStateCat = (id: string): boolean => {
+    let cur: string | null = id;
+    let hops = 0;
+    while (cur != null && hops < 20) {
+      const n = nameById.get(cur) ?? "";
+      if (/\bother states\b/.test(n) || n === "alabama") return true;
+      cur = parentById.get(cur) ?? null;
+      hops++;
+    }
+    return false;
+  };
+
   // Slug uniqueness: append the id if two categories slugify the same.
   const slugSeen = new Map<string, number>();
   const result: StorefrontCategory[] = [];
@@ -204,6 +231,7 @@ export async function getStorefrontCategories(
       onSaleCount: onSaleCountById.get(cat.categoryId) ?? 0,
       wholeCategoryOnSale: onSale.byCategoryId.has(cat.categoryId),
       imageUrl: repImageById.get(cat.categoryId)?.url ?? null,
+      isState: isStateCat(cat.categoryId),
     });
   }
 
@@ -229,6 +257,7 @@ export async function getStorefrontCategories(
         onSaleCount: onSaleCountById.get(otherId) ?? 0,
         wholeCategoryOnSale: onSale.byCategoryId.has(otherId),
         imageUrl: repImageById.get(otherId)?.url ?? null,
+        isState: false,
       });
     }
   }

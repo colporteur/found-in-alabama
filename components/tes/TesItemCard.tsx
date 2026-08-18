@@ -1,10 +1,12 @@
-// One item card on The Ephemeral State storefront. Same bones as the
-// FIA StorefrontItemCard (image, title, price, sale badge, eBay link,
-// "also on" marketplaces) restyled for the TES kraft-paper palette.
-// No haul-journal link — the journal is an FIA feature.
+// One item card on The Ephemeral State storefront. Since TES-2c the
+// card links to the on-site product page (/item/[id]) — the eBay link
+// moved into the "Also on" row. Restyled for the kraft-paper palette;
+// no haul-journal link (journal is an FIA feature).
 
+import Link from "next/link";
 import type { StorefrontItem } from "@/lib/ebay/storefront";
 import AddToCartButton from "@/components/tes/AddToCartButton";
+import { tesPrefix } from "@/lib/tes/host";
 
 function formatPrice(p: string | null): string | null {
   if (!p) return null;
@@ -32,14 +34,11 @@ export default function TesItemCard({ item }: { item: StorefrontItem }) {
   const sale = item.sale;
   const discounted = sale ? salePrice(item.price, sale.discountPercent) : null;
 
+  const detailHref = `${tesPrefix()}/item/${item.itemId}`;
+
   return (
     <div className="group border border-tes-ink/15 rounded-lg overflow-hidden bg-white hover:border-tes-kraft transition-colors flex flex-col">
-      <a
-        href={item.ebayUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="block flex-1 flex flex-col"
-      >
+      <Link href={detailHref} className="block flex-1 flex flex-col">
         <div className="relative">
           {item.imageUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
@@ -87,7 +86,7 @@ export default function TesItemCard({ item }: { item: StorefrontItem }) {
             )}
           </div>
         </div>
-      </a>
+      </Link>
       <div className="px-3 pb-3">
         <AddToCartButton
           itemId={item.itemId}
@@ -101,10 +100,17 @@ export default function TesItemCard({ item }: { item: StorefrontItem }) {
           shipClass={item.shipClass}
         />
       </div>
-      {item.marketplaceLinks.length > 0 && (
-        <div className="px-3 py-2 border-t border-tes-ink/10 flex flex-wrap items-center gap-1.5">
-          <span className="text-[11px] text-tes-ink/45 mr-0.5">Also on</span>
-          {item.marketplaceLinks.map((m) => (
+      <div className="px-3 py-2 border-t border-tes-ink/10 flex flex-wrap items-center gap-1.5">
+        <span className="text-[11px] text-tes-ink/45 mr-0.5">Also on</span>
+        <a
+          href={item.ebayUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[11px] px-2 py-0.5 rounded-full bg-tes-cream hover:bg-tes-kraft/30 text-tes-ink/75 hover:text-tes-ink transition-colors"
+        >
+          eBay
+        </a>
+        {item.marketplaceLinks.map((m) => (
             <a
               key={m.label}
               href={m.url}
@@ -115,8 +121,7 @@ export default function TesItemCard({ item }: { item: StorefrontItem }) {
               {m.label}
             </a>
           ))}
-        </div>
-      )}
+      </div>
     </div>
   );
 }

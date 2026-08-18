@@ -5,8 +5,12 @@
 // from what actually renders.
 
 import { NextRequest, NextResponse } from "next/server";
+import { gt, inArray, and, or } from "drizzle-orm";
+import { db } from "@/db";
+import { ebayListings } from "@/db/schema";
 import { isTesHostName } from "@/lib/tes/host";
 import { getStorefrontCategories } from "@/lib/ebay/storefront";
+import { loadTesCategories, tesQualifyingSet } from "@/lib/tes/item-detail";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,9 +26,31 @@ export async function GET(req: NextRequest) {
   if (tes) {
     const base = "https://theephemeralstate.com";
     entries.push(urlTag(`${base}/`, "hourly", "1.0"));
+    entries.push(urlTag(`${base}/states`, "daily", "0.9"));
+    entries.push(urlTag(`${base}/types`, "daily", "0.9"));
     const cats = await getStorefrontCategories({ segment: "tes" });
     for (const c of cats) {
       entries.push(urlTag(`${base}/shop/${c.slug}`, "hourly", "0.8"));
+    }
+    // Product pages — every in-stock item in the TES segment.
+    const allCats = await loadTesCategories();
+    const qualifying = [...tesQualifyingSet(allCats)];
+    if (qualifying.length > 0) {
+      const items = await db
+        .select({ itemId: ebayListings.itemId })
+        .from(ebayListings)
+        .where(
+          and(
+            gt(ebayListings.quantity, 0),
+            or(
+              inArray(ebayListings.storeCategory1Id, qualifying),
+              inArray(ebayListings.storeCategory2Id, qualifying)
+            )
+          )
+        );
+      for (const it of items) {
+        entries.push(urlTag(`${base}/item/${it.itemId}`, "daily", "0.6"));
+      }
     }
   } else {
     const base = "https://www.foundinalabama.com";

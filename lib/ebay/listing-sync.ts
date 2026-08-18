@@ -82,6 +82,8 @@ interface NormalizedListing {
   sku: string | null;
   title: string;
   primaryImageUrl: string | null;
+  imageUrls: string[];
+  description: string | null;
   storeCategory1Id: string | null;
   storeCategory2Id: string | null;
   siteCategoryId: string | null;
@@ -129,15 +131,26 @@ function normalizeListing(item: unknown): NormalizedListing {
   const available =
     totalQty != null ? Math.max(0, totalQty - qtySold) : null;
 
+  const imageUrls = (
+    Array.isArray(pictureUrl) ? pictureUrl : pictureUrl != null ? [pictureUrl] : []
+  )
+    .map((u) => String(u))
+    .filter((u) => u.startsWith("http"));
+
+  // Description ships in GetSellerList's ReturnAll detail level — free to
+  // capture (no extra API calls). Powers the TES product pages.
+  const description =
+    i.Description != null && String(i.Description).trim() !== ""
+      ? String(i.Description)
+      : null;
+
   return {
     itemId: String(i.ItemID ?? ""),
     sku: i.SKU != null ? String(i.SKU) : null,
     title: String(i.Title ?? ""),
-    primaryImageUrl: Array.isArray(pictureUrl)
-      ? String(pictureUrl[0] ?? "")
-      : pictureUrl != null
-        ? String(pictureUrl)
-        : null,
+    primaryImageUrl: imageUrls[0] ?? null,
+    imageUrls,
+    description,
     storeCategory1Id: nullIfZero(storefront.StoreCategoryID),
     storeCategory2Id: nullIfZero(storefront.StoreCategory2ID),
     siteCategoryId:
@@ -172,7 +185,8 @@ async function upsertPage(listings: NormalizedListing[]): Promise<number> {
       listingType: l.listingType,
       quantity: l.quantity,
       price: l.price,
-      description: null,
+      description: l.description,
+      imageUrls: l.imageUrls.length > 0 ? l.imageUrls : null,
       startTime: l.startTime,
       lastSyncedAt: new Date(),
     }));
@@ -193,6 +207,10 @@ async function upsertPage(listings: NormalizedListing[]): Promise<number> {
         listingType: sql`excluded.listing_type`,
         quantity: sql`excluded.quantity`,
         price: sql`excluded.price`,
+        // Keep the existing description/photos if this sweep somehow
+        // returned them empty (defensive against detail-level surprises).
+        description: sql`COALESCE(excluded.description, ${ebayListings.description})`,
+        imageUrls: sql`COALESCE(excluded.image_urls, ${ebayListings.imageUrls})`,
         startTime: sql`excluded.start_time`,
         lastSyncedAt: sql`excluded.last_synced_at`,
       },

@@ -26,10 +26,16 @@ export default function TesHeader() {
         </Link>
         <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
           <Link
-            href={home}
+            href={`${prefix}/states`}
             className="hover:underline underline-offset-4 decoration-tes-kraft decoration-2"
           >
             Browse the states
+          </Link>
+          <Link
+            href={`${prefix}/types`}
+            className="hover:underline underline-offset-4 decoration-tes-kraft decoration-2"
+          >
+            Browse by ephemera type
           </Link>
           <a
             href="sms:+12566841253"

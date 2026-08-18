@@ -148,6 +148,10 @@ export const ebayListings = pgTable(
     quantity: integer("quantity"),
     price: numeric("price", { precision: 10, scale: 2 }),
     description: text("description"),
+    // All listing photo URLs (jsonb string array), captured by the full
+    // sweep for the TES product-page gallery. primaryImageUrl stays the
+    // single-thumbnail fast path.
+    imageUrls: jsonb("image_urls"),
     // Listing start date from GetSellerList ListingDetails.StartTime —
     // the age reference for stale-inventory sale tiers.
     startTime: timestamp("start_time"),

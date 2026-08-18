@@ -1,0 +1,1 @@
+ALTER TABLE "ebay_listings" ADD COLUMN "image_urls" jsonb;
