@@ -178,7 +178,7 @@ export default async function TesItemPage({
         <div className="mt-10 max-w-3xl">
           <h2 className="font-typewriter text-2xl mb-4">About this piece</h2>
           <div
-            className="bg-white rounded-xl ring-1 ring-tes-ink/10 p-6 overflow-x-auto text-tes-ink/85 leading-relaxed [&_img]:max-w-full [&_img]:h-auto [&_table]:max-w-full [&_a]:underline"
+            className="bg-white rounded-xl ring-1 ring-tes-ink/10 p-6 overflow-x-auto font-typewriter text-[15px] text-tes-ink/85 leading-relaxed space-y-2 [&_p]:mb-3 [&_img]:max-w-full [&_img]:h-auto [&_table]:max-w-full [&_a]:underline [&_h1]:text-xl [&_h2]:text-lg [&_h3]:text-base"
             dangerouslySetInnerHTML={{
               __html: sanitizeListingHtml(item.descriptionHtml),
             }}

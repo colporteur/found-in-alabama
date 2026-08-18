@@ -9,6 +9,7 @@ import { db } from "@/db";
 import { ebayListings, ebayStoreCategories } from "@/db/schema";
 import { getOnSaleLookup } from "@/lib/ebay/active-sales";
 import { tradingCall } from "@/lib/ebay/client";
+import { decodeEntities } from "@/lib/ebay/entities";
 import {
   maxShipClass,
   normalizeShipClass,
@@ -160,9 +161,14 @@ export async function getTesItemDetail(
     if (live.imageUrls.length > 0) images = live.imageUrls;
   }
 
+  // The Trading client stores XML-escaped strings (&lt;p&gt; instead of
+  // <p>) because entity processing is disabled parser-side. Decode here so
+  // the page gets real HTML — it sanitizes before rendering.
+  if (description) description = decodeEntities(description);
+
   return {
     itemId: row.itemId,
-    title: row.title,
+    title: decodeEntities(row.title),
     sku: row.sku,
     price,
     salePrice: badge

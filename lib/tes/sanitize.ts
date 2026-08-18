@@ -7,13 +7,20 @@ const DROP_WITH_CONTENT = /<(script|style|iframe|object|embed|form|noscript)\b[\
 const DROP_SELF = /<(script|style|iframe|object|embed|form|link|meta|base|input|button|noscript)\b[^>]*\/?>/gi;
 const DROP_EVENT_ATTRS = /\son\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi;
 const DROP_JS_URLS = /\s(href|src)\s*=\s*(["']?)\s*javascript:[^"'\s>]*\2/gi;
+// eBay descriptions carry inline styles and <font> tags that fight the
+// site's typography — strip them so TES's own styles (typewriter, kraft
+// palette) win.
+const DROP_STYLE_ATTRS = /\s(style|face|color|size)\s*=\s*("[^"]*"|'[^']*'|[^\s>]+)/gi;
+const DROP_FONT_TAGS = /<\/?font\b[^>]*>/gi;
 
 export function sanitizeListingHtml(html: string): string {
   return html
     .replace(DROP_WITH_CONTENT, "")
     .replace(DROP_SELF, "")
     .replace(DROP_EVENT_ATTRS, "")
-    .replace(DROP_JS_URLS, "");
+    .replace(DROP_JS_URLS, "")
+    .replace(DROP_FONT_TAGS, "")
+    .replace(DROP_STYLE_ATTRS, "");
 }
 
 /** Entity-decode + strip tags — for meta descriptions / JSON-LD. */
