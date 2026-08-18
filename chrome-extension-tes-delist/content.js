@@ -46,29 +46,47 @@ function rowFromTitle(node) {
   return null;
 }
 
+/** Rect-based visibility — offsetParent is null for position:fixed
+ *  elements (the bulk bar and dialogs are fixed), so never use it. */
+function isVisible(el) {
+  const r = el.getBoundingClientRect();
+  return r.width > 0 && r.height > 0;
+}
+
 /** Visible button whose exact text matches (bulk bar's "Delist" etc). */
 function visibleButtonByText(label) {
   const want = norm(label);
   return (
     [...document.querySelectorAll('button, [role="button"]')].find(
-      (b) => norm(b.textContent) === want && b.offsetParent !== null
+      (b) => norm(b.textContent) === want && isVisible(b)
     ) ?? null
   );
 }
 
+/**
+ * The delist confirmation dialog's confirm button. Two known wordings:
+ *  - single-item (⋮ menu): "Are you sure you want to delist this item?
+ *    Any unsold listings will be permanently deleted or ended…" → Continue
+ *  - bulk bar: "Delist listings — This will permanently delete or end
+ *    these N listings from the selected marketplaces." → Cancel / Delist
+ * The "permanently/are you sure" phrase distinguishes the dialog from
+ * the bulk bar itself (which also has a Delist button).
+ */
 function dialogConfirmButton() {
   const dialogs = [...document.querySelectorAll("div")].filter(
     (d) =>
-      d.offsetParent !== null &&
+      isVisible(d) &&
       /delist/i.test(d.textContent ?? "") &&
-      /are you sure|permanently deleted or ended/i.test(d.textContent ?? "") &&
+      /permanently delete|permanently deleted|are you sure/i.test(
+        d.textContent ?? ""
+      ) &&
       d.querySelector("button")
   );
   for (const d of dialogs.reverse()) {
     const btn = [...d.querySelectorAll("button")].find((b) =>
       ["continue", "delist", "confirm"].includes(norm(b.textContent))
     );
-    if (btn) return btn;
+    if (btn && isVisible(btn)) return btn;
   }
   return null;
 }
