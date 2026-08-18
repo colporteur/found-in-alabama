@@ -305,7 +305,7 @@ export async function getStorefrontCategoryTree(
         cat.parentName != null &&
         !/\bother states\b/i.test(cat.parentName);
       topLevel.push(
-        orphanedChild ? { ...cat, name: `${cat.name}, ${cat.parentName}` } : cat
+        orphanedChild ? { ...cat, name: `${cat.name} [${cat.parentName}]` } : cat
       );
     }
   }

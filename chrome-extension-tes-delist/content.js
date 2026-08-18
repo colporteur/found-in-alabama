@@ -1,11 +1,12 @@
 // TES Delist Actuator — content script on app.nifty.ai.
 //
-// Executes one delist per message, following the recon'd flow exactly:
+// Executes one delist per message via the CHECKBOX + bulk-bar flow
+// (Todd's suggestion — far more robust than the ⋮ icon menu, whose
+// buttons are anonymous icon-font blobs):
 //   locate the row by title (must be a UNIQUE match) → verify SKU text →
-//   open the row's ⋮ menu → click "Delist item" → click "Continue" in
-//   the confirmation dialog → verify the row's badges flip to
-//   "Delisted". Everything is located by TEXT, not CSS classes — the
-//   Nifty SPA's class names churn; its words don't.
+//   tick the row checkbox (a native input) → click the labeled "Delist"
+//   button in the bulk action bar → confirm the dialog → verify the
+//   row's badges flip to "Delisted". Located by TEXT, not CSS classes.
 
 function norm(s) {
   return (s ?? "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -32,62 +33,77 @@ function findTitleNodes(title) {
   return nodes.filter((n) => norm(n.textContent) === want);
 }
 
-/** Climb from the title node to the row container (has SKU + buttons). */
+/** Climb from the title node to the row container (has SKU + checkbox). */
 function rowFromTitle(node) {
   let el = node;
-  for (let i = 0; i < 10 && el; i++) {
+  for (let i = 0; i < 12 && el; i++) {
     el = el.parentElement;
     if (!el) break;
     const text = el.textContent ?? "";
-    const buttons = el.querySelectorAll("button");
-    if (/SKU:/.test(text) && buttons.length >= 2) return el;
+    if (/SKU:/.test(text) && el.querySelector('input[type="checkbox"]'))
+      return el;
   }
   return null;
 }
 
-/** Candidate kebab buttons in the row: no text, has an svg. */
-function kebabCandidates(row) {
-  return [...row.querySelectorAll("button")].filter((b) => {
-    const t = norm(b.textContent);
-    return t === "" && b.querySelector("svg");
-  });
-}
-
-function visibleMenuItem(label) {
+/** Visible button whose exact text matches (bulk bar's "Delist" etc). */
+function visibleButtonByText(label) {
   const want = norm(label);
-  const items = [
-    ...document.querySelectorAll('[role="menuitem"], [role="menu"] *, li, button, div'),
-  ];
   return (
-    items.find(
-      (el) =>
-        norm(el.textContent) === want &&
-        el.offsetParent !== null &&
-        el.childElementCount <= 2
+    [...document.querySelectorAll('button, [role="button"]')].find(
+      (b) => norm(b.textContent) === want && b.offsetParent !== null
     ) ?? null
   );
 }
 
-function dialogContinueButton() {
+function dialogConfirmButton() {
   const dialogs = [...document.querySelectorAll("div")].filter(
     (d) =>
       d.offsetParent !== null &&
-      /delist this item/i.test(d.textContent ?? "") &&
+      /delist/i.test(d.textContent ?? "") &&
+      /are you sure|permanently deleted or ended/i.test(d.textContent ?? "") &&
       d.querySelector("button")
   );
   for (const d of dialogs.reverse()) {
-    const btn = [...d.querySelectorAll("button")].find(
-      (b) => norm(b.textContent) === "continue"
+    const btn = [...d.querySelectorAll("button")].find((b) =>
+      ["continue", "delist", "confirm"].includes(norm(b.textContent))
     );
     if (btn) return btn;
   }
   return null;
 }
 
+/**
+ * Full human-like activation. Modern UI libraries (Radix & friends —
+ * which Nifty's menus behave like) open on POINTER events, so a bare
+ * .click() does nothing. Dispatch the whole sequence at the element's
+ * center coordinates.
+ */
 function click(el) {
-  el.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
-  el.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-  el.click();
+  el.scrollIntoView({ block: "center" });
+  const r = el.getBoundingClientRect();
+  const x = r.left + r.width / 2;
+  const y = r.top + r.height / 2;
+  const opts = {
+    bubbles: true,
+    cancelable: true,
+    composed: true,
+    clientX: x,
+    clientY: y,
+    button: 0,
+    pointerId: 1,
+    pointerType: "mouse",
+    isPrimary: true,
+  };
+  el.dispatchEvent(new PointerEvent("pointerover", opts));
+  el.dispatchEvent(new PointerEvent("pointerenter", opts));
+  el.dispatchEvent(new PointerEvent("pointermove", opts));
+  el.dispatchEvent(new PointerEvent("pointerdown", opts));
+  el.dispatchEvent(new MouseEvent("mousedown", opts));
+  if (typeof el.focus === "function") el.focus();
+  el.dispatchEvent(new PointerEvent("pointerup", opts));
+  el.dispatchEvent(new MouseEvent("mouseup", opts));
+  el.dispatchEvent(new MouseEvent("click", opts));
 }
 
 async function delistItem({ title, sku }) {
@@ -108,24 +124,25 @@ async function delistItem({ title, sku }) {
     return { status: "manual", note: `SKU mismatch (expected ${sku})` };
   }
 
-  // 3. Open the ⋮ menu — try each icon-only button until "Delist item"
-  //    appears (the row also has star/note icon buttons).
-  let delistEntry = null;
-  for (const candidate of kebabCandidates(row)) {
-    click(candidate);
-    delistEntry = await waitFor(() => visibleMenuItem("delist item"), 2500);
-    if (delistEntry) break;
-    document.body.dispatchEvent(
-      new KeyboardEvent("keydown", { key: "Escape", bubbles: true })
-    );
-    await sleep(300);
-  }
-  if (!delistEntry) return { status: "failed", note: "Could not open the ⋮ menu / find Delist item" };
+  // 3. Tick the row checkbox — a native input; the bulk action bar
+  //    (Edit / Crosslist / … / Delist) appears at the bottom.
+  const checkbox = row.querySelector('input[type="checkbox"]');
+  if (!checkbox) return { status: "failed", note: "Row checkbox not found" };
+  if (!checkbox.checked) checkbox.click();
 
-  // 4. Delist item → confirmation dialog → Continue.
-  click(delistEntry);
-  const continueBtn = await waitFor(dialogContinueButton, 8000);
-  if (!continueBtn) return { status: "failed", note: "Confirmation dialog did not appear" };
+  const delistBtn = await waitFor(() => visibleButtonByText("delist"), 8000);
+  if (!delistBtn) {
+    if (checkbox.checked) checkbox.click(); // leave the page clean
+    return { status: "failed", note: "Bulk bar Delist button did not appear" };
+  }
+
+  // 4. Delist → confirmation dialog → Continue.
+  click(delistBtn);
+  const continueBtn = await waitFor(dialogConfirmButton, 8000);
+  if (!continueBtn) {
+    if (checkbox.checked) checkbox.click();
+    return { status: "failed", note: "Confirmation dialog did not appear" };
+  }
   click(continueBtn);
 
   // 5. Verify: the row shows "Delisted" badges (or leaves the Listed view).
