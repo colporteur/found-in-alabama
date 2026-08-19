@@ -309,6 +309,14 @@ function storeCatField(drawer) {
       isVisible(e)
   );
   if (!label) return null;
+  // The value is the label's SIBLING inside the same field Stack (a
+  // "Store categories:" <p> + a value box). Verified in the live DOM —
+  // climbing parents and searching grabs the NEIGHBORING field's label
+  // ("Brand:") instead, which sent v0.3.0 clicking the wrong element.
+  const sib = label.nextElementSibling;
+  if (sib && (sib.textContent ?? "").trim().length > 0) {
+    return { label, value: sib };
+  }
   let box = label.parentElement;
   for (let i = 0; i < 3 && box; i++) {
     const value = [...box.querySelectorAll("*")].find(
@@ -317,7 +325,7 @@ function storeCatField(drawer) {
         e.children.length === 0 &&
         isVisible(e) &&
         (e.textContent ?? "").trim().length > 0 &&
-        !/store categories:/i.test(e.textContent ?? "")
+        !/store categories:|brand:|size:/i.test(e.textContent ?? "")
     );
     if (value) return { label, value };
     box = box.parentElement;
@@ -445,7 +453,7 @@ async function clickSaveIfPresent() {
   return false;
 }
 
-async function recatItem({ title, sku, remove, add }) {
+async function recatItem({ title, sku, remove, add, target }) {
   // 1. Locate the row — must be a unique title match.
   const titleNodes = await waitFor(() => {
     const t = findTitleNodes(title);
@@ -473,17 +481,31 @@ async function recatItem({ title, sku, remove, add }) {
     const pop = await waitFor(findCatPopover, 6000);
     if (!pop) return { status: "manual", note: "Store categories popover did not open" };
 
-    // 3. Remove wrong chips FIRST (never exceed eBay's 2-category cap),
-    //    then add replacements.
-    for (const r of remove ?? []) {
-      const res = await removeCategoryChip(pop, r.path);
-      if (!res.ok) {
-        await closeCatPopover();
-        return { status: "failed", note: res.note };
+    // 3. RECONCILE the chips to the TARGET set. The queue's remove list
+    //    describes what EBAY had — but Nifty routinely holds something
+    //    else entirely (the workbench's Redistribute op revises store
+    //    categories on eBay only, so listings drift: eBay says "Baseball
+    //    Cards" while Nifty still says "Other"). So never trust the
+    //    diff: remove every chip that isn't a target, then add missing
+    //    targets. Removals first — eBay caps the selection at 2.
+    const targets = (target?.length ? target : add ?? []).map((t) => t.path);
+    if (targets.length === 0) {
+      await closeCatPopover();
+      return { status: "manual", note: "Queue entry carried no target categories" };
+    }
+    const targetSet = new Set(targets.map(normPath));
+    const before = chipsIn(pop).map((c) => (c.textContent ?? "").trim());
+    for (const chipText of before) {
+      if (!targetSet.has(normPath(chipText))) {
+        const res = await removeCategoryChip(pop, chipText);
+        if (!res.ok) {
+          await closeCatPopover();
+          return { status: "failed", note: res.note };
+        }
       }
     }
-    for (const a of add ?? []) {
-      const res = await addCategory(pop, a.path);
+    for (const path of targets) {
+      const res = await addCategory(pop, path);
       if (!res.ok) {
         await closeCatPopover();
         return { status: "failed", note: res.note };
@@ -494,19 +516,23 @@ async function recatItem({ title, sku, remove, add }) {
     await closeCatPopover();
     await clickSaveIfPresent();
 
-    // 5. Verify: the field's comma-joined paths show the new set.
+    // 5. Verify: the field's comma-joined paths show EXACTLY the target
+    //    set — nothing missing, nothing extra.
     const verified = await waitFor(() => {
       const f = storeCatField(drawer);
       if (!f) return null;
-      const segs = (f.value.textContent ?? "").split(",").map((s) => normPath(s));
-      const hasAll = (add ?? []).every((a) => segs.includes(normPath(a.path)));
-      const noneOld = (remove ?? []).every((r) => !segs.includes(normPath(r.path)));
-      return hasAll && noneOld ? true : null;
+      const segs = (f.value.textContent ?? "")
+        .split(",")
+        .map((s) => normPath(s))
+        .filter(Boolean);
+      const hasAll = targets.every((t) => segs.includes(normPath(t)));
+      const noneExtra = segs.every((s) => targetSet.has(s));
+      return hasAll && noneExtra ? true : null;
     }, 10000, 500);
 
     return verified
-      ? { status: "done" }
-      : { status: "failed", note: "Edited the popover but the field never showed the new set" };
+      ? { status: "done", note: `Nifty had: ${before.join(", ") || "(none)"}` }
+      : { status: "failed", note: "Edited the popover but the field never showed the target set" };
   } finally {
     pressEscape(); // leave the drawer closed and the page clean
   }

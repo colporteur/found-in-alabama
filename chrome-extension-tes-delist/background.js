@@ -181,8 +181,9 @@ async function runQueue(trigger) {
         type: "recatItem",
         title: entry.title,
         sku: entry.sku,
-        remove: entry.remove, // [{id, path}] — Nifty-format paths
+        remove: entry.remove, // [{id, path}] — Nifty-format paths (advisory)
         add: entry.add,
+        target: entry.target, // the FINAL desired set — the actuator reconciles to this
       });
       const status = r.status === "done" ? "done" : r.status === "manual" ? "manual" : "failed";
       if (status !== "done") recatFailures++;

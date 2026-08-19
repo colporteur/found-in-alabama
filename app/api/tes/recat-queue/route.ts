@@ -66,8 +66,13 @@ export async function GET(req: NextRequest) {
         itemId: r.itemId,
         title: r.title,
         sku: r.sku,
+        // Advisory diff vs the eBay mirror. Nifty may hold DIFFERENT
+        // categories (the Redistribute op revises eBay only), so the
+        // actuator reconciles to `target` and ignores stale chips.
         remove: [...oldSet].filter((id) => !newSet.has(id)).map(ref),
         add: [...newSet].filter((id) => !oldSet.has(id)).map(ref),
+        /** The final desired set — what Nifty's chips should be after. */
+        target: [...newSet].map(ref),
         mode: r.mode,
         aiConfidence: r.aiConfidence,
       };
