@@ -169,6 +169,13 @@
       "when": 1787018596115,
       "tag": "0023_chunky_nighthawk",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1787165533436,
+      "tag": "0024_chilly_callisto",
+      "breakpoints": true
     }
   ]
 }

@@ -1043,3 +1043,44 @@ export const tesOrderItems = pgTable(
     orderIdx: index("tes_order_items_order_idx").on(t.orderId),
   })
 );
+
+// TES recategorize queue (Phase TES-RECAT). Items flagged from the
+// theephemeralstate.com storefront (via the Chrome-extension overlay) as
+// sitting in the wrong eBay Store Category slot(s). The durable fix must
+// happen in NIFTY — the listing's source of truth — or the "Recreate"
+// feature reverts it; a direct eBay ReviseItem is not enough. So rows sit
+// here "pending" until the extension's actuator rewrites the Store
+// categories field in Nifty's eBay section and reports back.
+//
+// old*/new* are category ids per slot; a null new means "slot unchanged".
+// Replacements come either from Todd (mode manual) or from the same AI
+// categorizer the admin tool uses (mode ai; fia-cheap gateway alias).
+
+export const tesRecatQueue = pgTable(
+  "tes_recat_queue",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** eBay item id — the cross-system match key (SKUs are bin numbers). */
+    itemId: text("item_id").notNull(),
+    /** Title snapshot — the actuator's Nifty search key. */
+    title: text("title").notNull(),
+    sku: text("sku"),
+    oldCategory1Id: text("old_category_1_id"),
+    oldCategory2Id: text("old_category_2_id"),
+    newCategory1Id: text("new_category_1_id"),
+    newCategory2Id: text("new_category_2_id"),
+    /** manual | ai | mixed — how the replacements were chosen. */
+    mode: text("mode").notNull(),
+    aiConfidence: numeric("ai_confidence", { precision: 4, scale: 3 }),
+    aiReasoning: text("ai_reasoning"),
+    /** pending | done | manual | failed */
+    status: text("status").default("pending").notNull(),
+    note: text("note"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    completedAt: timestamp("completed_at"),
+  },
+  (t) => ({
+    statusIdx: index("tes_recat_queue_status_idx").on(t.status),
+    itemIdx: index("tes_recat_queue_item_idx").on(t.itemId),
+  })
+);

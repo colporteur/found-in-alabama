@@ -1,12 +1,14 @@
 {
   "manifest_version": 3,
-  "name": "TES Delist Actuator",
-  "version": "0.2.1",
-  "description": "When theephemeralstate.com sells an item, delists it from all marketplaces via Nifty. Polls the site's order queue and works it automatically.",
+  "name": "TES Actuator",
+  "version": "0.3.0",
+  "description": "Works theephemeralstate.com queues against Nifty: delists sold items, and recategorizes flagged items at the root (Nifty's eBay Store Categories) so Recreate can't revert them.",
   "permissions": ["storage", "alarms", "tabs", "notifications"],
   "host_permissions": [
     "https://app.nifty.ai/*",
-    "https://www.foundinalabama.com/*"
+    "https://www.foundinalabama.com/*",
+    "https://theephemeralstate.com/*",
+    "https://www.theephemeralstate.com/*"
   ],
   "background": { "service_worker": "background.js" },
   "content_scripts": [
@@ -14,10 +16,20 @@
       "matches": ["https://app.nifty.ai/*"],
       "js": ["content.js"],
       "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://theephemeralstate.com/*",
+        "https://www.theephemeralstate.com/*",
+        "https://www.foundinalabama.com/tes/*"
+      ],
+      "js": ["overlay.js"],
+      "css": ["overlay.css"],
+      "run_at": "document_idle"
     }
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "TES Delist Actuator"
+    "default_title": "TES Actuator"
   }
 }

@@ -1,0 +1,164 @@
+/* TES recategorize overlay — storefront product cards. Kraft palette. */
+
+.tes-recat-host {
+  position: relative !important;
+}
+
+.tes-recat-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 30;
+  width: 28px;
+  height: 28px;
+  border: 1px solid #d0c6b2;
+  border-radius: 50%;
+  background: rgba(247, 241, 228, 0.95);
+  color: #332a1f;
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+.tes-recat-host:hover .tes-recat-btn { opacity: 1; }
+.tes-recat-btn:hover { background: #d9a25f; }
+.tes-recat-btn.tes-recat-queued {
+  opacity: 1;
+  background: #2f7d4f;
+  color: #fff;
+  border-color: #2f7d4f;
+}
+
+/* Modal (appended to body — cards clip absolute children). */
+.tes-recat-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 9998;
+  background: rgba(51, 42, 31, 0.45);
+}
+.tes-recat-panel {
+  position: fixed;
+  z-index: 9999;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: min(440px, calc(100vw - 32px));
+  max-height: 80vh;
+  overflow-y: auto;
+  background: #f7f1e4;
+  color: #332a1f;
+  border: 1px solid #d0c6b2;
+  border-radius: 10px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  padding: 16px;
+  font-family: system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.45;
+}
+.tes-recat-panel h3 {
+  margin: 0 24px 10px 0;
+  font-size: 14px;
+  line-height: 1.3;
+}
+.tes-recat-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  border: 0;
+  background: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #5c5346;
+}
+.tes-recat-slot {
+  border: 1px solid #e5dcc8;
+  border-radius: 8px;
+  background: #fff;
+  padding: 10px;
+  margin-bottom: 10px;
+}
+.tes-recat-slot label.tes-recat-flag {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  cursor: pointer;
+  font-weight: 600;
+}
+.tes-recat-slot .tes-recat-path {
+  font-weight: 400;
+  color: #5c5346;
+}
+.tes-recat-modes {
+  display: flex;
+  gap: 6px;
+  margin: 8px 0 0 24px;
+}
+.tes-recat-modes button {
+  border: 1px solid #d0c6b2;
+  background: #f7f1e4;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  color: #332a1f;
+}
+.tes-recat-modes button.tes-recat-active {
+  background: #332a1f;
+  color: #f7f1e4;
+  border-color: #332a1f;
+}
+.tes-recat-pick {
+  margin: 8px 0 0 24px;
+}
+.tes-recat-pick input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 6px 8px;
+  border: 1px solid #d0c6b2;
+  border-radius: 6px;
+  font-size: 12px;
+  background: #fff;
+}
+.tes-recat-options {
+  margin-top: 4px;
+  border: 1px solid #e5dcc8;
+  border-radius: 6px;
+  background: #fff;
+  max-height: 150px;
+  overflow-y: auto;
+}
+.tes-recat-options div {
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 12px;
+}
+.tes-recat-options div:hover { background: #f0e8d5; }
+.tes-recat-options div.tes-recat-selected {
+  background: #d9a25f;
+  font-weight: 600;
+}
+.tes-recat-submit {
+  width: 100%;
+  margin-top: 4px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: #332a1f;
+  color: #f7f1e4;
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+}
+.tes-recat-submit:disabled { opacity: 0.5; cursor: default; }
+.tes-recat-status {
+  margin-top: 8px;
+  min-height: 16px;
+  font-size: 12px;
+}
+.tes-recat-status.tes-recat-err { color: #b91c1c; }
+.tes-recat-status.tes-recat-ok { color: #2f7d4f; }

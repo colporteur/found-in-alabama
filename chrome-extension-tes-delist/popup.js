@@ -39,7 +39,7 @@ $("run").addEventListener("click", async () => {
   $("status").textContent = "Running…";
   const result = await chrome.runtime.sendMessage({ type: "runNow" });
   $("status").textContent = result?.ok
-    ? `Done — ${result.orders ?? 0} order(s) processed.`
+    ? `Done — ${result.orders ?? 0} order(s), ${result.recats ?? 0} recat(s) processed.`
     : `Failed: ${result?.error ?? "unknown"}`;
   await refreshLog();
 });
