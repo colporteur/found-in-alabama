@@ -11,7 +11,7 @@
 // Every "Buy" link points at the real eBay listing; this is a discovery
 // layer, not a checkout. On-sale badges reuse lib/ebay/active-sales.
 
-import { and, desc, eq, gt, isNotNull, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gt, ilike, inArray, isNotNull, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { ebayListings, ebayStoreCategories, items } from "@/db/schema";
 import { getOnSaleLookup, type SaleBadge } from "@/lib/ebay/active-sales";
@@ -458,4 +458,136 @@ export async function getCategoryItems(
       marketplaceLinks: meta?.marketplaceLinks ?? [],
     };
   });
+}
+
+// ─── Storefront search ────────────────────────────────────────────────────────
+
+export type StorefrontSearchParams = {
+  /** Free-text query — every word must appear in the title. */
+  q?: string;
+  /** Restrict to one store category (either slot). */
+  categoryId?: string;
+  minPrice?: number;
+  maxPrice?: number;
+  sort?: "newest" | "price-asc" | "price-desc";
+  limit?: number;
+};
+
+export type StorefrontSearchResult = {
+  items: StorefrontItem[];
+  total: number;
+};
+
+/**
+ * Search in-stock listings (TES segment when opts.segment === "tes").
+ * Same item shape as getCategoryItems so the card components just work.
+ */
+export async function searchStorefrontItems(
+  params: StorefrontSearchParams,
+  opts: StorefrontOpts = {}
+): Promise<StorefrontSearchResult> {
+  const limit = Math.min(240, Math.max(1, params.limit ?? 120));
+  const cats = await getStorefrontCategories(opts);
+  const segmentIds = cats.map((c) => c.categoryId);
+  if (opts.segment === "tes" && segmentIds.length === 0) {
+    return { items: [], total: 0 };
+  }
+
+  const conds = [gt(ebayListings.quantity, 0)];
+  if (opts.segment === "tes") {
+    conds.push(
+      or(
+        inArray(ebayListings.storeCategory1Id, segmentIds),
+        inArray(ebayListings.storeCategory2Id, segmentIds)
+      )!
+    );
+  }
+  if (params.categoryId) {
+    conds.push(
+      or(
+        eq(ebayListings.storeCategory1Id, params.categoryId),
+        eq(ebayListings.storeCategory2Id, params.categoryId)
+      )!
+    );
+  }
+  const words = (params.q ?? "")
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 0)
+    .slice(0, 8);
+  for (const w of words) {
+    conds.push(ilike(ebayListings.title, `%${w}%`));
+  }
+  if (params.minPrice != null && Number.isFinite(params.minPrice)) {
+    conds.push(sql`${ebayListings.price} >= ${params.minPrice}`);
+  }
+  if (params.maxPrice != null && Number.isFinite(params.maxPrice)) {
+    conds.push(sql`${ebayListings.price} <= ${params.maxPrice}`);
+  }
+  const where = and(...conds);
+
+  const orderBy =
+    params.sort === "price-asc"
+      ? asc(ebayListings.price)
+      : params.sort === "price-desc"
+        ? desc(ebayListings.price)
+        : desc(ebayListings.startTime);
+
+  const [rows, [{ total }], onSale, metaByEbayId, classRows] = await Promise.all([
+    db
+      .select({
+        itemId: ebayListings.itemId,
+        title: ebayListings.title,
+        price: ebayListings.price,
+        imageUrl: ebayListings.primaryImageUrl,
+        cat1: ebayListings.storeCategory1Id,
+        cat2: ebayListings.storeCategory2Id,
+      })
+      .from(ebayListings)
+      .where(where)
+      .orderBy(orderBy)
+      .limit(limit),
+    db
+      .select({ total: sql<number>`count(*)::int` })
+      .from(ebayListings)
+      .where(where),
+    getOnSaleLookup(),
+    getItemMetaByEbayId(),
+    db
+      .select({
+        categoryId: ebayStoreCategories.categoryId,
+        shipClass: ebayStoreCategories.shipClass,
+      })
+      .from(ebayStoreCategories),
+  ]);
+
+  const classByCat = new Map(classRows.map((c) => [c.categoryId, c.shipClass]));
+  const rank = { paper: 0, media: 1, bulky: 2 } as const;
+  const normClass = (v: unknown): "paper" | "media" | "bulky" =>
+    v === "media" || v === "bulky" ? v : "paper";
+
+  return {
+    total,
+    items: rows.map((r) => {
+      const sale =
+        onSale.byListingId.get(r.itemId) ??
+        (r.cat1 ? onSale.byCategoryId.get(r.cat1) : undefined) ??
+        (r.cat2 ? onSale.byCategoryId.get(r.cat2) : undefined) ??
+        null;
+      const meta = metaByEbayId.get(r.itemId);
+      const c1 = normClass(r.cat1 ? classByCat.get(r.cat1) : undefined);
+      const c2 = normClass(r.cat2 ? classByCat.get(r.cat2) : undefined);
+      return {
+        itemId: r.itemId,
+        title: decodeEntities(r.title),
+        price: r.price,
+        imageUrl: r.imageUrl,
+        ebayUrl: `https://www.ebay.com/itm/${r.itemId}`,
+        shipClass: rank[c1] >= rank[c2] ? c1 : c2,
+        sale,
+        haulSlug: meta?.haulSlug ?? null,
+        marketplaceLinks: meta?.marketplaceLinks ?? [],
+      };
+    }),
+  };
 }

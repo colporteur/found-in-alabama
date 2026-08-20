@@ -106,6 +106,7 @@ async function setBadge(n) {
 async function runQueue(trigger) {
   if (working) return { ok: false, error: "Already running" };
   working = true;
+  let workTabId = null;
   try {
     const cfg = await getConfig();
     if (!cfg.apiKey) {
@@ -131,7 +132,8 @@ async function runQueue(trigger) {
       return { ok: true, orders: 0, recats: 0 };
     }
 
-    const tabId = await ensureNiftyTab();
+    workTabId = await createWorkTab();
+    const tabId = workTabId;
 
     // ── 1. Delist queue ─────────────────────────────────────────────────────
     if (orders.length > 0) await log(`${orders.length} order(s) need delisting (${trigger}).`);
@@ -219,13 +221,21 @@ async function runQueue(trigger) {
     await log(`Run failed: ${err.message}`);
     return { ok: false, error: err.message };
   } finally {
+    if (workTabId != null) {
+      try {
+        await chrome.tabs.remove(workTabId);
+      } catch {
+        // already closed — fine
+      }
+    }
     working = false;
   }
 }
 
-async function ensureNiftyTab() {
-  const tabs = await chrome.tabs.query({ url: "https://app.nifty.ai/*" });
-  if (tabs.length > 0) return tabs[0].id;
+/** A dedicated background tab for this run, closed when the run ends —
+ *  never commandeer an existing Nifty tab: Todd drafts in Nifty all day
+ *  and the old ensureNiftyTab() would navigate away his work-in-progress. */
+async function createWorkTab() {
   const tab = await chrome.tabs.create({
     url: "https://app.nifty.ai/inventory",
     active: false,

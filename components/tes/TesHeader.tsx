@@ -24,6 +24,19 @@ export default function TesHeader() {
             The Ephemeral State
           </span>
         </Link>
+        <form
+          method="GET"
+          action={`${prefix}/search`}
+          className="order-last sm:order-none w-full sm:w-auto"
+        >
+          <input
+            type="search"
+            name="q"
+            placeholder="Search the collection…"
+            aria-label="Search the collection"
+            className="w-full sm:w-56 border border-tes-ink/15 rounded-full px-4 py-1.5 text-sm bg-white focus:outline-none focus:border-tes-kraft"
+          />
+        </form>
         <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
           <Link
             href={`${prefix}/states`}

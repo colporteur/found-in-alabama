@@ -7,6 +7,7 @@ import Link from "next/link";
 import { getStorefrontCategoryTree } from "@/lib/ebay/storefront";
 import { tesPrefix } from "@/lib/tes/host";
 import { CategoryGrid } from "@/components/tes/TesCategoryCards";
+import FeaturedBar from "@/components/tes/FeaturedBar";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -32,6 +33,7 @@ export default async function TesHomePage() {
 
   return (
     <>
+      <FeaturedBar />
       <section className="border-b border-tes-ink/10 bg-tes-kraft/15">
         <div className="container-content py-14 md:py-20">
           <p className="text-xs uppercase tracking-[0.2em] text-tes-stamp mb-4">

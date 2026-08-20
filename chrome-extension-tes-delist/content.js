@@ -264,39 +264,54 @@ function pressEscape() {
   );
 }
 
-/** Open the row's item drawer. Try the title node first, then the row's
- *  trailing action buttons (last-first — the drawer opener sits at the
- *  row's end). A wrong button may open a menu instead: if a menu with an
- *  "edit"-ish item appears, use it; otherwise Escape and try the next. */
+/** The row's vertical action-icon stack (⋮ menu / ☆ favorite / 📝 notes):
+ *  small icon buttons sharing one x-position, stacked by y. This is how
+ *  we tell them apart from the marketplace arrow icons on the row's right
+ *  (same size, different column). Verified live 2026-08-19. */
+function rowIconStack(row) {
+  const btns = [...row.querySelectorAll("button")].filter((b) => {
+    const r = b.getBoundingClientRect();
+    return (
+      r.width > 0 && r.width < 40 && r.height > 0 && r.height < 40 &&
+      !/print/i.test(b.textContent ?? "")
+    );
+  });
+  const groups = new Map();
+  for (const b of btns) {
+    const x = Math.round(b.getBoundingClientRect().x / 10) * 10;
+    if (!groups.has(x)) groups.set(x, []);
+    groups.get(x).push(b);
+  }
+  const stacks = [...groups.entries()]
+    .filter(([, arr]) => arr.length >= 2)
+    .sort((a, b) => a[0] - b[0]); // left-most stack = the action icons
+  if (stacks.length === 0) return btns; // layout changed — best effort
+  return stacks[0][1].sort(
+    (a, b) => a.getBoundingClientRect().y - b.getBoundingClientRect().y
+  );
+}
+
+/** Open the row's item drawer. VERIFIED LIVE (2026-08-19): the opener is
+ *  the BOTTOM icon of the action stack (notes). Title clicks do nothing;
+ *  ⋮ → "Edit item" navigates to a different full-page view; the star
+ *  toggles favorite; the row's trailing buttons are marketplace arrows
+ *  that open external tabs — never click those. */
 async function openItemDrawer(row, titleNode, title) {
   let drawer = findDrawer(title);
   if (drawer) return drawer;
 
-  click(titleNode);
-  drawer = await waitFor(() => findDrawer(title), 4000);
-  if (drawer) return drawer;
-
-  const buttons = [...row.querySelectorAll('button, [role="button"]')]
-    .filter(isVisible)
-    .reverse()
-    .slice(0, 4);
-  for (const b of buttons) {
-    click(b);
-    drawer = await waitFor(() => findDrawer(title), 3000);
+  const stack = rowIconStack(row);
+  if (stack.length > 0) {
+    click(stack[stack.length - 1]); // bottom icon = notes = drawer opener
+    drawer = await waitFor(() => findDrawer(title), 6000);
     if (drawer) return drawer;
-    // A menu instead? Look for an Edit entry.
-    const editItem = [
-      ...document.querySelectorAll('[role="menuitem"], [role="option"], li'),
-    ].find((m) => isVisible(m) && /^edit( item| listing)?$/i.test(m.textContent?.trim() ?? ""));
-    if (editItem) {
-      click(editItem);
-      drawer = await waitFor(() => findDrawer(title), 4000);
-      if (drawer) return drawer;
-    }
     pressEscape();
     await sleep(400);
   }
-  return null;
+
+  // Last resort — the title node (harmless if it does nothing).
+  click(titleNode);
+  return await waitFor(() => findDrawer(title), 3000);
 }
 
 /** The "Store categories:" inline field inside the drawer's eBay section.
@@ -335,12 +350,27 @@ function storeCatField(drawer) {
 
 async function expandEbaySection(drawer) {
   if (storeCatField(drawer)) return true;
-  const btn = [...drawer.querySelectorAll('button, [role="button"]')].find(
-    (b) => norm(b.textContent) === "ebay" && isVisible(b)
-  );
+  // The accordion header button's text CONTAINS the status — it reads
+  // "eBayComplete" / "eBayIncomplete" etc. (verified live 2026-08-19),
+  // so match the prefix, never the exact word "ebay".
+  const btn = [...drawer.querySelectorAll('button, [role="button"]')].find((b) => {
+    const t = norm(b.textContent);
+    return t.startsWith("ebay") && t.length < 25 && isVisible(b);
+  });
   if (!btn) return false;
   click(btn);
-  return !!(await waitFor(() => storeCatField(drawer), 6000));
+  if (await waitFor(() => storeCatField(drawer), 6000)) return true;
+  // Some sections hide secondary fields behind a "Show all fields"
+  // toggle — click the one that follows the eBay header in doc order.
+  const showAll = [...drawer.querySelectorAll("button")].find(
+    (b) =>
+      norm(b.textContent) === "show all fields" &&
+      isVisible(b) &&
+      btn.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING
+  );
+  if (!showAll) return false;
+  click(showAll);
+  return !!(await waitFor(() => storeCatField(drawer), 5000));
 }
 
 /** The Store categories popover: heading "Store categories" + a Search
@@ -512,27 +542,26 @@ async function recatItem({ title, sku, remove, add, target }) {
       }
     }
 
-    // 4. Close the popover; honor any save/update prompt.
+    // 4. Verify INSIDE the popover, where chips are unambiguous elements.
+    //    (Parsing the field text breaks on category names that contain
+    //    commas, and the drawer closes the moment Update item is clicked
+    //    — v0.3.3 verified after saving and false-failed a good run.)
+    const chipsOk = await waitFor(() => {
+      const now = chipsIn(pop).map((c) => normPath(c.textContent));
+      const hasAll = targets.every((t) => now.includes(normPath(t)));
+      const noneExtra = now.every((s) => targetSet.has(s));
+      return hasAll && noneExtra ? true : null;
+    }, 6000, 300);
+    if (!chipsOk) {
+      await closeCatPopover();
+      return { status: "failed", note: "Chips never settled on the target set" };
+    }
+
+    // 5. Close the popover, then save. The drawer's "Update item" button
+    //    saves AND closes the drawer — nothing can be checked after it.
     await closeCatPopover();
     await clickSaveIfPresent();
-
-    // 5. Verify: the field's comma-joined paths show EXACTLY the target
-    //    set — nothing missing, nothing extra.
-    const verified = await waitFor(() => {
-      const f = storeCatField(drawer);
-      if (!f) return null;
-      const segs = (f.value.textContent ?? "")
-        .split(",")
-        .map((s) => normPath(s))
-        .filter(Boolean);
-      const hasAll = targets.every((t) => segs.includes(normPath(t)));
-      const noneExtra = segs.every((s) => targetSet.has(s));
-      return hasAll && noneExtra ? true : null;
-    }, 10000, 500);
-
-    return verified
-      ? { status: "done", note: `Nifty had: ${before.join(", ") || "(none)"}` }
-      : { status: "failed", note: "Edited the popover but the field never showed the target set" };
+    return { status: "done", note: `Nifty had: ${before.join(", ") || "(none)"}` };
   } finally {
     pressEscape(); // leave the drawer closed and the page clean
   }
