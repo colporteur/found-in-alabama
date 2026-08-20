@@ -16,10 +16,30 @@ export default async function TesFeaturedPage() {
     getFeaturedSlotStrings(),
   ]);
 
-  const options = cats.map((c) => ({
-    value: `cat:${c.categoryId}`,
-    label: `${c.name}${c.isState ? " (state)" : ""} — ${c.count} items`,
-  }));
+  // Stocked categories, plus PARENT categories that hold no items
+  // directly but have stocked children (e.g. "Vintage Postcards") — those
+  // are exactly the ones that make good featured slots with dropdowns.
+  const stockedIds = new Set(cats.map((c) => c.categoryId));
+  const parentOnly = new Map<string, { name: string; children: number }>();
+  for (const c of cats) {
+    if (c.parentCategoryId && !stockedIds.has(c.parentCategoryId)) {
+      const cur = parentOnly.get(c.parentCategoryId);
+      parentOnly.set(c.parentCategoryId, {
+        name: c.parentName ?? "Unnamed parent",
+        children: (cur?.children ?? 0) + 1,
+      });
+    }
+  }
+  const options = [
+    ...[...parentOnly.entries()].map(([id, p]) => ({
+      value: `cat:${id}`,
+      label: `📁 ${p.name} (parent — ${p.children} subcategories)`,
+    })),
+    ...cats.map((c) => ({
+      value: `cat:${c.categoryId}`,
+      label: `${c.name}${c.isState ? " (state)" : ""} — ${c.count} items`,
+    })),
+  ];
 
   return (
     <section className="container-content py-12">
