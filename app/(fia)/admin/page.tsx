@@ -4,7 +4,8 @@
 
 import { auth } from "@/auth";
 import { db, items } from "@/db";
-import { count, eq } from "drizzle-orm";
+import { tesOrders } from "@/db/schema";
+import { and, count, eq } from "drizzle-orm";
 import Link from "next/link";
 
 export default async function AdminDashboard() {
@@ -18,6 +19,13 @@ export default async function AdminDashboard() {
     .select({ count: count() })
     .from(items)
     .where(eq(items.status, "sold"));
+  const [delistRow] = await db
+    .select({ count: count() })
+    .from(tesOrders)
+    .where(
+      and(eq(tesOrders.status, "paid"), eq(tesOrders.delistStatus, "pending"))
+    );
+  const needsDelist = delistRow?.count ?? 0;
 
   return (
     <section className="container-content py-12">
@@ -28,9 +36,28 @@ export default async function AdminDashboard() {
         Hi, {session?.user?.email?.split("@")[0]}.
       </h1>
 
-      <div className="grid gap-4 sm:grid-cols-2 max-w-md mb-12">
+      <div className="grid gap-4 sm:grid-cols-3 max-w-2xl mb-12">
         <Stat label="Active inventory" value={activeRow?.count ?? 0} />
         <Stat label="Sold" value={soldRow?.count ?? 0} />
+        <Link
+          href="/admin/tes-orders"
+          className={`block border rounded-lg p-5 transition-colors ${
+            needsDelist > 0
+              ? "bg-red-50 border-red-300 hover:border-red-500"
+              : "bg-white border-brand-ink/15 hover:border-brand-yellow"
+          }`}
+        >
+          <p className="text-xs uppercase tracking-wider text-brand-ink/50 mb-2">
+            TES delists pending
+          </p>
+          <p
+            className={`font-marker text-3xl ${
+              needsDelist > 0 ? "text-red-700" : ""
+            }`}
+          >
+            {needsDelist}
+          </p>
+        </Link>
       </div>
 
       <Group title="Journal & content">
@@ -91,6 +118,29 @@ export default async function AdminDashboard() {
           href="/admin/ebay/connect"
           title="eBay connection"
           desc="API credentials and token status."
+        />
+      </Group>
+
+      <Group title="The Ephemeral State">
+        <Tool
+          href="/admin/tes-orders"
+          title="TES orders & delist queue"
+          desc="Paid orders with packing details; red until every item is delisted from Nifty (the extension usually handles it)."
+        />
+        <Tool
+          href="/admin/tes-featured"
+          title="Featured categories"
+          desc="The home-page featured bar: categories, Explore by State, and custom groups like Collectible Niches."
+        />
+        <Tool
+          href="/admin/ebay/categories"
+          title="Segment & shipping flags"
+          desc='Same store-categories page: the "Ephemeral" toggle picks what TES sells; the Ship dropdown sets paper/media/bulky.'
+        />
+        <Tool
+          href="https://theephemeralstate.com"
+          title="View the site ↗"
+          desc="theephemeralstate.com — the storefront itself, as buyers see it."
         />
       </Group>
 

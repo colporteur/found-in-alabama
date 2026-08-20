@@ -32,6 +32,7 @@ const adminNav = [
   { href: "/admin/social", label: "Social" },
   { href: "/admin/newsletter", label: "Newsletter" },
   { href: "/admin/inventory", label: "Inventory" },
+  { href: "/admin/tes-orders", label: "TES Orders" },
 ];
 
 export default async function AdminLayout({
