@@ -5,7 +5,7 @@
 
 import Link from "next/link";
 import { getStorefrontCategories } from "@/lib/ebay/storefront";
-import { getFeaturedSlotStrings } from "@/lib/tes/featured";
+import { getFeaturedRawSlots } from "@/lib/tes/featured";
 import FeaturedEditor from "./FeaturedEditor";
 
 export const dynamic = "force-dynamic";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 export default async function TesFeaturedPage() {
   const [cats, slots] = await Promise.all([
     getStorefrontCategories({ segment: "tes" }),
-    getFeaturedSlotStrings(),
+    getFeaturedRawSlots(),
   ]);
 
   // Stocked categories, plus PARENT categories that hold no items
@@ -51,7 +51,9 @@ export default async function TesFeaturedPage() {
         These fill the featured bar at the top of theephemeralstate.com. Pick
         up to six. A category that has child categories shows them in a
         dropdown; &ldquo;Explore by State&rdquo; shows a dropdown of every
-        stocked state. Empty slots are skipped.
+        stocked state; &ldquo;Custom group&rdquo; lets you invent a parent
+        that doesn&rsquo;t exist on eBay (name it, pick its members — each
+        member becomes a dropdown entry). Empty slots are skipped.
       </p>
       <FeaturedEditor options={options} initial={slots} />
       <div className="mt-10">

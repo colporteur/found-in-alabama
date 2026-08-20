@@ -10,7 +10,7 @@ import {
   type StorefrontCategory,
   type StorefrontCategoryGroup,
 } from "@/lib/ebay/storefront";
-import { getFeaturedSlotStrings, parseSlot } from "@/lib/tes/featured";
+import { getFeaturedRawSlots, parseSlot, type RawSlot } from "@/lib/tes/featured";
 import { tesPrefix } from "@/lib/tes/host";
 
 type ResolvedSlot = {
@@ -22,15 +22,43 @@ type ResolvedSlot = {
 };
 
 function resolveSlots(
-  slotStrings: string[],
+  rawSlots: RawSlot[],
   groups: StorefrontCategoryGroup[],
   flat: StorefrontCategory[],
   prefix: string
 ): ResolvedSlot[] {
   const out: ResolvedSlot[] = [];
-  for (const raw of slotStrings) {
+  const flatById = new Map(flat.map((c) => [c.categoryId, c]));
+  for (const raw of rawSlots) {
     const slot = parseSlot(raw);
     if (!slot) continue;
+    if (slot.type === "group") {
+      // Custom virtual parent — hand-picked member categories. Members
+      // that are real stocked categories link directly; a member that's
+      // an unstocked parent contributes its stocked children instead.
+      const children: { label: string; href: string }[] = [];
+      for (const id of slot.categoryIds) {
+        const cat = flatById.get(id);
+        if (cat) {
+          children.push({ label: cat.name, href: `${prefix}/shop/${cat.slug}` });
+          continue;
+        }
+        for (const c of flat) {
+          if (c.parentCategoryId === id) {
+            children.push({ label: c.name, href: `${prefix}/shop/${c.slug}` });
+          }
+        }
+      }
+      if (children.length > 0) {
+        out.push({
+          key: `group:${slot.name}`,
+          label: slot.name,
+          href: null,
+          children,
+        });
+      }
+      continue;
+    }
     if (slot.type === "states") {
       const states = groups.filter((g) => g.isState);
       out.push({
@@ -93,14 +121,14 @@ function resolveSlots(
 }
 
 export default async function FeaturedBar() {
-  const [slotStrings, groups, flat] = await Promise.all([
-    getFeaturedSlotStrings(),
+  const [rawSlots, groups, flat] = await Promise.all([
+    getFeaturedRawSlots(),
     getStorefrontCategoryTree({ segment: "tes" }),
     getStorefrontCategories({ segment: "tes" }),
   ]);
-  if (slotStrings.length === 0) return null;
+  if (rawSlots.length === 0) return null;
   const prefix = tesPrefix();
-  const slots = resolveSlots(slotStrings, groups, flat, prefix);
+  const slots = resolveSlots(rawSlots, groups, flat, prefix);
   if (slots.length === 0) return null;
 
   return (
