@@ -1,7 +1,12 @@
-// The Ephemeral State site footer — minimal v1: blurb, eBay store link,
-// family credit, privacy. (Newsletter and socials stay FIA-only for now.)
+// The Ephemeral State site footer — minimal v1: blurb, we-buy line,
+// family credit, returns, privacy. (Newsletter and socials stay
+// FIA-only for now.)
+
+import Link from "next/link";
+import { tesPrefix } from "@/lib/tes/host";
 
 export default function TesFooter() {
+  const prefix = tesPrefix();
   return (
     <footer className="border-t border-tes-ink/10 bg-tes-ink text-tes-cream mt-16">
       <div className="container-content py-10">
@@ -12,8 +17,7 @@ export default function TesFooter() {
             </p>
             <p className="text-sm text-tes-cream/80 leading-relaxed max-w-prose">
               Antique paper Americana, state by state — postcards,
-              photographs, documents, and other paper survivors. Every
-              piece links to its live eBay listing for checkout.
+              photographs, documents, and other paper survivors.
             </p>
           </div>
           <div className="md:text-right text-sm space-y-2">
@@ -34,6 +38,14 @@ export default function TesFooter() {
               >
                 Part of the Found in Alabama family
               </a>
+            </p>
+            <p>
+              <Link
+                href={`${prefix}/returns`}
+                className="text-tes-cream/60 hover:text-tes-kraft transition-colors"
+              >
+                Returns &amp; refunds
+              </Link>
             </p>
             <p>
               <a

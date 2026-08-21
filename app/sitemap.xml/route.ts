@@ -28,6 +28,7 @@ export async function GET(req: NextRequest) {
     entries.push(urlTag(`${base}/`, "hourly", "1.0"));
     entries.push(urlTag(`${base}/states`, "daily", "0.9"));
     entries.push(urlTag(`${base}/types`, "daily", "0.9"));
+    entries.push(urlTag(`${base}/returns`, "monthly", "0.3"));
     const cats = await getStorefrontCategories({ segment: "tes" });
     for (const c of cats) {
       entries.push(urlTag(`${base}/shop/${c.slug}`, "hourly", "0.8"));
