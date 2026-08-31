@@ -5,6 +5,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getStorefrontCategoryTree } from "@/lib/ebay/storefront";
+import { getTesDiscountPercent } from "@/lib/tes/discount";
 import { tesPrefix } from "@/lib/tes/host";
 import { CategoryGrid } from "@/components/tes/TesCategoryCards";
 import FeaturedBar from "@/components/tes/FeaturedBar";
@@ -23,7 +24,10 @@ export const metadata: Metadata = {
 
 export default async function TesHomePage() {
   const prefix = tesPrefix();
-  const groups = await getStorefrontCategoryTree({ segment: "tes" });
+  const [groups, discountPct] = await Promise.all([
+    getStorefrontCategoryTree({ segment: "tes" }),
+    getTesDiscountPercent(),
+  ]);
   const states = groups.filter((g) => g.isState);
   const types = groups.filter((g) => !g.isState);
   const totalItems = groups.reduce(
@@ -49,6 +53,12 @@ export default async function TesHomePage() {
               ? `${totalItems.toLocaleString()} pieces in stock.`
               : ""}
           </p>
+          {discountPct > 0 && (
+            <p className="mt-6 inline-block bg-tes-ink text-tes-cream font-typewriter text-sm md:text-base px-4 py-2 rounded-md shadow-sm">
+              Every piece is {discountPct}% below its eBay price — automatic,
+              no code needed.
+            </p>
+          )}
         </div>
       </section>
 

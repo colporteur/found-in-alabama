@@ -9,6 +9,7 @@ import {
   type StorefrontSearchParams,
 } from "@/lib/ebay/storefront";
 import { tesPrefix } from "@/lib/tes/host";
+import { getTesDiscountPercent } from "@/lib/tes/discount";
 import TesItemCard from "@/components/tes/TesItemCard";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +38,10 @@ export default async function TesSearchPage({
   const sort: StorefrontSearchParams["sort"] =
     sortRaw === "price-asc" || sortRaw === "price-desc" ? sortRaw : "newest";
 
-  const cats = await getStorefrontCategories({ segment: "tes" });
+  const [cats, flatPct] = await Promise.all([
+    getStorefrontCategories({ segment: "tes" }),
+    getTesDiscountPercent(),
+  ]);
   const hasQuery = Boolean(q || categoryId || Number.isFinite(min) || Number.isFinite(max));
 
   const result = hasQuery
@@ -167,7 +171,11 @@ export default async function TesSearchPage({
           </p>
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
             {result.items.map((item) => (
-              <TesItemCard key={item.itemId} item={item} />
+              <TesItemCard
+                key={item.itemId}
+                item={item}
+                flatDiscountPercent={flatPct}
+              />
             ))}
           </div>
         </>

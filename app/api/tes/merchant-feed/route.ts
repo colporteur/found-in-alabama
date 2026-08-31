@@ -15,6 +15,11 @@ import { db } from "@/db";
 import { ebayListings } from "@/db/schema";
 import { getOnSaleLookup } from "@/lib/ebay/active-sales";
 import { decodeEntities } from "@/lib/ebay/entities";
+import {
+  bestDiscountPercent,
+  discountedPrice,
+  getTesDiscountPercent,
+} from "@/lib/tes/discount";
 import { loadTesCategories, tesQualifyingSet } from "@/lib/tes/item-detail";
 import { plainTextFromHtml } from "@/lib/tes/sanitize";
 import {
@@ -44,9 +49,10 @@ function tag(name: string, value: string): string {
 }
 
 export async function GET() {
-  const [cats, onSale] = await Promise.all([
+  const [cats, onSale, flatPct] = await Promise.all([
     loadTesCategories(),
     getOnSaleLookup(),
+    getTesDiscountPercent(),
   ]);
   const qualifying = [...tesQualifyingSet(cats)];
   const classByCat = new Map(cats.map((c) => [c.categoryId, c.shipClass]));
@@ -113,9 +119,10 @@ export async function GET() {
         ? onSale.byCategoryId.get(row.storeCategory2Id)
         : undefined) ??
       null;
-    const salePrice = badge
-      ? Math.round(price * (1 - badge.discountPercent / 100) * 100) / 100
-      : null;
+    // Effective discount: sale badge vs. the store-wide flat percent —
+    // larger wins, never stacked.
+    const pct = bestDiscountPercent(flatPct, badge?.discountPercent);
+    const salePrice = pct > 0 ? discountedPrice(price, pct) : null;
 
     const shipClass = maxShipClass(
       normalizeShipClass(

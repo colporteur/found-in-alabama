@@ -8,6 +8,11 @@ import { db } from "@/db";
 import { ebayListings, ebayStoreCategories } from "@/db/schema";
 import { getOnSaleLookup } from "@/lib/ebay/active-sales";
 import {
+  bestDiscountPercent,
+  discountedPrice,
+  getTesDiscountPercent,
+} from "@/lib/tes/discount";
+import {
   maxShipClass,
   normalizeShipClass,
   quoteShipping,
@@ -65,7 +70,7 @@ export async function resolveCart(
   }
 
   const ids = lines.map((l) => l.itemId);
-  const [rows, cats, onSale] = await Promise.all([
+  const [rows, cats, onSale, flatPct] = await Promise.all([
     db
       .select({
         itemId: ebayListings.itemId,
@@ -86,6 +91,7 @@ export async function resolveCart(
       })
       .from(ebayStoreCategories),
     getOnSaleLookup(),
+    getTesDiscountPercent(),
   ]);
 
   const byId = new Map(rows.map((r) => [r.itemId, r]));
@@ -102,14 +108,15 @@ export async function resolveCart(
       continue;
     }
     // Sale discount: per-listing badge wins, else either store category.
+    // The store-wide flat discount competes with the badge — the larger
+    // percentage applies, never both.
     const badge =
       onSale.byListingId.get(r.itemId) ??
       (r.cat1 ? onSale.byCategoryId.get(r.cat1) : undefined) ??
       (r.cat2 ? onSale.byCategoryId.get(r.cat2) : undefined) ??
       null;
-    const unitPrice = badge
-      ? Math.round(price * (1 - badge.discountPercent / 100) * 100) / 100
-      : price;
+    const pct = bestDiscountPercent(flatPct, badge?.discountPercent);
+    const unitPrice = discountedPrice(price, pct);
     const c1 = normalizeShipClass(r.cat1 ? classByCat.get(r.cat1) : undefined);
     const c2 = normalizeShipClass(r.cat2 ? classByCat.get(r.cat2) : undefined);
     resolved.push({

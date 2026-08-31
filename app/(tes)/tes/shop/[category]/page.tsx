@@ -10,6 +10,7 @@ import {
   resolveCategorySlug,
 } from "@/lib/ebay/storefront";
 import TesItemCard from "@/components/tes/TesItemCard";
+import { getTesDiscountPercent } from "@/lib/tes/discount";
 import { tesHome } from "@/lib/tes/host";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +41,10 @@ export default async function TesCategoryPage({
   });
   if (!category) notFound();
 
-  const items = await getCategoryItems(category);
+  const [items, flatPct] = await Promise.all([
+    getCategoryItems(category),
+    getTesDiscountPercent(),
+  ]);
 
   return (
     <section className="container-content py-12">
@@ -64,7 +68,11 @@ export default async function TesCategoryPage({
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {items.map((item) => (
-            <TesItemCard key={item.itemId} item={item} />
+            <TesItemCard
+              key={item.itemId}
+              item={item}
+              flatDiscountPercent={flatPct}
+            />
           ))}
         </div>
       )}

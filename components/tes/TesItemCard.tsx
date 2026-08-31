@@ -29,10 +29,21 @@ function endsLabel(endsAt: Date): string {
   });
 }
 
-export default function TesItemCard({ item }: { item: StorefrontItem }) {
+export default function TesItemCard({
+  item,
+  flatDiscountPercent = 0,
+}: {
+  item: StorefrontItem;
+  /** Store-wide "% below eBay" discount — never stacks with a sale badge;
+   *  the larger percentage wins. */
+  flatDiscountPercent?: number;
+}) {
   const price = formatPrice(item.price);
   const sale = item.sale;
-  const discounted = sale ? salePrice(item.price, sale.discountPercent) : null;
+  const badgePct = sale ? sale.discountPercent : 0;
+  const pct = Math.max(badgePct, flatDiscountPercent);
+  const saleWins = sale != null && badgePct >= flatDiscountPercent;
+  const discounted = pct > 0 ? salePrice(item.price, pct) : null;
 
   const detailHref = `${tesPrefix()}/item/${item.itemId}`;
 
@@ -55,9 +66,11 @@ export default function TesItemCard({ item }: { item: StorefrontItem }) {
               </span>
             </div>
           )}
-          {sale && (
+          {pct > 0 && (
             <span className="absolute top-2 left-2 bg-red-700 text-white text-xs uppercase tracking-wider font-medium px-2 py-1 rounded shadow-sm">
-              {Math.round(sale.discountPercent)}% off thru {endsLabel(sale.endsAt)}
+              {saleWins && sale
+                ? `${Math.round(sale.discountPercent)}% off thru ${endsLabel(sale.endsAt)}`
+                : `${Math.round(pct)}% off eBay price`}
             </span>
           )}
         </div>
@@ -93,7 +106,8 @@ export default function TesItemCard({ item }: { item: StorefrontItem }) {
           title={item.title}
           price={
             item.price != null && Number.isFinite(parseFloat(item.price))
-              ? parseFloat(item.price)
+              ? Math.round(parseFloat(item.price) * (1 - pct / 100) * 100) /
+                100
               : null
           }
           imageUrl={item.imageUrl}

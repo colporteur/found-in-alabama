@@ -5,15 +5,18 @@
 
 import Link from "next/link";
 import { getStorefrontCategories } from "@/lib/ebay/storefront";
+import { getTesDiscountPercent } from "@/lib/tes/discount";
 import { getFeaturedRawSlots } from "@/lib/tes/featured";
+import DiscountEditor from "./DiscountEditor";
 import FeaturedEditor from "./FeaturedEditor";
 
 export const dynamic = "force-dynamic";
 
 export default async function TesFeaturedPage() {
-  const [cats, slots] = await Promise.all([
+  const [cats, slots, discountPct] = await Promise.all([
     getStorefrontCategories({ segment: "tes" }),
     getFeaturedRawSlots(),
+    getTesDiscountPercent(),
   ]);
 
   // Stocked categories, plus PARENT categories that hold no items
@@ -56,6 +59,9 @@ export default async function TesFeaturedPage() {
         member becomes a dropdown entry). Empty slots are skipped.
       </p>
       <FeaturedEditor options={options} initial={slots} />
+      <div className="mt-12">
+        <DiscountEditor initial={discountPct} />
+      </div>
       <div className="mt-10">
         <Link href="/admin" className="text-sm text-brand-ink/60 hover:text-brand-ink">
           ← Back to admin

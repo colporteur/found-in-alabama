@@ -11,6 +11,11 @@ import { getOnSaleLookup } from "@/lib/ebay/active-sales";
 import { tradingCall } from "@/lib/ebay/client";
 import { decodeEntities } from "@/lib/ebay/entities";
 import {
+  bestDiscountPercent,
+  discountedPrice,
+  getTesDiscountPercent,
+} from "@/lib/tes/discount";
+import {
   maxShipClass,
   normalizeShipClass,
   type ShipClass,
@@ -113,10 +118,11 @@ export async function getTesItemDetail(
 ): Promise<TesItemDetail | null> {
   if (!/^\d{6,20}$/.test(itemId)) return null;
 
-  const [[row], cats, onSale] = await Promise.all([
+  const [[row], cats, onSale, flatPct] = await Promise.all([
     db.select().from(ebayListings).where(eq(ebayListings.itemId, itemId)).limit(1),
     loadTesCategories(),
     getOnSaleLookup(),
+    getTesDiscountPercent(),
   ]);
   if (!row || (row.quantity ?? 0) <= 0) return null;
 
@@ -166,16 +172,20 @@ export async function getTesItemDetail(
   // the page gets real HTML — it sanitizes before rendering.
   if (description) description = decodeEntities(description);
 
+  // Effective discount: eBay sale badge vs. the store-wide flat percent —
+  // the larger wins, never stacked. saleEndsAt only applies when a real
+  // (time-boxed) sale is the winner.
+  const pct = bestDiscountPercent(flatPct, badge?.discountPercent);
+  const saleWins = badge != null && badge.discountPercent >= flatPct;
+
   return {
     itemId: row.itemId,
     title: decodeEntities(row.title),
     sku: row.sku,
     price,
-    salePrice: badge
-      ? Math.round(price * (1 - badge.discountPercent / 100) * 100) / 100
-      : null,
-    discountPercent: badge ? badge.discountPercent : null,
-    saleEndsAt: badge ? badge.endsAt : null,
+    salePrice: pct > 0 ? discountedPrice(price, pct) : null,
+    discountPercent: pct > 0 ? pct : null,
+    saleEndsAt: saleWins && badge ? badge.endsAt : null,
     images,
     descriptionHtml: description,
     shipClass: maxShipClass(c1, c2),
