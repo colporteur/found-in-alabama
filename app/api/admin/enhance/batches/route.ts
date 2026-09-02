@@ -45,6 +45,7 @@ const SUPPORTED_OPS: EnhanceOp[] = [
   "description_remix",
   "price_research",
   "store_category",
+  "supply_reprice",
 ];
 
 /**
@@ -191,6 +192,19 @@ export async function POST(req: NextRequest) {
     if (!guideId || !ok) {
       return NextResponse.json(
         { error: "Pick an expert guide for remix batches" },
+        { status: 400 }
+      );
+    }
+  }
+
+  // P5: a live-price sweep must never run wide by accident. Require either an
+  // explicit item selection or a category filter, and refuse a non-dry run
+  // that was not opted out of dryRun in the request body.
+  if (op === "supply_reprice") {
+    const hasScope = !!(sel.itemIds?.length || sel.storeCategoryId || sel.titleContains || sel.skuPrefix || sel.skuExact);
+    if (!hasScope) {
+      return NextResponse.json(
+        { error: "supply_reprice needs an explicit item selection or a category — it changes live prices" },
         { status: 400 }
       );
     }

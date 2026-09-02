@@ -60,7 +60,8 @@ type Op =
   | "item_specifics"
   | "title_remix"
   | "description_remix"
-  | "price_research";
+  | "price_research"
+  | "supply_reprice";
 
 export default function NewBatchForm({
   categories,
@@ -113,6 +114,14 @@ export default function NewBatchForm({
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
 
+  // supply_reprice (P5) config
+  const [srReport, setSrReport] = useState(true);          // dryRun — opt OUT
+  const [srRaiseUnder, setSrRaiseUnder] = useState("12");
+  const [srCrowdedFactor, setSrCrowdedFactor] = useState("1.25");
+  const [srFloor, setSrFloor] = useState("5.87");
+  const [srMaxRaise, setSrMaxRaise] = useState("3");
+  const [srMinAge, setSrMinAge] = useState("60");
+
   const [preview, setPreview] = useState<Preview | null>(null);
   const [busy, setBusy] = useState<"preview" | "create" | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -135,6 +144,16 @@ export default function NewBatchForm({
               .map((s) => s.trim())
               .filter(Boolean),
             usePhoto,
+          }
+        : op === "supply_reprice"
+        ? {
+            dryRun: srReport,
+            raiseUnder: Number(srRaiseUnder),
+            crowdedFactor: Number(srCrowdedFactor),
+            floor: Number(srFloor),
+            maxRaiseFactor: Number(srMaxRaise),
+            minAgeDays: Number(srMinAge),
+            round87: true,
           }
         : op === "price_research"
         ? {
@@ -192,6 +211,16 @@ export default function NewBatchForm({
       if (!specificsList.trim()) return "Enter at least one specific to fill.";
     } else if (op === "title_remix" || op === "description_remix") {
       if (!guideId) return "Pick an expert guide.";
+    } else if (op === "supply_reprice") {
+      if (!categoryId && !titleContains && !skuFilter) {
+        return "Supply reprice changes live prices — narrow it with a category, title filter or SKU filter first.";
+      }
+      if (!Number.isFinite(Number(srRaiseUnder)) || Number(srRaiseUnder) <= 0) {
+        return "Raise-under threshold must be a positive number.";
+      }
+      if (!Number.isFinite(Number(srCrowdedFactor)) || Number(srCrowdedFactor) < 1) {
+        return "Crowded factor must be 1 or more (1.25 = act only above 1.25x the median).";
+      }
     }
     return null;
   }
@@ -259,6 +288,7 @@ export default function NewBatchForm({
             <option value="title_remix">Title remix — expert guide (AI)</option>
             <option value="description_remix">Description remix — expert guide (AI)</option>
             <option value="price_research">Price research reprice (APR)</option>
+            <option value="supply_reprice">Supply reprice — live comps (P5)</option>
           </select>
         </div>
         <div>
@@ -388,6 +418,47 @@ export default function NewBatchForm({
               Use listing photo (helps Color/Material)
             </label>
           </div>
+        </div>
+      ) : op === "supply_reprice" ? (
+        <div className="mb-4">
+          <div className="grid gap-4 sm:grid-cols-5">
+            <div>
+              <label className={labelCls}>Raise if under ($)</label>
+              <input className={inputCls} value={srRaiseUnder} onChange={(e) => setSrRaiseUnder(e.target.value)} inputMode="decimal" />
+            </div>
+            <div>
+              <label className={labelCls}>Lower above (x median)</label>
+              <input className={inputCls} value={srCrowdedFactor} onChange={(e) => setSrCrowdedFactor(e.target.value)} inputMode="decimal" />
+            </div>
+            <div>
+              <label className={labelCls}>Floor ($)</label>
+              <input className={inputCls} value={srFloor} onChange={(e) => setSrFloor(e.target.value)} inputMode="decimal" />
+            </div>
+            <div>
+              <label className={labelCls}>Max raise (x current)</label>
+              <input className={inputCls} value={srMaxRaise} onChange={(e) => setSrMaxRaise(e.target.value)} inputMode="decimal" />
+            </div>
+            <div>
+              <label className={labelCls}>Min listing age (days)</label>
+              <input className={inputCls} value={srMinAge} onChange={(e) => setSrMinAge(e.target.value)} inputMode="numeric" />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-sm mt-3">
+            <input type="checkbox" checked={srReport} onChange={(e) => setSrReport(e.target.checked)} />
+            <span className={srReport ? "" : "text-red-600 font-medium"}>
+              {srReport
+                ? "Report only — run the comps and record every decision, change no prices"
+                : "APPLY — this will revise live eBay prices"}
+            </span>
+          </label>
+          <p className="text-xs text-brand-ink/40 mt-2">
+            Checks each listing&apos;s live competition and moves the price only when the
+            evidence says to. A sole-supplier card under the raise threshold goes UP to the
+            similar-item median (capped); a card sitting above the crowded factor times the
+            same-item median comes DOWN to that median, never below it. Thin markets (1–4
+            competitors) hold — undercutting them is how the floor got here. Every job records
+            the band, the counts, the medians and the reason, so read a report run before applying.
+          </p>
         </div>
       ) : op === "price_research" ? (
         <div className="grid gap-4 sm:grid-cols-4 mb-4">

@@ -727,6 +727,7 @@ export const ENHANCE_OPS = [
   "price_research", // Phase 4 — Agent Price Researcher reprice
   "price_wiggle", // Autorun — random ±cents around a stored anchor. No AI.
   "store_category", // Redistribute — set store category slots. No AI.
+  "supply_reprice", // P5 — live supply snapshot -> raise/lower/hold. No AI.
 ] as const;
 export type EnhanceOp = (typeof ENHANCE_OPS)[number];
 
@@ -743,6 +744,7 @@ export const SUBSTANTIVE_OPS: EnhanceOp[] = [
   "title_remix",
   "description_remix",
   "price_research",
+  "supply_reprice",
 ];
 
 export const enhanceBatches = pgTable(

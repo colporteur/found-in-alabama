@@ -33,6 +33,12 @@ import {
   type LlmProvider,
 } from "@/lib/enhance/providers";
 import {
+  buildSupplyQuery,
+  fetchSupply,
+  parseRepriceConfig,
+  decideReprice,
+} from "@/lib/enhance/supply";
+import {
   resolveGuideForJob,
   guideSection,
   ITEM_SPECIFICS_HEADING,
@@ -1240,6 +1246,109 @@ const storeCategoryHandler: OpHandler = {
   },
 };
 
+// ─── supply_reprice (P5 — supply-aware repricing of live listings) ───────────
+//
+// Thousands of postcards went live before the supply snapshot existed, priced
+// with no idea whether anyone else was selling the same card. This op rebuilds
+// that signal per listing and moves the price when the evidence says to.
+//
+// The bias is deliberate and runs against the markdown reflex: a stale card
+// with NO competition is usually underpriced, not overpriced. So RAISE is the
+// primary action; LOWER only fires when a listing sits far above a genuinely
+// crowded market, and never goes below that market's median.
+//
+// dryRun defaults to TRUE — a batch has to be explicitly opted out of it — so
+// the first pass over any selection is a report you can read in the job list
+// before a single ReviseItem call is made.
+//
+// Config shape (all optional, see REPRICE_DEFAULTS):
+//   dryRun, raiseUnder, crowdedFactor, floor, maxRaiseFactor, minAgeDays,
+//   round87, excludeSeller
+
+const supplyRepriceHandler: OpHandler = {
+  estimateCostPerJob: () => 0, // Browse API via the gateway; no model tokens
+  async run(job, batch) {
+    const cfg = parseRepriceConfig(batch.config ?? {});
+
+    const live = await fetchItemCore(job.ebayItemId);
+    if (!live) return { status: "failed", errorMessage: "GetItem returned no item" };
+    if (live.listingStatus && live.listingStatus !== "Active") {
+      return { status: "skipped", result: { reason: `Listing status is ${live.listingStatus}, not Active` } };
+    }
+    if (live.listingType === "Chinese") {
+      return { status: "skipped", result: { reason: "Auction-style listing — price revision not supported" } };
+    }
+    if (live.price == null) return { status: "failed", errorMessage: "GetItem returned no price" };
+
+    const { q, category } = buildSupplyQuery(live.title);
+    if (!q || q.split(/\s+/).length < 2) {
+      return { status: "skipped", result: { reason: `Title yields no usable supply query ("${q}")` } };
+    }
+
+    // Listing age comes from the mirror's GetSellerList StartTime.
+    const [mirror] = await db
+      .select({ startTime: ebayListings.startTime })
+      .from(ebayListings)
+      .where(eq(ebayListings.itemId, job.ebayItemId))
+      .limit(1);
+    const ageDays = mirror?.startTime
+      ? (Date.now() - new Date(mirror.startTime).getTime()) / 86_400_000
+      : null;
+
+    let snap;
+    try {
+      snap = await fetchSupply(q, { category, excludeSeller: cfg.excludeSeller });
+    } catch (err) {
+      return { status: "failed", errorMessage: `Supply snapshot failed: ${String(err).slice(0, 200)}` };
+    }
+
+    const decision = decideReprice(live.price, snap, cfg, ageDays);
+    const evidence = {
+      q,
+      qUsed: snap.q_used,
+      loosened: snap.loosened,
+      band: snap.band,
+      same: snap.same,
+      similar: snap.similar,
+      sameMedian: snap.same_stats?.median ?? null,
+      similarMedian: snap.similar_stats?.median ?? null,
+      ageDays: ageDays === null ? null : Math.round(ageDays),
+      anchor: decision.anchor,
+    };
+
+    if (decision.action === "hold" || decision.newPrice === null) {
+      return { status: "skipped", before: { price: live.price },
+        result: { action: "hold", reason: decision.reason, ...evidence }, costUsd: 0 };
+    }
+
+    if (cfg.dryRun) {
+      // Recorded, not applied. before/after still populate so the job list and
+      // the CSV export read exactly like a real run.
+      return {
+        status: "completed",
+        before: { price: live.price },
+        after: { price: decision.newPrice },
+        result: { action: decision.action, dryRun: true, applied: false, reason: decision.reason, ...evidence },
+        costUsd: 0,
+      };
+    }
+
+    await reviseItemPrice(job.ebayItemId, decision.newPrice);
+    await db
+      .update(ebayListings)
+      .set({ price: decision.newPrice.toFixed(2) })
+      .where(eq(ebayListings.itemId, job.ebayItemId));
+
+    return {
+      status: "completed",
+      before: { price: live.price },
+      after: { price: decision.newPrice },
+      result: { action: decision.action, dryRun: false, applied: true, reason: decision.reason, ...evidence },
+      costUsd: 0,
+    };
+  },
+};
+
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
 export const OP_HANDLERS: Partial<Record<EnhanceOp, OpHandler>> = {
@@ -1251,6 +1360,7 @@ export const OP_HANDLERS: Partial<Record<EnhanceOp, OpHandler>> = {
   description_remix: descriptionRemixHandler,
   price_research: priceResearchHandler,
   store_category: storeCategoryHandler,
+  supply_reprice: supplyRepriceHandler,
 };
 
 export function getOpHandler(op: string): OpHandler | undefined {
