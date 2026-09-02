@@ -32,7 +32,11 @@ import {
   type LlmImage,
   type LlmProvider,
 } from "@/lib/enhance/providers";
-import { loadGuide } from "@/lib/enhance/guides";
+import {
+  resolveGuideForJob,
+  guideSection,
+  ITEM_SPECIFICS_HEADING,
+} from "@/lib/enhance/guides";
 
 export type EnhanceBatchRow = typeof enhanceBatches.$inferSelect;
 export type EnhanceJobRow = typeof enhanceJobs.$inferSelect;
@@ -553,8 +557,29 @@ const itemSpecificsHandler: OpHandler = {
       if (photo) images.push(photo);
     }
 
+    // D4: an OPTIONAL expert guide can carry an "ITEM SPECIFICS MAP" section
+    // saying which guide vocabulary belongs in which eBay field. Only that
+    // section is injected — the whole guide would swamp a cheap per-item call.
+    let specificsMap: string | null = null;
+    let guideUsed: string | null = null;
+    let routedBy: string | null = null;
+    if (typeof cfg.guideId === "string" && cfg.guideId) {
+      const picked = await resolveGuideForJob(
+        cfg.guideId,
+        `${live.title} ${live.categoryName ?? ""}`
+      );
+      if (picked.guide) {
+        guideUsed = picked.guide.id;
+        routedBy = picked.routedBy;
+        specificsMap = guideSection(picked.guide.content, ITEM_SPECIFICS_HEADING);
+      }
+    }
+
     const prompt = [
       `Fill in these eBay item specifics: ${fillable.join(", ")}`,
+      specificsMap
+        ? `Use this expert guide's item-specifics map for wording and allowed values:\n${specificsMap.slice(0, 4000)}`
+        : null,
       live.categoryName ? `eBay category: ${live.categoryName}` : null,
       `Title: ${live.title}`,
       live.description ? `Description:\n${live.description}` : null,
@@ -620,7 +645,7 @@ const itemSpecificsHandler: OpHandler = {
       after: {
         specifics: Object.fromEntries(newlyFilled.map((s) => [s.name, s.values[0]])),
       },
-      result: { provider, model, filledCount: newlyFilled.length },
+      result: { provider, model, filledCount: newlyFilled.length, guide: guideUsed, routedBy },
       costUsd: llm.costUsd,
     };
   },
@@ -635,7 +660,9 @@ const itemSpecificsHandler: OpHandler = {
 // job in a batch (decision #7).
 //
 // Config shape (both ops):
-//   guideId:      string  — id from content/expert-guides/manifest.json
+//   guideId:      string  — a guide id from the gateway library, or
+//                           "family:<Name>" to auto-route within a family
+//                           per job (D4) using the live title + category
 //   instructions: string? — optional extra guidance for this batch
 //
 // Hard rules mirror the Nifty extension's Expert Mode Rule 6: the guide
@@ -707,12 +734,12 @@ export function sanitizeRemixedTitle(raw: string): string {
 const DESC_LABEL_PREFIX =
   /^(?:[*_#`"'\s]*)(?:here(?:'s| is)\s+(?:the|your|a|an)\s+)?(?:new|revised|updated|improved|optimized|suggested|final|rewritten|remixed|enhanced|better)?\s*description\s*(?:[*_`]*)\s*(?:[:\-–—][*_`]*|\r?\n)\s*/i;
 
-function guideFromConfig(cfg: Record<string, unknown>) {
+/** D4: resolve the batch's guide for THIS job. A plain id loads that guide;
+ *  "family:<Name>" routes within the family by manifest keywords against the
+ *  live title + eBay category, so one batch can span a whole family. */
+async function guideForJob(cfg: Record<string, unknown>, routeText: string) {
   const guideId = typeof cfg.guideId === "string" ? cfg.guideId : "";
-  if (!guideId) return { guide: null, error: "No guideId in batch config" };
-  const guide = loadGuide(guideId);
-  if (!guide) return { guide: null, error: `Guide "${guideId}" not found in manifest` };
-  return { guide, error: null };
+  return resolveGuideForJob(guideId, routeText);
 }
 
 const titleRemixHandler: OpHandler = {
@@ -720,8 +747,6 @@ const titleRemixHandler: OpHandler = {
     remixEstimate(parseModelOverride(modelOverride, TITLE_DEFAULT).provider, "title"),
   async run(job, batch) {
     const cfg = batch.config ?? {};
-    const { guide, error } = guideFromConfig(cfg);
-    if (!guide) return { status: "failed", errorMessage: error ?? "guide error" };
     const { provider, model } = parseModelOverride(batch.modelOverride, TITLE_DEFAULT);
     const instructions = typeof cfg.instructions === "string" ? cfg.instructions : "";
 
@@ -733,6 +758,12 @@ const titleRemixHandler: OpHandler = {
         result: { reason: `Listing status is ${live.listingStatus}, not Active` },
       };
     }
+    // Routed after the fetch: the live title is what the router reads.
+    const { guide, error, routedBy } = await guideForJob(
+      cfg,
+      `${live.title} ${live.categoryName ?? ""}`
+    );
+    if (!guide) return { status: "failed", errorMessage: error ?? "guide error" };
 
     const descText = stripHtmlLocal(live.descriptionHtml).slice(0, 2000);
     const llm = await callLlm({
@@ -787,7 +818,7 @@ const titleRemixHandler: OpHandler = {
       status: "completed",
       before: { title: live.title },
       after: { title: newTitle },
-      result: { provider, model, guide: guide.id, truncated },
+      result: { provider, model, guide: guide.id, routedBy, truncated },
       costUsd: llm.costUsd,
     };
   },
@@ -798,8 +829,6 @@ const descriptionRemixHandler: OpHandler = {
     remixEstimate(parseModelOverride(modelOverride, DESC_DEFAULT).provider, "desc"),
   async run(job, batch) {
     const cfg = batch.config ?? {};
-    const { guide, error } = guideFromConfig(cfg);
-    if (!guide) return { status: "failed", errorMessage: error ?? "guide error" };
     const { provider, model } = parseModelOverride(batch.modelOverride, DESC_DEFAULT);
     const instructions = typeof cfg.instructions === "string" ? cfg.instructions : "";
 
@@ -811,6 +840,11 @@ const descriptionRemixHandler: OpHandler = {
         result: { reason: `Listing status is ${live.listingStatus}, not Active` },
       };
     }
+    const { guide, error, routedBy } = await guideForJob(
+      cfg,
+      `${live.title} ${live.categoryName ?? ""}`
+    );
+    if (!guide) return { status: "failed", errorMessage: error ?? "guide error" };
     const original = live.descriptionHtml.trim();
     if (!original) {
       return {
@@ -879,7 +913,7 @@ const descriptionRemixHandler: OpHandler = {
       status: "completed",
       before: { description: original.slice(0, SNAPSHOT_CAP) },
       after: { description: newDesc.slice(0, SNAPSHOT_CAP) },
-      result: { provider, model, guide: guide.id },
+      result: { provider, model, guide: guide.id, routedBy },
       costUsd: llm.costUsd,
     };
   },

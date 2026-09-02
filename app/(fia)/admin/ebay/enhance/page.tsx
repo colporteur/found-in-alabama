@@ -6,7 +6,7 @@ import { db, enhanceBatches, aiCallLog, aiModelPricing, ebayStoreCategories } fr
 import { asc, desc, gte, sql } from "drizzle-orm";
 import Link from "next/link";
 import { buildCategoryTree } from "@/lib/ebay/category-tree";
-import { listGuides } from "@/lib/enhance/guides";
+import { listGuides, listGuideFamilies } from "@/lib/enhance/guides";
 import { getActiveAutorunStatus } from "@/lib/enhance/autorun";
 import AutorunCard, { type AutorunCardStatus } from "./AutorunControls";
 import NewBatchForm from "./NewBatchForm";
@@ -105,7 +105,12 @@ export default async function EnhancePortal() {
           categoryId: c.categoryId,
           name: c.isLeaf ? c.path : `${c.path} (parent — holds no items)`,
         }))}
-        guides={listGuides().map((g) => ({ id: g.id, name: g.name }))}
+        guides={(await listGuides()).map((g) => ({
+          id: g.id,
+          name: g.name,
+          family: g.family,
+        }))}
+        guideFamilies={await listGuideFamilies()}
       />
 
       {/* ── Autorun price bump ── */}

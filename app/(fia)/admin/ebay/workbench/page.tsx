@@ -7,7 +7,7 @@ import { db, ebayListings, ebayStoreCategories } from "@/db";
 import { and, asc, desc, sql, type SQL } from "drizzle-orm";
 import Link from "next/link";
 import { decodeEntities } from "@/lib/ebay/entities";
-import { listGuides } from "@/lib/enhance/guides";
+import { listGuides, listGuideFamilies } from "@/lib/enhance/guides";
 import {
   SKU_CLASSES,
   SKU_CLASS_LABELS,
@@ -282,7 +282,12 @@ export default async function Workbench({
 
       <WorkbenchGrid
         rows={gridRows}
-        guides={listGuides().map((g) => ({ id: g.id, name: g.name }))}
+        guides={(await listGuides()).map((g) => ({
+          id: g.id,
+          name: g.name,
+          family: g.family,
+        }))}
+        guideFamilies={await listGuideFamilies()}
         categories={categoryTree.map((c) => ({
           categoryId: c.categoryId,
           // Parents are listed but flagged — eBay rejects items assigned

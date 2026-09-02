@@ -11,7 +11,35 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Category = { categoryId: string; name: string };
-type GuideOption = { id: string; name: string };
+type GuideOption = { id: string; name: string; family?: string };
+
+/** D4: guide picker options. Each family gets an optgroup with an
+ *  "auto-route" entry (value "family:<Name>", the router picks the right
+ *  sub-guide per listing) followed by that family's individual guides. */
+function guideOptions(guides: GuideOption[], families: string[]) {
+  const byFamily = new Map<string, GuideOption[]>();
+  for (const g of guides) {
+    const f = g.family || "Unassigned";
+    byFamily.set(f, [...(byFamily.get(f) ?? []), g]);
+  }
+  const ordered = [
+    ...families.filter((f) => byFamily.has(f)),
+    ...[...byFamily.keys()].filter((f) => !families.includes(f)),
+  ];
+  return ordered.map((f) => (
+    <optgroup key={f} label={f}>
+      {(byFamily.get(f) ?? []).length > 1 && (
+        <option value={`family:${f}`}>▸ All {f} (auto-route per listing)</option>
+      )}
+      {(byFamily.get(f) ?? []).map((g) => (
+        <option key={g.id} value={g.id}>
+          {g.name}
+        </option>
+      ))}
+    </optgroup>
+  ));
+}
+
 
 type Preview = {
   matched: number;
@@ -37,9 +65,11 @@ type Op =
 export default function NewBatchForm({
   categories,
   guides,
+  guideFamilies = [],
 }: {
   categories: Category[];
   guides: GuideOption[];
+  guideFamilies?: string[];
 }) {
   const router = useRouter();
   const [op, setOp] = useState<Op>("price_adjust");
@@ -420,15 +450,12 @@ export default function NewBatchForm({
               onChange={(e) => setGuideId(e.target.value)}
             >
               <option value="">Pick a guide…</option>
-              {guides.map((g) => (
-                <option key={g.id} value={g.id}>
-                  {g.name}
-                </option>
-              ))}
+              {guideOptions(guides, guideFamilies)}
             </select>
             <p className="text-xs text-brand-ink/40 mt-1">
               Shipping/discount/return language is protected — the guide can
-              never change it.
+              never change it. Auto-route picks a guide per listing from its
+              title and category (slightly fewer prompt-cache hits).
             </p>
           </div>
           <div>

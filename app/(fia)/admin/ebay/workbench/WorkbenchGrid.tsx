@@ -22,7 +22,35 @@ export type GridRow = {
   lastSubstantive: string | null;
 };
 
-export type GuideOption = { id: string; name: string };
+export type GuideOption = { id: string; name: string; family?: string };
+
+/** D4: guide picker options. Each family gets an optgroup with an
+ *  "auto-route" entry (value "family:<Name>", the router picks the right
+ *  sub-guide per listing) followed by that family's individual guides. */
+function guideOptions(guides: GuideOption[], families: string[]) {
+  const byFamily = new Map<string, GuideOption[]>();
+  for (const g of guides) {
+    const f = g.family || "Unassigned";
+    byFamily.set(f, [...(byFamily.get(f) ?? []), g]);
+  }
+  const ordered = [
+    ...families.filter((f) => byFamily.has(f)),
+    ...[...byFamily.keys()].filter((f) => !families.includes(f)),
+  ];
+  return ordered.map((f) => (
+    <optgroup key={f} label={f}>
+      {(byFamily.get(f) ?? []).length > 1 && (
+        <option value={`family:${f}`}>▸ All {f} (auto-route per listing)</option>
+      )}
+      {(byFamily.get(f) ?? []).map((g) => (
+        <option key={g.id} value={g.id}>
+          {g.name}
+        </option>
+      ))}
+    </optgroup>
+  ));
+}
+
 
 export type CategoryOption = {
   categoryId: string;
@@ -72,12 +100,14 @@ const EMPTY_SELECTIONS: Selections = {
 export default function WorkbenchGrid({
   rows,
   guides,
+  guideFamilies = [],
   categories,
   filterQuery,
   matchingTotal,
 }: {
   rows: GridRow[];
   guides: GuideOption[];
+  guideFamilies?: string[];
   categories: CategoryOption[];
   /** Current filter params as a querystring, for the all-matching fetch. */
   filterQuery: string;
@@ -652,9 +682,7 @@ export default function WorkbenchGrid({
                           }
                         >
                           <option value="">Pick a guide…</option>
-                          {guides.map((g) => (
-                            <option key={g.id} value={g.id}>{g.name}</option>
-                          ))}
+                          {guideOptions(guides, guideFamilies)}
                         </select>
                       </div>
                       <div>

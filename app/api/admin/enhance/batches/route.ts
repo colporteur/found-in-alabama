@@ -30,7 +30,7 @@ import {
 } from "@/lib/enhance/ops";
 import { fetchItemForSpecifics } from "@/lib/ebay/calls";
 import { decodeEntities } from "@/lib/ebay/entities";
-import { listGuides } from "@/lib/enhance/guides";
+import { listGuides, isFamilySelection, familyOfSelection } from "@/lib/enhance/guides";
 import type { EnhanceOp } from "@/db/schema";
 
 export const runtime = "nodejs";
@@ -182,7 +182,13 @@ export async function POST(req: NextRequest) {
   // Remix ops need a valid guide before anything runs.
   if (op === "title_remix" || op === "description_remix") {
     const guideId = typeof config.guideId === "string" ? config.guideId : "";
-    if (!guideId || !listGuides().some((g) => g.id === guideId)) {
+    // D4: a selection is either a guide id or "family:<Name>" (auto-route
+    // per job). Both are validated against the live gateway library.
+    const library = await listGuides();
+    const ok = isFamilySelection(guideId)
+      ? library.some((g) => g.family === familyOfSelection(guideId) && g.stage !== "buy")
+      : library.some((g) => g.id === guideId);
+    if (!guideId || !ok) {
       return NextResponse.json(
         { error: "Pick an expert guide for remix batches" },
         { status: 400 }
