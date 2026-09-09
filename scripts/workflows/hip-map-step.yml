@@ -1,0 +1,13 @@
+# Add this STEP to .github/workflows/sync-listings-cron.yml (the daily
+# full sweep), after the existing sweep step. It refreshes hip_listings —
+# the Hip id ↔ eBay item id map — once a day so HIP-2's reconciliation
+# always has a current map. Also run it once by hand (workflow_dispatch,
+# or just open https://www.foundinalabama.com/api/cron/hip-map while
+# signed in as admin) the day the Hip API key lands.
+
+      - name: Refresh Hip listing map
+        shell: bash
+        run: |
+          curl --silent --show-error --max-time 110 \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://www.foundinalabama.com/api/cron/hip-map || true

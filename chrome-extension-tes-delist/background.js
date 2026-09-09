@@ -136,8 +136,17 @@ async function runQueue(trigger) {
     const tabId = workTabId;
 
     // ── 1. Delist queue ─────────────────────────────────────────────────────
-    if (orders.length > 0) await log(`${orders.length} order(s) need delisting (${trigger}).`);
+    if (orders.length > 0) {
+      const hip = orders.filter((o) => o.source === "hip").length;
+      await log(
+        `${orders.length} order(s) need delisting (${trigger})` +
+          (hip ? ` — ${hip} from HipPostcard (eBay already ended by API)` : "") +
+          "."
+      );
+    }
     for (const order of orders) {
+      const tag = order.source === "hip" ? `Hip #${order.hipSaleId ?? "?"}` : "TES";
+      await log(`${tag}: ${order.items.length} item(s) for ${order.buyerName ?? "buyer"}`);
       const results = [];
       for (const item of order.items) {
         if ((item.remainingQty ?? 0) > 0) {
@@ -166,8 +175,8 @@ async function runQueue(trigger) {
         type: "basic",
         iconUrl: "icon128.png",
         title: allDelisted
-          ? "Order fully delisted from Nifty"
-          : "Order needs manual delist attention",
+          ? `${tag} order fully delisted from Nifty`
+          : `${tag} order needs manual delist attention`,
         message: results
           .map((r) => `${r.status}: ${order.items.find((i) => i.itemId === r.itemId)?.title ?? r.itemId}`)
           .join("\n")

@@ -1,0 +1,42 @@
+# HipPostcard sales poller — every 15 minutes (Phase HIP-1).
+#
+# COPY THIS FILE TO .github/workflows/hip-sales-cron.yml (workflow files
+# are placed by hand — remote sessions can't write .github/workflows).
+#
+# One call to /api/cron/hip-sales: pulls paid Hip sales since the cursor,
+# ends the eBay listing for each one Hip won, queues the Nifty delist for
+# the TES Actuator extension, and flags CANCEL HIP ORDER when the item
+# already sold elsewhere. No-ops until HIP_API_KEY / HIP_USERNAME are set
+# in Vercel. Same CRON_SECRET repository secret as the other crons.
+
+name: Hip sales cron
+
+on:
+  schedule:
+    - cron: "7,22,37,52 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Poll HipPostcard paid sales
+        shell: bash
+        run: |
+          set +e
+          body=$(curl --silent --show-error --max-time 75 \
+            -w "\nHTTP_STATUS=%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            https://www.foundinalabama.com/api/cron/hip-sales)
+          status=$(echo "$body" | grep -oE 'HTTP_STATUS=[0-9]+$' | cut -d= -f2)
+          payload=$(echo "$body" | sed '$d')
+          echo "status: ${status:-unknown}"
+          echo "$payload"
+          # 207 = ran with per-sale errors (cursor NOT advanced; next tick
+          # retries the window). Only hard 4xx is a real failure.
+          if [ -n "$status" ] && [ "$status" -ge 400 ] && [ "$status" -lt 500 ]; then
+            echo "Hard failure with HTTP $status."
+            exit 1
+          fi
+          exit 0

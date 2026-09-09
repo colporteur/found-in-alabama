@@ -171,6 +171,14 @@ export const ebayListings = pgTable(
     priceAnchor: numeric("price_anchor", { precision: 10, scale: 2 }),
     /** Stamped when autorun SELECTS the item for a slice (cycle bookkeeping). */
     lastAutorunAt: timestamp("last_autorun_at"),
+    // eBay business Shipping policy on the listing (Phase ESE-1), from
+    // GetSellerList SellerProfiles.SellerShippingProfile. Powers the
+    // Standard Envelope audit (lib/enhance/ese.ts): envelope policy +
+    // ineligible eBay category = a listing to fix. shippingServices is the
+    // raw ShippingService code list (jsonb string array) as a second key.
+    shippingProfileId: text("shipping_profile_id"),
+    shippingProfileName: text("shipping_profile_name"),
+    shippingServices: jsonb("shipping_services"),
   },
   (t) => ({
     storeCat1Idx: index("ebay_listings_store_cat1_idx").on(t.storeCategory1Id),
@@ -1016,12 +1024,22 @@ export const tesOrders = pgTable(
     freeShipping: boolean("free_shipping").default(false).notNull(),
     /** pending | done — has every item been delisted from Nifty? */
     delistStatus: text("delist_status").default("pending").notNull(),
+    /**
+     * Where the order was placed (Phase HIP-1): "tes" = theephemeralstate.com
+     * Stripe checkout; "hip" = a HipPostcard sale ingested by the Hip poller.
+     * Hip orders reuse this table so the delist queue, the extension and the
+     * admin board work them without a second code path.
+     */
+    source: text("source").default("tes").notNull(),
+    /** HipPostcard Sale (Order) id for source = "hip". */
+    hipSaleId: integer("hip_sale_id"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     paidAt: timestamp("paid_at"),
   },
   (t) => ({
     statusIdx: index("tes_orders_status_idx").on(t.status),
     delistIdx: index("tes_orders_delist_idx").on(t.delistStatus),
+    sourceIdx: index("tes_orders_source_idx").on(t.source),
   })
 );
 
@@ -1084,5 +1102,92 @@ export const tesRecatQueue = pgTable(
   (t) => ({
     statusIdx: index("tes_recat_queue_status_idx").on(t.status),
     itemIdx: index("tes_recat_queue_item_idx").on(t.itemId),
+  })
+);
+
+// ─── HipPostcard (Phase HIP-1) ────────────────────────────────────────────────
+// HipPostcard is the fourth venue. Its listings are imported from eBay by
+// Hip's own "Sync with eBay", so every Hip listing carries external_id =
+// the eBay item id — the cross-system match key. These tables let the
+// FIA app (a) know which Hip listing is which eBay item, (b) record every
+// Hip sale it has seen and what it decided, and (c) log every write it
+// makes to Hip or eBay on Hip's behalf. Todd's rule: Hip is the lowest-
+// priority venue — on a double sale the HIP order is the one canceled.
+
+/** Map of Hip listing id ↔ eBay item id, refreshed by the poller/sweep. */
+export const hipListings = pgTable(
+  "hip_listings",
+  {
+    hipId: integer("hip_id").primaryKey(),
+    /** eBay item id (Hip's external_id when external_id_type is eBay). */
+    externalId: text("external_id"),
+    externalIdType: text("external_id_type"),
+    privateId: text("private_id"),
+    title: text("title").notNull(),
+    price: numeric("price", { precision: 10, scale: 2 }),
+    quantity: integer("quantity"),
+    active: boolean("active").default(true).notNull(),
+    closed: boolean("closed").default(false).notNull(),
+    url: text("url"),
+    hipUpdatedAt: timestamp("hip_updated_at"),
+    lastSeenAt: timestamp("last_seen_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    externalIdx: index("hip_listings_external_idx").on(t.externalId),
+    activeIdx: index("hip_listings_active_idx").on(t.active),
+  })
+);
+
+/**
+ * Every Hip sale the poller has ingested. `decision` is the order-level
+ * verdict (worst line wins):
+ *   hip_wins     — eBay was still active; eBay ended + delist queued
+ *   cancel_hip   — eBay already sold/ended; Todd cancels the Hip order
+ *   manual_match — a line couldn't be tied to an eBay item id
+ *   manual_qty   — multi-quantity line; delist would kill remaining stock
+ *   unverified   — eBay couldn't be asked (API error); nothing automated
+ *   mixed        — lines disagree; see `lines`
+ * `lines` is the per-SaleListing detail (jsonb, see HipSaleLine in
+ * lib/hip/ingest.ts). `handledAt` = Todd acknowledged it on the board.
+ */
+export const hipSales = pgTable(
+  "hip_sales",
+  {
+    hipSaleId: integer("hip_sale_id").primaryKey(),
+    buyerUsername: text("buyer_username"),
+    buyerEmail: text("buyer_email"),
+    total: numeric("total", { precision: 10, scale: 2 }),
+    hipCreatedAt: timestamp("hip_created_at"),
+    decision: text("decision").default("processing").notNull(),
+    reason: text("reason"),
+    lines: jsonb("lines").$type<unknown>(),
+    tesOrderId: uuid("tes_order_id").references(() => tesOrders.id, {
+      onDelete: "set null",
+    }),
+    handledAt: timestamp("handled_at"),
+    processedAt: timestamp("processed_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    decisionIdx: index("hip_sales_decision_idx").on(t.decision),
+  })
+);
+
+/** Audit log of writes made for Hip: end_ebay, close_hip, decrement, … */
+export const hipActions = pgTable(
+  "hip_actions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").notNull(),
+    hipSaleId: integer("hip_sale_id"),
+    hipListingId: integer("hip_listing_id"),
+    itemId: text("item_id"),
+    ok: boolean("ok").notNull(),
+    detail: text("detail"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    createdIdx: index("hip_actions_created_idx").on(t.createdAt),
+    itemIdx: index("hip_actions_item_idx").on(t.itemId),
   })
 );

@@ -3,6 +3,9 @@
 //
 // Returns paid orders whose delistStatus is "pending", each with its
 // items and the item's CURRENT mirror quantity (post-webhook decrement).
+// Since Phase HIP-1 the same table also carries HipPostcard sales
+// (source = "hip"); the extension works them identically — eBay has
+// already been ended by API for those, the Nifty Delist clears the rest.
 // remainingQty > 0 means other units are still for sale — the extension
 // must NOT delist those in Nifty (delisting kills all quantity
 // everywhere); they're flagged for manual quantity reduction instead.
@@ -53,6 +56,9 @@ export async function GET(req: NextRequest) {
     ok: true,
     orders: orders.map((o) => ({
       orderId: o.id,
+      /** "tes" (site checkout) or "hip" (HipPostcard sale, Phase HIP-1). */
+      source: o.source,
+      hipSaleId: o.hipSaleId,
       paidAt: o.paidAt,
       buyerName: o.shippingName,
       items: items

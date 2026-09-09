@@ -533,3 +533,99 @@ export async function reviseItemDescription(
     },
   });
 }
+
+// ─── EndFixedPriceItem: end a listing that sold on another venue ─────────────
+//
+// Phase HIP-1. When an item sells on HipPostcard and eBay still shows it
+// Active, we end the eBay listing immediately (seconds) rather than wait
+// for the extension's Nifty Delist (minutes). Todd's listings are fixed
+// price ("product" on Hip), so EndFixedPriceItem is the right call; an
+// auction would need EndItem. "Already ended" (error 1047) counts as
+// success — the goal state is reached either way.
+
+export type EndItemResult = {
+  ok: boolean;
+  /** true when eBay reported the listing was already ended. */
+  alreadyEnded: boolean;
+  detail: string;
+};
+
+export async function endFixedPriceItem(
+  itemId: string,
+  reason: "NotAvailable" | "Incorrect" | "LostOrBroken" | "OtherListingError" = "NotAvailable"
+): Promise<EndItemResult> {
+  try {
+    const res = await tradingCall<{ EndTime?: unknown }>("EndFixedPriceItem", {
+      ItemID: itemId,
+      EndingReason: reason,
+    });
+    return {
+      ok: true,
+      alreadyEnded: false,
+      detail: res.EndTime ? `ended ${String(res.EndTime)}` : "ended",
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    // 1047 "This listing has already been ended"; 17 / 1076 = item gone.
+    if (/\[1047\]|\[17\]|\[1076\]|already (been )?ended/i.test(msg)) {
+      return { ok: true, alreadyEnded: true, detail: msg.slice(0, 300) };
+    }
+    return { ok: false, alreadyEnded: false, detail: msg.slice(0, 300) };
+  }
+}
+
+// ─── GetItem: live availability snapshot for one item ────────────────────────
+//
+// Used by the Hip poller to decide who wins a race. Distinguishes "sold"
+// (QuantitySold covers the stock) from "ended without a sale" (Hip's own
+// sync, a manual end) — the former means cancel the Hip order, the latter
+// means Hip won and the rest of the loop should run.
+
+export type LiveItemStatus =
+  | {
+      state: "active";
+      total: number;
+      sold: number;
+      available: number;
+    }
+  | { state: "ended"; total: number; sold: number; listingStatus: string }
+  | { state: "gone"; detail: string }
+  | { state: "unverified"; detail: string };
+
+export async function getLiveItemStatus(itemId: string): Promise<LiveItemStatus> {
+  try {
+    const res = await tradingCall<{
+      Item?: {
+        Quantity?: unknown;
+        SellingStatus?: { QuantitySold?: unknown; ListingStatus?: unknown };
+      };
+    }>("GetItem", {
+      ItemID: itemId,
+      DetailLevel: "ReturnAll",
+      OutputSelector:
+        "Item.Quantity,Item.SellingStatus.QuantitySold,Item.SellingStatus.ListingStatus",
+    });
+    const item = res.Item;
+    if (!item) return { state: "unverified", detail: "no Item in GetItem response" };
+    const status = String(item.SellingStatus?.ListingStatus ?? "");
+    const total = Number(item.Quantity ?? NaN);
+    const soldRaw = Number(item.SellingStatus?.QuantitySold ?? 0);
+    const sold = Number.isFinite(soldRaw) ? soldRaw : 0;
+    if (status === "Active") {
+      const available = Number.isFinite(total) ? Math.max(0, total - sold) : 0;
+      return { state: "active", total: Number.isFinite(total) ? total : 0, sold, available };
+    }
+    return {
+      state: "ended",
+      total: Number.isFinite(total) ? total : 0,
+      sold,
+      listingStatus: status || "(unknown)",
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    if (/\[17\]|\[1076\]|invalid item/i.test(msg)) {
+      return { state: "gone", detail: msg.slice(0, 300) };
+    }
+    return { state: "unverified", detail: msg.slice(0, 300) };
+  }
+}

@@ -25,6 +25,7 @@ import { inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { ebayListings, ebaySyncLog, appSettings } from "@/db/schema";
 import { tradingCall } from "@/lib/ebay/client";
+import { closeHipForItems } from "@/lib/hip/close";
 
 const CURSOR_KEY = "listingEventsCursor";
 const OVERLAP_MS = 2 * 60_000;
@@ -162,6 +163,7 @@ export async function syncListingEventsDelta(): Promise<EventsSyncResult> {
   let updated = 0;
   let zeroed = 0;
   let skippedUnknown = 0;
+  const zeroedIds: string[] = [];
 
   if (deltas.length > 0) {
     // Which of these live in the mirror? (New listings are skipped — the
@@ -194,11 +196,21 @@ export async function syncListingEventsDelta(): Promise<EventsSyncResult> {
         .set(set)
         .where(sql`${ebayListings.itemId} = ${d.itemId}`);
       updated++;
-      if (d.quantity === 0) zeroed++;
+      if (d.quantity === 0) {
+        zeroed++;
+        zeroedIds.push(d.itemId);
+      }
     }
   }
 
   await saveCursor({ lastTo: windowTo });
+
+  // Phase HIP-2: anything that just zeroed on eBay comes off HipPostcard
+  // too (best-effort; no-op until the Hip API key is configured).
+  if (zeroedIds.length > 0) {
+    const hip = await closeHipForItems(zeroedIds, "events-sync");
+    if (hip.configured) console.log(`[sync-events] hip close ${JSON.stringify(hip)}`);
+  }
 
   // Keep the sync log readable: only record runs that changed something
   // (or that scanned events at all) — not 96 empty ticks a day.

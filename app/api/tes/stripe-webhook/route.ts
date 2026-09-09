@@ -8,9 +8,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
-import { eq, sql } from "drizzle-orm";
+import { eq, sql, and, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { tesOrders, tesOrderItems, ebayListings } from "@/db/schema";
+import { closeHipForItems } from "@/lib/hip/close";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -164,6 +165,20 @@ export async function POST(req: NextRequest) {
             lastSyncedAt: new Date(),
           })
           .where(eq(ebayListings.itemId, it.itemId));
+      }
+      // Phase HIP-2: a site sale takes the item off HipPostcard right
+      // away (only lines that are now sold out; best-effort).
+      const soldOut = await db
+        .select({ itemId: ebayListings.itemId })
+        .from(ebayListings)
+        .where(
+          and(
+            inArray(ebayListings.itemId, items.map((i) => i.itemId)),
+            sql`COALESCE(${ebayListings.quantity}, 0) <= 0`
+          )
+        );
+      if (soldOut.length > 0) {
+        await closeHipForItems(soldOut.map((r) => r.itemId), "tes-webhook");
       }
       await notifyTodd(orderId);
     }

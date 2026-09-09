@@ -92,6 +92,37 @@ interface NormalizedListing {
   quantity: number | null;
   price: string | null;
   startTime: Date | null;
+  shippingProfileId: string | null;
+  shippingProfileName: string | null;
+  shippingServices: string[];
+}
+
+/** Item.SellerProfiles.SellerShippingProfile → {id, name}; both null if absent. */
+function readShippingProfile(i: Record<string, unknown>): {
+  id: string | null;
+  name: string | null;
+} {
+  const profiles = (i.SellerProfiles as Record<string, unknown> | undefined) ?? {};
+  const ship =
+    (profiles.SellerShippingProfile as Record<string, unknown> | undefined) ?? {};
+  return {
+    id: ship.ShippingProfileID != null ? String(ship.ShippingProfileID) : null,
+    name:
+      ship.ShippingProfileName != null ? String(ship.ShippingProfileName) : null,
+  };
+}
+
+/** Item.ShippingDetails.ShippingServiceOptions[].ShippingService codes. */
+function readShippingServices(i: Record<string, unknown>): string[] {
+  const details = (i.ShippingDetails as Record<string, unknown> | undefined) ?? {};
+  const opts = details.ShippingServiceOptions;
+  const arr = !opts ? [] : Array.isArray(opts) ? opts : [opts];
+  const out: string[] = [];
+  for (const o of arr) {
+    const svc = (o as Record<string, unknown>)?.ShippingService;
+    if (svc != null && String(svc).trim() !== "") out.push(String(svc));
+  }
+  return out;
 }
 
 function nullIfZero(v: unknown): string | null {
@@ -144,7 +175,12 @@ function normalizeListing(item: unknown): NormalizedListing {
       ? String(i.Description)
       : null;
 
+  const shipProfile = readShippingProfile(i);
+
   return {
+    shippingProfileId: shipProfile.id,
+    shippingProfileName: shipProfile.name,
+    shippingServices: readShippingServices(i),
     itemId: String(i.ItemID ?? ""),
     sku: i.SKU != null ? String(i.SKU) : null,
     title: String(i.Title ?? ""),
@@ -188,6 +224,9 @@ async function upsertPage(listings: NormalizedListing[]): Promise<number> {
       description: l.description,
       imageUrls: l.imageUrls.length > 0 ? l.imageUrls : null,
       startTime: l.startTime,
+      shippingProfileId: l.shippingProfileId,
+      shippingProfileName: l.shippingProfileName,
+      shippingServices: l.shippingServices.length > 0 ? l.shippingServices : null,
       lastSyncedAt: new Date(),
     }));
   if (rows.length === 0) return 0;
@@ -212,6 +251,11 @@ async function upsertPage(listings: NormalizedListing[]): Promise<number> {
         description: sql`COALESCE(excluded.description, ${ebayListings.description})`,
         imageUrls: sql`COALESCE(excluded.image_urls, ${ebayListings.imageUrls})`,
         startTime: sql`excluded.start_time`,
+        // Shipping policy (Phase ESE-1). Keep the old value if a sweep
+        // returns none — same defensive posture as description/photos.
+        shippingProfileId: sql`COALESCE(excluded.shipping_profile_id, ${ebayListings.shippingProfileId})`,
+        shippingProfileName: sql`COALESCE(excluded.shipping_profile_name, ${ebayListings.shippingProfileName})`,
+        shippingServices: sql`COALESCE(excluded.shipping_services, ${ebayListings.shippingServices})`,
         lastSyncedAt: sql`excluded.last_synced_at`,
       },
     });
