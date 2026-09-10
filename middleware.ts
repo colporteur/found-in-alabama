@@ -19,6 +19,9 @@ import { NextResponse } from "next/server";
 
 const { auth } = NextAuth(authConfig);
 
+/** Marks a request that middleware already rewrote into the /tes tree. */
+const TES_REWRITE_HEADER = "x-tes-rewrite";
+
 /** Hostnames that serve The Ephemeral State storefront. */
 function isTesHost(host: string | null): boolean {
   if (!host) return false;
@@ -51,10 +54,25 @@ export default auth((req) => {
 
   if (isTesHost(host)) {
     if (!pathname.startsWith("/tes")) {
-      const url = nextUrl.clone();
-      url.pathname = pathname === "/" ? "/tes" : `/tes${pathname}`;
-      return NextResponse.rewrite(url);
+      // Build the rewrite from the REAL request host, not nextUrl.clone().
+      // Inside NextAuth's auth() wrapper, nextUrl carries the AUTH_URL
+      // origin (www.foundinalabama.com), so a clone-based rewrite became an
+      // external proxy hop to www.foundinalabama.com/tes/* — which is what
+      // the FIA-host redirect below then bounced back (loop, 2026-09-10).
+      const url = new URL(
+        `/tes${pathname === "/" ? "" : pathname}${nextUrl.search}`,
+        `https://${host}`
+      );
+      const headers = new Headers(req.headers);
+      headers.set(TES_REWRITE_HEADER, "1");
+      return NextResponse.rewrite(url, { request: { headers } });
     }
+    return NextResponse.next();
+  }
+
+  // A rewritten TES request arriving on any other host (proxy hop) must
+  // simply be served, never redirected.
+  if (req.headers.get(TES_REWRITE_HEADER) === "1") {
     return NextResponse.next();
   }
 
