@@ -30,10 +30,18 @@ function isTesHost(host: string | null): boolean {
   );
 }
 
-function isLocalHost(host: string | null): boolean {
+/**
+ * Hostnames that serve Found in Alabama. The preview-path redirect below
+ * keys on THIS, not on "not a TES host": after middleware rewrites a TES
+ * request to /tes/*, Vercel serves the rewritten request under the
+ * deployment's own *.vercel.app hostname, and keying on "not TES" there
+ * bounced it straight back to theephemeralstate.com — an infinite 301
+ * loop (2026-09-10).
+ */
+function isFiaHost(host: string | null): boolean {
   if (!host) return false;
   const h = host.toLowerCase().split(":")[0];
-  return h === "localhost" || h === "127.0.0.1";
+  return h === "foundinalabama.com" || h === "www.foundinalabama.com";
 }
 
 export default auth((req) => {
@@ -52,9 +60,10 @@ export default auth((req) => {
 
   // Retired preview path on the FIA host → the real TES domain.
   // (Static assets under /tes/*.png etc. never reach middleware — the
-  // matcher below excludes any path containing a dot.)
+  // matcher below excludes any path containing a dot. Deployment-URL and
+  // localhost requests fall through and serve /tes/* directly.)
   if (
-    !isLocalHost(host) &&
+    isFiaHost(host) &&
     (pathname === "/tes" || pathname.startsWith("/tes/"))
   ) {
     const target = new URL(
