@@ -13,8 +13,10 @@ import TesItemCard from "@/components/tes/TesItemCard";
 import { getTesDiscountPercent } from "@/lib/tes/discount";
 import { tesHome } from "@/lib/tes/host";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// ISR: served from the cache for STOREFRONT_REVALIDATE_SECONDS (see
+// lib/storefront-cache.ts); sold/ended/repriced items and category
+// changes purge it on demand. Crawlers hit the CDN, not a function.
+export const revalidate = 600;
 
 export async function generateMetadata({
   params,

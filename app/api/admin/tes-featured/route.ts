@@ -8,6 +8,7 @@ import {
   setFeaturedRawSlots,
   type RawSlot,
 } from "@/lib/tes/featured";
+import { revalidateStorefront } from "@/lib/storefront-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -35,5 +36,6 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "slots array required" }, { status: 400 });
   }
   await setFeaturedRawSlots(body.slots);
+  revalidateStorefront("tes-featured changed");
   return NextResponse.json({ ok: true });
 }

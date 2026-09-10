@@ -1,3 +1,8 @@
+# RETIRED AS A SCHEDULE (Sep 2026): this heartbeat now runs as a Vercel
+# Cron on the Pro plan — see vercel.json. GitHub's scheduler was landing
+# far less often than requested anyway. Kept for MANUAL runs only
+# (Actions tab → Run workflow).
+
 # Weekly stale-inventory sale maintenance.
 #
 # Pings /api/cron/ebay-sales every Monday at 14:00 UTC (~8-9am Central).
@@ -8,8 +13,6 @@
 name: eBay sales cron
 
 on:
-  schedule:
-    - cron: "0 14 * * 1"
   workflow_dispatch: {}
 
 jobs:

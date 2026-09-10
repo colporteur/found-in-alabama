@@ -3,9 +3,9 @@
 // GetSellerList returns ~200 listings/page; a ~7000-item store is ~35
 // pages. Pulling all of them server-side would blow Vercel's 60s
 // function limit, so syncListingsBudgeted() pulls pages until a soft
-// deadline, persists a page cursor in app_settings, and returns. The
-// daily GitHub Action calls the cron a handful of times to walk the
-// whole store across short invocations. Intra-day freshness (sold/ended
+// deadline, persists a page cursor in app_settings, and returns. Vercel
+// Cron calls the endpoint every few minutes during the daily sync hour
+// (vercel.json) to walk the whole store across short invocations. Intra-day freshness (sold/ended
 // items) is handled by the GetSellerEvents delta in events-sync.ts.
 //
 // This is the "full" sync (every active listing), distinct from the
@@ -18,6 +18,7 @@ import { lt, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { ebayListings, ebaySyncLog, appSettings } from "@/db/schema";
 import { tradingCall } from "@/lib/ebay/client";
+import { revalidateStorefront } from "@/lib/storefront-cache";
 
 // When a full sweep completes, rows the sweep didn't touch are listings
 // eBay no longer returns as active (ended/sold/removed) — purge them so
@@ -358,6 +359,8 @@ export async function syncListingsBudgeted(
         startedAt: new Date(start),
         endedAt: new Date(),
       });
+      // New listings inserted + dead ones purged → storefront cache is stale.
+      revalidateStorefront(`full-sweep purged=${purged}`);
       return {
         ranPages,
         syncedThisRun,

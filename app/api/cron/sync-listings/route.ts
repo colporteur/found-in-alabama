@@ -1,8 +1,9 @@
 // GET /api/cron/sync-listings — keep the storefront's listings mirror
 // fresh. Runs a budgeted, resumable slice of the full eBay store sync
-// (see lib/ebay/listing-sync). Called several times in a row by the
-// weekly GitHub Action so the whole store gets walked across short
-// invocations; once a sweep completes it no-ops until the next week.
+// (see lib/ebay/listing-sync). Vercel Cron calls it every 4 minutes
+// during the 09:00 UTC hour (vercel.json) so the whole store gets walked
+// across short invocations; once a sweep completes it no-ops until the
+// next day.
 //
 // Auth: same CRON_SECRET pattern as the other crons.
 

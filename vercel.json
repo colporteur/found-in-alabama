@@ -2,7 +2,27 @@
   "crons": [
     {
       "path": "/api/cron/publish",
-      "schedule": "0 13 * * *"
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-events",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/enhance",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/categorize",
+      "schedule": "*/10 * * * *"
+    },
+    {
+      "path": "/api/cron/sync-listings",
+      "schedule": "*/4 9 * * *"
+    },
+    {
+      "path": "/api/cron/ebay-sales",
+      "schedule": "0 14 * * 1"
     }
   ]
 }

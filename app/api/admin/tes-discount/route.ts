@@ -7,6 +7,7 @@ import {
   getTesDiscountPercent,
   setTesDiscountPercent,
 } from "@/lib/tes/discount";
+import { revalidateStorefront } from "@/lib/storefront-cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,5 +39,6 @@ export async function POST(req: NextRequest) {
     );
   }
   await setTesDiscountPercent(n);
+  revalidateStorefront("tes-discount changed");
   return NextResponse.json({ ok: true, percent: await getTesDiscountPercent() });
 }

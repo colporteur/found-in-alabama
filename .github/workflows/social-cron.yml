@@ -1,3 +1,8 @@
+# RETIRED AS A SCHEDULE (Sep 2026): this heartbeat now runs as a Vercel
+# Cron on the Pro plan — see vercel.json. GitHub's scheduler was landing
+# far less often than requested anyway. Kept for MANUAL runs only
+# (Actions tab → Run workflow).
+
 # Social publishing heartbeat (+ a categorize tick, piggybacked for
 # extra Other-bucket drain cadence).
 #
@@ -19,8 +24,6 @@
 name: Social publish cron
 
 on:
-  schedule:
-    - cron: "*/15 * * * *"
   workflow_dispatch: {}
 
 jobs:

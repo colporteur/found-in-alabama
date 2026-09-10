@@ -26,6 +26,7 @@ import { db } from "@/db";
 import { ebayListings, ebaySyncLog, appSettings } from "@/db/schema";
 import { tradingCall } from "@/lib/ebay/client";
 import { closeHipForItems } from "@/lib/hip/close";
+import { revalidateStorefront } from "@/lib/storefront-cache";
 
 const CURSOR_KEY = "listingEventsCursor";
 const OVERLAP_MS = 2 * 60_000;
@@ -204,6 +205,12 @@ export async function syncListingEventsDelta(): Promise<EventsSyncResult> {
   }
 
   await saveCursor({ lastTo: windowTo });
+
+  // Storefront pages are ISR-cached; anything that sold, ended or was
+  // repriced must vanish/update now, not at the next 10-minute window.
+  // (A full purge, not per-item: a sold item also changes its category
+  // grid, the counts on the home page, and any "similar" strips.)
+  if (updated > 0) revalidateStorefront(`events-sync updated=${updated} zeroed=${zeroed}`);
 
   // Phase HIP-2: anything that just zeroed on eBay comes off HipPostcard
   // too (best-effort; no-op until the Hip API key is configured).

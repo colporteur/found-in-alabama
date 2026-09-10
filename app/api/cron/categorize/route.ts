@@ -9,10 +9,11 @@
 // work; secondary (fill missing 2nd categories) otherwise.
 //
 // Auth: CRON_SECRET bearer or admin session, like the other crons.
-// Pinged by the enhance + social GitHub workflows as an extra step.
+// Scheduled directly by Vercel Cron (vercel.json) since Sep 2026.
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { revalidateStorefront } from "@/lib/storefront-cache";
 import {
   collectEligibleItems,
   getLatestRun,
@@ -143,6 +144,8 @@ export async function GET(req: NextRequest) {
     if (summary.processed > 0 || summary.startedPhase || summary.error) {
       console.log("[categorize-cron]", JSON.stringify(summary));
     }
+    // Items changed store category → category grids and counts are stale.
+    if (summary.processed > 0) revalidateStorefront("categorize");
     return NextResponse.json(summary);
   } catch (err) {
     summary.error = err instanceof Error ? err.message : "unknown";

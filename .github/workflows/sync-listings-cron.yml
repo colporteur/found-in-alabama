@@ -1,3 +1,8 @@
+# RETIRED AS A SCHEDULE (Sep 2026): this heartbeat now runs as a Vercel
+# Cron on the Pro plan — see vercel.json. GitHub's scheduler was landing
+# far less often than requested anyway. Kept for MANUAL runs only
+# (Actions tab → Run workflow).
+
 # Daily storefront inventory sync (was weekly — bumped when the listings
 # mirror became live storefront inventory for theephemeralstate.com; the
 # 15-minute events-sync-cron.yml handles intra-day freshness, this sweep
@@ -19,8 +24,6 @@
 name: Sync listings cron
 
 on:
-  schedule:
-    - cron: "0 9 * * *" # Daily ~3-4am Central
   workflow_dispatch: {}
 
 jobs:

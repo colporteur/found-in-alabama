@@ -11,8 +11,10 @@ import { SHIP_SCHEDULE } from "@/lib/tes/shipping";
 import { tesHome } from "@/lib/tes/host";
 import AddToCartButton from "@/components/tes/AddToCartButton";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// ISR: served from the cache for STOREFRONT_REVALIDATE_SECONDS (see
+// lib/storefront-cache.ts); sold/ended/repriced items and category
+// changes purge it on demand. Crawlers hit the CDN, not a function.
+export const revalidate = 600;
 
 const fmt = (n: number) => `$${n.toFixed(2)}`;
 

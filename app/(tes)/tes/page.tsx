@@ -10,8 +10,10 @@ import { tesPrefix } from "@/lib/tes/host";
 import { CategoryGrid } from "@/components/tes/TesCategoryCards";
 import FeaturedBar from "@/components/tes/FeaturedBar";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// ISR: served from the cache for STOREFRONT_REVALIDATE_SECONDS (see
+// lib/storefront-cache.ts); sold/ended/repriced items and category
+// changes purge it on demand. Crawlers hit the CDN, not a function.
+export const revalidate = 600;
 
 export const metadata: Metadata = {
   title: "The Ephemeral State — Antique paper Americana, state by state",

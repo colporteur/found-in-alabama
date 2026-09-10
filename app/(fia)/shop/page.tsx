@@ -10,8 +10,10 @@ import {
   type StorefrontCategoryGroup,
 } from "@/lib/ebay/storefront";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// ISR: served from the cache for STOREFRONT_REVALIDATE_SECONDS (see
+// lib/storefront-cache.ts); sold/ended/repriced items and category
+// changes purge it on demand. Crawlers hit the CDN, not a function.
+export const revalidate = 600;
 
 export const metadata: Metadata = {
   title: "Shop the inventory",

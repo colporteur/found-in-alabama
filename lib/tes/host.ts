@@ -1,13 +1,20 @@
-// Host-aware link prefix for The Ephemeral State pages.
+// Link prefix helpers for The Ephemeral State pages.
 //
-// TES pages live at /tes/* in the app tree. On the real TES domain the
+// TES pages live at /tes/* in the app tree. On theephemeralstate.com the
 // middleware rewrite hides that prefix (theephemeralstate.com/shop/x →
-// /tes/shop/x internally), so links should be written WITHOUT the /tes
-// prefix there. When previewing the same pages on foundinalabama.com/tes
-// (or localhost/tes) before DNS cutover, links need the explicit prefix.
-// tesPrefix() returns the right one for the current request.
-
-import { headers } from "next/headers";
+// /tes/shop/x internally), so links are written WITHOUT the /tes prefix.
+//
+// History: before DNS cutover, tesPrefix() read the request Host header
+// and returned "/tes" when previewing on foundinalabama.com/tes. That
+// call to headers() forced EVERY TES page to render dynamically on every
+// request — crawlers walking ~7,000 item pages became the bulk of the
+// Vercel Fluid CPU bill (Sep 2026). The preview path is retired: the
+// prefix is now a constant, the pages are ISR-cached, and middleware
+// 301s foundinalabama.com/tes/* to the real domain. Local preview uses
+// http://tes.localhost:3000 (see middleware.ts).
+//
+// isTesHostName() is still used by robots.txt / sitemap.xml route
+// handlers, which stay dynamic and cheap.
 
 export function isTesHostName(host: string | null | undefined): boolean {
   if (!host) return false;
@@ -19,13 +26,12 @@ export function isTesHostName(host: string | null | undefined): boolean {
   );
 }
 
-/** "" on the TES domain (rewrite hides /tes), "/tes" everywhere else. */
+/** Always "" — the rewrite hides /tes on the TES domain. */
 export function tesPrefix(): string {
-  const host = headers().get("host");
-  return isTesHostName(host) ? "" : "/tes";
+  return "";
 }
 
-/** Home link for the current host ("/" on TES domain, "/tes" elsewhere). */
+/** Home link for TES pages. */
 export function tesHome(): string {
-  return tesPrefix() || "/";
+  return "/";
 }

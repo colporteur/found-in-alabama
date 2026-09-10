@@ -8,8 +8,10 @@ import { getStorefrontCategoryTree } from "@/lib/ebay/storefront";
 import { tesPrefix, tesHome } from "@/lib/tes/host";
 import { CategoryGrid } from "@/components/tes/TesCategoryCards";
 
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
+// ISR: served from the cache for STOREFRONT_REVALIDATE_SECONDS (see
+// lib/storefront-cache.ts); sold/ended/repriced items and category
+// changes purge it on demand. Crawlers hit the CDN, not a function.
+export const revalidate = 600;
 
 export const metadata: Metadata = {
   title: "Browse by ephemera type",

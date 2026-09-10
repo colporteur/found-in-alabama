@@ -3,10 +3,9 @@ import { marketplaces, contact } from "@/lib/links";
 import { getRecentPosts } from "@/lib/posts";
 import PostCard from "@/components/PostCard";
 
-// PostCard queries live item counts from the DB. Without this, Next
-// statically generates the home page at build time and the
-// available/sold chips never refresh between deploys.
-export const dynamic = "force-dynamic";
+// PostCard queries live item counts from the DB. ISR (10 min) keeps
+// the available/sold chips fresh without rendering on every request.
+export const revalidate = 600;
 
 export default function HomePage() {
   const recentPosts = getRecentPosts(6);
