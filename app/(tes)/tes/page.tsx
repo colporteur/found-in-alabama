@@ -33,7 +33,7 @@ export default async function TesHomePage() {
   const states = groups.filter((g) => g.isState);
   const types = groups.filter((g) => !g.isState);
   const totalItems = groups.reduce(
-    (sum, g) => sum + g.count + g.children.reduce((s, c) => s + c.count, 0),
+    (sum, g) => sum + g.count + (g.categoryIds ? 0 : g.children.reduce((s, c) => s + c.count, 0)),
     0
   );
 

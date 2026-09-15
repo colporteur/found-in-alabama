@@ -42,6 +42,8 @@ export type StorefrontOpts = { segment?: StorefrontSegment };
 
 export type StorefrontCategory = {
   categoryId: string;
+  /** Real category IDs included by a combined state shelf. */
+  categoryIds?: string[];
   name: string;
   slug: string;
   count: number;
@@ -216,9 +218,12 @@ export async function getStorefrontCategories(
       continue;
     const count = countById.get(cat.categoryId) ?? 0;
     if (count === 0) continue; // hide empty categories
-    const displayName = isNewArrivals
+    let displayName = isNewArrivals
       ? NEW_ARRIVALS_NAME
       : decodeEntities(cat.name);
+    if (segment === "tes" && displayName.trim().toLowerCase() === "alabama") {
+      displayName = `Alabama ${displayNameById.get(cat.parentCategoryId ?? "") ?? "Collection"}`;
+    }
     // The Other bucket owns the "New Arrivals" name — never show a second
     // real category by that name (e.g. a stale, since-deleted eBay one).
     if (!isNewArrivals && displayName === NEW_ARRIVALS_NAME) continue;
@@ -283,11 +288,18 @@ export async function getStorefrontCategoryTree(
   opts: StorefrontOpts = {}
 ): Promise<StorefrontCategoryGroup[]> {
   const flat = await getStorefrontCategories(opts);
+  // eBay keeps Alabama stock in several type branches. Present one state
+  // shelf while retaining each real category as a directly browsable child.
+  const alabama = opts.segment === "tes"
+    ? flat.filter((c) => /\balabama\b/i.test(c.name))
+    : [];
+  const alabamaIds = new Set(alabama.map((c) => c.categoryId));
   const byId = new Map(flat.map((c) => [c.categoryId, c]));
   const childrenByParent = new Map<string, StorefrontCategory[]>();
   const topLevel: StorefrontCategory[] = [];
 
   for (const cat of flat) {
+    if (alabamaIds.has(cat.categoryId)) continue;
     const parentExists =
       cat.parentCategoryId != null && byId.has(cat.parentCategoryId);
     if (parentExists) {
@@ -319,6 +331,41 @@ export async function getStorefrontCategoryTree(
       cat.imageUrl ?? children.find((c) => c.imageUrl)?.imageUrl ?? null;
     return { ...cat, imageUrl, children };
   });
+  if (alabama.length > 0) {
+    const categoryIds = [...alabamaIds];
+    const [listings, onSale] = await Promise.all([
+      db.select({
+        itemId: ebayListings.itemId,
+        cat1: ebayListings.storeCategory1Id,
+        cat2: ebayListings.storeCategory2Id,
+        imageUrl: ebayListings.primaryImageUrl,
+      }).from(ebayListings).where(and(inStock(), or(
+        inArray(ebayListings.storeCategory1Id, categoryIds),
+        inArray(ebayListings.storeCategory2Id, categoryIds)
+      ))).orderBy(desc(ebayListings.startTime)),
+      getOnSaleLookup(),
+    ]);
+    const onSaleCount = listings.filter((l) =>
+      onSale.byListingId.has(l.itemId) ||
+      (l.cat1 && onSale.byCategoryId.has(l.cat1)) ||
+      (l.cat2 && onSale.byCategoryId.has(l.cat2))
+    ).length;
+    groups.push({
+      categoryId: "tes-alabama",
+      categoryIds,
+      name: "Alabama",
+      slug: "alabama",
+      count: listings.length,
+      isNewArrivals: false,
+      parentCategoryId: null,
+      parentName: null,
+      isState: true,
+      onSaleCount,
+      wholeCategoryOnSale: listings.length > 0 && onSaleCount === listings.length,
+      imageUrl: listings.find((l) => l.imageUrl)?.imageUrl ?? null,
+      children: alabama,
+    });
+  }
   groups.sort((a, b) => {
     if (a.isNewArrivals) return 1;
     if (b.isNewArrivals) return -1;
@@ -332,6 +379,9 @@ export async function resolveCategorySlug(
   slug: string,
   opts: StorefrontOpts = {}
 ): Promise<StorefrontCategory | null> {
+  if (opts.segment === "tes" && slug === "alabama") {
+    return (await getStorefrontCategoryTree(opts)).find((c) => c.slug === slug) ?? null;
+  }
   const cats = await getStorefrontCategories(opts);
   return cats.find((c) => c.slug === slug) ?? null;
 }
@@ -413,8 +463,8 @@ export async function getCategoryItems(
       and(
         inStock(),
         or(
-          eq(ebayListings.storeCategory1Id, category.categoryId),
-          eq(ebayListings.storeCategory2Id, category.categoryId)
+          inArray(ebayListings.storeCategory1Id, category.categoryIds ?? [category.categoryId]),
+          inArray(ebayListings.storeCategory2Id, category.categoryIds ?? [category.categoryId])
         )
       )
     )
@@ -440,7 +490,8 @@ export async function getCategoryItems(
   return rows.map((r) => {
     const sale =
       onSale.byListingId.get(r.itemId) ??
-      onSale.byCategoryId.get(category.categoryId) ??
+      (r.cat1 ? onSale.byCategoryId.get(r.cat1) : undefined) ??
+      (r.cat2 ? onSale.byCategoryId.get(r.cat2) : undefined) ??
       null;
     const meta = metaByEbayId.get(r.itemId);
     const c1 = norm(r.cat1 ? classByCat.get(r.cat1) : undefined);

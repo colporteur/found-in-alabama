@@ -8,6 +8,7 @@ import { notFound } from "next/navigation";
 import {
   getCategoryItems,
   resolveCategorySlug,
+  getStorefrontCategories,
 } from "@/lib/ebay/storefront";
 import TesItemCard from "@/components/tes/TesItemCard";
 import { getTesDiscountPercent } from "@/lib/tes/discount";
@@ -47,6 +48,9 @@ export default async function TesCategoryPage({
     getCategoryItems(category),
     getTesDiscountPercent(),
   ]);
+  const children = category.categoryIds
+    ? (await getStorefrontCategories({ segment: "tes" })).filter((c) => category.categoryIds!.includes(c.categoryId))
+    : [];
 
   return (
     <section className="container-content py-12">
@@ -62,6 +66,17 @@ export default async function TesCategoryPage({
       <p className="text-tes-ink/70 mb-8">
         {category.count} {category.count === 1 ? "piece" : "pieces"}.
       </p>
+
+      {children.length > 0 && (
+        <nav aria-label="Alabama categories" className="flex flex-wrap gap-2 mb-8">
+          {children.map((child) => (
+            <Link key={child.categoryId} href={`/shop/${child.slug}`}
+              className="rounded-full bg-tes-kraft/15 px-3 py-2 text-sm hover:bg-tes-kraft/30">
+              {child.name} ({child.count})
+            </Link>
+          ))}
+        </nav>
+      )}
 
       {items.length === 0 ? (
         <p className="text-tes-ink/60 italic">
