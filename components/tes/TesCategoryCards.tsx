@@ -82,7 +82,7 @@ export function CategoryCard({
         <div>{CardBody}</div>
       )}
 
-      {group.children.length > 0 && (
+      {!group.isState && group.children.length > 0 && (
         <div className="px-4 pb-4 -mt-1">
           <div className="flex flex-wrap gap-1.5">
             {group.children.map((child) => (
