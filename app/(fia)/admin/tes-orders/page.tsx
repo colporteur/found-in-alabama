@@ -8,12 +8,15 @@
 // where the leftovers land.
 
 import Link from "next/link";
-import { desc, eq, inArray, isNull, notInArray, and } from "drizzle-orm";
+import { desc, eq, inArray, isNull, isNotNull, notInArray, and, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { tesOrders, tesOrderItems, hipSales } from "@/db/schema";
 import type { HipSaleLine } from "@/lib/hip/ingest";
 import MarkHandledButton from "./MarkHandledButton";
 import HipHandledButton from "./HipHandledButton";
+import PirateShipPanel from "./PirateShipPanel";
+import TrackingEditor from "./TrackingEditor";
+import { trackingUrl } from "@/lib/tes/pirate-ship";
 
 const HIP_AUTO_DECISIONS = ["hip_wins", "processing"];
 
@@ -64,6 +67,23 @@ export default async function TesOrdersPage() {
     itemsByOrder.set(it.orderId, arr);
   }
 
+  // Pirate Ship queue (Phase SHIP-1): counted across all orders, not just
+  // the 100 shown, so an old unshipped order can't hide.
+  const [shipCounts] = await db
+    .select({
+      newCount: sql<number>`count(*) filter (where ${tesOrders.pirateExportedAt} is null)`,
+      awaiting: sql<number>`count(*) filter (where ${tesOrders.pirateExportedAt} is not null)`,
+    })
+    .from(tesOrders)
+    .where(
+      and(
+        eq(tesOrders.source, "tes"),
+        eq(tesOrders.status, "paid"),
+        isNull(tesOrders.shippedAt),
+        isNotNull(tesOrders.shippingAddress)
+      )
+    );
+
   const needsDelist = orders.filter(
     (o) => o.status === "paid" && o.delistStatus === "pending"
   ).length;
@@ -95,6 +115,11 @@ export default async function TesOrdersPage() {
           "Nothing waiting on a delist. Paid orders appear here with packing details."
         )}
       </p>
+
+      <PirateShipPanel
+        newCount={Number(shipCounts?.newCount ?? 0)}
+        awaitingTracking={Number(shipCounts?.awaiting ?? 0)}
+      />
 
       {hipNeedsYou.length > 0 && (
         <div className="mb-10">
@@ -255,6 +280,18 @@ export default async function TesOrdersPage() {
                       {o.governingShipClass}
                     </span>
                   </p>
+                  {o.status === "paid" && o.source === "tes" && (
+                    <TrackingEditor
+                      orderId={o.id}
+                      tracking={o.trackingNumber}
+                      trackingHref={
+                        o.trackingNumber ? trackingUrl(o.trackingNumber, o.carrier) : null
+                      }
+                      carrier={o.carrier}
+                      shippedAt={o.shippedAt?.toISOString() ?? null}
+                      exportedAt={o.pirateExportedAt?.toISOString() ?? null}
+                    />
+                  )}
                   {o.status === "paid" && (
                     <MarkHandledButton
                       orderId={o.id}

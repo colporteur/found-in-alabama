@@ -183,6 +183,13 @@
       "when": 1788983785360,
       "tag": "0025_complete_slapstick",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790337306780,
+      "tag": "0026_pirate_ship",
+      "breakpoints": true
     }
   ]
 }

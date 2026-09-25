@@ -1033,6 +1033,17 @@ export const tesOrders = pgTable(
     source: text("source").default("tes").notNull(),
     /** HipPostcard Sale (Order) id for source = "hip". */
     hipSaleId: integer("hip_sale_id"),
+    /**
+     * Phase SHIP-1 (Pirate Ship). Pirate Ship has no API, so orders go out
+     * as a spreadsheet upload and tracking comes back as a spreadsheet
+     * export. pirateExportedAt = last time this order was included in a
+     * Pirate Ship CSV; tracking/shippedAt are filled from Pirate Ship's
+     * shipment export (matched on the Order ID column = tes_orders.id).
+     */
+    pirateExportedAt: timestamp("pirate_exported_at"),
+    trackingNumber: text("tracking_number"),
+    carrier: text("carrier"),
+    shippedAt: timestamp("shipped_at"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     paidAt: timestamp("paid_at"),
   },
@@ -1040,6 +1051,7 @@ export const tesOrders = pgTable(
     statusIdx: index("tes_orders_status_idx").on(t.status),
     delistIdx: index("tes_orders_delist_idx").on(t.delistStatus),
     sourceIdx: index("tes_orders_source_idx").on(t.source),
+    shippedIdx: index("tes_orders_shipped_idx").on(t.shippedAt),
   })
 );
 
