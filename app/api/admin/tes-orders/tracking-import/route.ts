@@ -83,7 +83,9 @@ export async function POST(req: NextRequest) {
     const updated = await db
       .update(tesOrders)
       .set({ trackingNumber: row.tracking, carrier: row.carrier, shippedAt: new Date() })
-      .where(and(eq(tesOrders.id, orderId), isNull(tesOrders.trackingNumber)))
+      .where(
+        and(eq(tesOrders.id, orderId), isNull(tesOrders.trackingNumber), isNull(tesOrders.shippedAt))
+      )
       .returning({ id: tesOrders.id });
     return updated.length > 0;
   }

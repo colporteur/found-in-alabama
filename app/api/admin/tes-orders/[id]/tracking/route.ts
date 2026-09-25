@@ -1,15 +1,18 @@
 // POST /api/admin/tes-orders/[id]/tracking
 // Body: { tracking: string | null, carrier?: string | null }
+//    or: { skip: true }
 // Manual set / clear of an order's tracking (Phase SHIP-1) — for a label
 // bought outside the spreadsheet flow, or to undo a wrong import match.
-// Clearing also clears shipped_at. Admin-session gated.
+// skip marks the order "not shipping" (test orders, pickups): shipped_at
+// is set with no tracking so the Pirate Ship export never includes it.
+// Clearing ({ tracking: null }) resets both. Admin-session gated.
 
 import { NextRequest, NextResponse } from "next/server";
 import { and, eq } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { tesOrders } from "@/db/schema";
-import { guessCarrier } from "@/lib/tes/pirate-ship";
+import { guessCarrier, NOT_SHIPPING } from "@/lib/tes/pirate-ship";
 
 export const runtime = "nodejs";
 
@@ -23,8 +26,10 @@ export async function POST(
   }
   let tracking: string | null = null;
   let carrier: string | null = null;
+  let skip = false;
   try {
-    const body = (await req.json()) as { tracking?: unknown; carrier?: unknown };
+    const body = (await req.json()) as { tracking?: unknown; carrier?: unknown; skip?: unknown };
+    skip = body.skip === true;
     tracking = typeof body.tracking === "string" ? body.tracking.replace(/\s+/g, "") || null : null;
     carrier = typeof body.carrier === "string" ? body.carrier.trim() || null : null;
   } catch {
@@ -36,7 +41,9 @@ export async function POST(
   const updated = await db
     .update(tesOrders)
     .set(
-      tracking
+      skip
+        ? { trackingNumber: null, carrier: NOT_SHIPPING, shippedAt: new Date() }
+        : tracking
         ? { trackingNumber: tracking, carrier: carrier ?? guessCarrier(tracking), shippedAt: new Date() }
         : { trackingNumber: null, carrier: null, shippedAt: null }
     )

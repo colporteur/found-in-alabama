@@ -5,6 +5,10 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
+// Keep in sync with NOT_SHIPPING in lib/tes/pirate-ship.ts (client file,
+// so no server-module import).
+const NOT_SHIPPING = "not shipping";
+
 export default function TrackingEditor({
   orderId,
   tracking,
@@ -25,13 +29,13 @@ export default function TrackingEditor({
   const [value, setValue] = useState(tracking ?? "");
   const [saving, setSaving] = useState(false);
 
-  async function save(next: string | null) {
+  async function save(next: string | null, skip = false) {
     setSaving(true);
     try {
       const res = await fetch(`/api/admin/tes-orders/${orderId}/tracking`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tracking: next }),
+        body: JSON.stringify(skip ? { skip: true } : { tracking: next }),
       });
       const body = (await res.json()) as { ok: boolean; error?: string };
       if (!body.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
@@ -79,6 +83,24 @@ export default function TrackingEditor({
     );
   }
 
+  if (!tracking && carrier === NOT_SHIPPING && shippedAt) {
+    return (
+      <span className="text-sm flex flex-wrap items-center gap-2">
+        <span className="inline-block text-xs px-2 py-0.5 rounded bg-brand-ink/10 text-brand-ink/70">
+          Not shipping
+        </span>
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => save(null)}
+          className="text-brand-ink/50 hover:text-brand-ink disabled:opacity-50"
+        >
+          undo
+        </button>
+      </span>
+    );
+  }
+
   return (
     <span className="text-sm flex flex-wrap items-center gap-2">
       {tracking ? (
@@ -107,6 +129,20 @@ export default function TrackingEditor({
       <button type="button" onClick={() => setEditing(true)} className="text-brand-ink/50 hover:text-brand-ink">
         {tracking ? "edit" : "add tracking"}
       </button>
+      {!tracking && (
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => {
+            if (confirm("Don't ship this order? It will be left out of Pirate Ship downloads (use for test orders).")) {
+              void save(null, true);
+            }
+          }}
+          className="text-brand-ink/50 hover:text-brand-ink disabled:opacity-50"
+        >
+          don&apos;t ship
+        </button>
+      )}
     </span>
   );
 }

@@ -289,6 +289,13 @@ export function guessCarrier(tracking: string): string | null {
   return null;
 }
 
+/**
+ * carrier value for an order Todd marked "don't ship" (test orders,
+ * local pickup, refunded before shipping). shipped_at is set so every
+ * shipping queue skips it; tracking stays null.
+ */
+export const NOT_SHIPPING = "not shipping";
+
 export function normName(s: string | null | undefined): string {
   return (s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
 }

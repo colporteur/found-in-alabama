@@ -19,6 +19,12 @@ both directions, driven from `/admin/tes-orders`:
 
 HipPostcard orders are not included, because Hip keeps their addresses.
 
+**Test orders / orders you won't ship:** click **don't ship** on the order
+card. The order shows "Not shipping", is left out of every Pirate Ship
+download and the counts, and can be restored with **undo**. (It sets
+`shipped_at` with no tracking and `carrier = "not shipping"`, so no
+migration is needed.)
+
 ## The CSV (Pirate Ship remembers these header names — don't rename them)
 
 | Column | Contents | Map to in Pirate Ship |
