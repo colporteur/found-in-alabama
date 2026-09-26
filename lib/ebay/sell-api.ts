@@ -4,7 +4,7 @@
 // callers can distinguish recoverable from fatal failures.
 
 import { getValidAccessToken } from "./oauth";
-import { promotionIdFromLocation } from "./promotion-utils";
+import { promotionIdFromLocation, promotionMatchKey, type RemotePromotion } from "./promotion-utils";
 
 function isSandbox(): boolean {
   return (process.env.EBAY_ENV ?? "production") === "sandbox";
@@ -97,7 +97,23 @@ export async function sellApi<T = unknown>(
   // Creation returns the resource ID in Location, often with an empty body.
   if (method === "POST" && path === "/sell/marketing/v1/item_price_markdown") {
     const body = text ? JSON.parse(text) : {};
-    const promotionId = body?.promotionId ?? promotionIdFromLocation(res.headers.get("location"));
+    let promotionId = body?.promotionId ?? promotionIdFromLocation(res.headers.get("location"));
+    // Some eBay responses omit Location or use a different resource URL.
+    // Recover the accepted resource by its exact name and time window; never POST again.
+    if (!promotionId) {
+      const requested = opts.body as { name: string; startDate: string; endDate: string };
+      const wanted = promotionMatchKey(requested.name, requested.startDate, requested.endDate);
+      const matches: RemotePromotion[] = [];
+      for (let offset = 0; offset < 10_000; offset += 100) {
+        const page = await sellApi<{ promotions?: RemotePromotion[]; total?: number }>(`/sell/marketing/v1/promotion?marketplace_id=EBAY_US&limit=100&offset=${offset}`);
+        if (!Array.isArray(page.promotions)) throw new Error('eBay accepted the sale but returned no promotion ID; reconcile before retrying.');
+        matches.push(...page.promotions.filter(p => p.promotionId && p.name && p.startDate && p.endDate && promotionMatchKey(p.name, p.startDate, p.endDate) === wanted));
+        if (page.promotions.length < 100 || (page.total !== undefined && offset + page.promotions.length >= page.total)) {
+          promotionId = matches.length === 1 ? matches[0].promotionId : undefined;
+          break;
+        }
+      }
+    }
     if (!promotionId) throw new Error("eBay accepted the sale but returned no promotion ID; reconcile before retrying.");
     return { ...body, promotionId } as T;
   }

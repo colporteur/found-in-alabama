@@ -21,6 +21,9 @@ test('real failed category names produce plain descriptions within eBay limit', 
 test('creation ID comes from Location even when response has no body', () => {
   assert.equal(promotionIdFromLocation('https://api.ebay.com/sell/marketing/v1/item_price_markdown/1217296127802'), '1217296127802');
   assert.equal(promotionIdFromLocation('/sell/marketing/v1/item_price_markdown/123?foo=bar'), '123');
+  assert.equal(promotionIdFromLocation('/sell/marketing/v1/item_price_markdown/123/'), '123');
+  assert.equal(promotionIdFromLocation('/sell/marketing/v1/promotion/123'), '123');
+  assert.equal(promotionIdFromLocation('/sell/marketing/v1/item_price_markdown?promotion_id=123'), '123');
   assert.equal(promotionIdFromLocation(null), null);
   assert.equal(promotionIdFromLocation('/sell/marketing/v1/promotion'), null);
 });

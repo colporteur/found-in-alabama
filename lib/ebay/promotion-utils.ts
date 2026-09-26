@@ -28,7 +28,11 @@ export function saleChanged(local: { status: string; ebayPromotionId: string | n
 
 export function promotionIdFromLocation(location: string | null): string | null {
   if (!location) return null;
-  return location.match(/\/item_price_markdown\/([\w-]+)(?:[?#]|$)/)?.[1] ?? null;
+  try {
+    const url = new URL(location, 'https://api.ebay.com');
+    const candidate = url.searchParams.get('promotion_id') ?? url.searchParams.get('promotionId') ?? url.pathname.split('/').filter(Boolean).pop();
+    return candidate && /^\d+$/.test(candidate) ? candidate : null;
+  } catch { return null; }
 }
 
 export type RemotePromotion = {
