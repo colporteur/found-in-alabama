@@ -1,3 +1,4 @@
+import { promotionDescription, promotionText } from "@/lib/ebay/promotion-utils";
 // Monthly sale wizard — spreads every eligible store category across the
 // next 4 weeks, one 2-day markdown sale each, at a single discount
 // (default 20%).
@@ -215,13 +216,10 @@ export async function executeWizardChunk(opts: {
         endsAt
       );
 
-      const name = `${entry.categoryName} ${Math.round(discountPercent)}% off`.slice(
-        0,
-        90
-      );
+      const name = promotionText(`${entry.categoryName} ${Math.round(discountPercent)}% off`, 90);
       const ebayPayload = {
         name,
-        description: name,
+        description: promotionDescription(name),
         marketplaceId: "EBAY_US",
         promotionStatus: "SCHEDULED",
         startDate: startsAt.toISOString(),

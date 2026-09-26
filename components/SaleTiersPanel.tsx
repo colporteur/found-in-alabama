@@ -209,7 +209,7 @@ export default function SaleTiersPanel() {
         </div>
       </div>
       <p className="text-sm text-brand-ink/70 mb-4 max-w-prose">
-        Two systems, refreshed weekly, fully automatic. <strong>Age tiers</strong>{" "}
+        Two systems, maintained daily, fully automatic. <strong>Age tiers</strong>{" "}
         use each item&rsquo;s true age — the date in its SKU when present
         (solid bar; survives Nifty&rsquo;s listing recreates), else the eBay
         listing date (pale bar). <strong>Bin tiers</strong> catch non-media

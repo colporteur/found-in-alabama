@@ -1,3 +1,4 @@
+import { promotionDescription, promotionText } from "@/lib/ebay/promotion-utils";
 // POST /api/admin/ebay/sales/create
 //
 // Body: { saleType: "MARKDOWN_CATEGORY", name, description?, discountPercent,
@@ -156,8 +157,8 @@ export async function POST(req: NextRequest) {
     "https://www.foundinalabama.com/photos/bookshelf.jpg";
 
   const ebayPayload = {
-    name: body.name.slice(0, 90),
-    description: (body.description?.trim() || body.name).slice(0, 250),
+    name: promotionText(body.name, 90),
+    description: promotionDescription(body.description?.trim() || body.name),
     marketplaceId: "EBAY_US",
     // SCHEDULED = goes live on its start date with no Seller Hub step.
     promotionStatus: "SCHEDULED",

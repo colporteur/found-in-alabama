@@ -4,8 +4,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { db } from "@/db";
-import { ebaySales } from "@/db/schema";
-import { desc } from "drizzle-orm";
+import { ebaySales, appSettings } from "@/db/schema";
+import { desc, eq } from "drizzle-orm";
+import { SALES_HEALTH_KEY, type SalesHealth } from "@/lib/ebay/sale-health";
 import { getOAuthStatus } from "@/lib/ebay/oauth";
 import SaleTiersPanel from "@/components/SaleTiersPanel";
 import SaleStatusSyncButton from "@/components/SaleStatusSyncButton";
@@ -36,6 +37,9 @@ export default async function SalesDashboardPage() {
     .from(ebaySales)
     .orderBy(desc(ebaySales.createdAt))
     .limit(50);
+  const [healthRow] = await db.select().from(appSettings).where(eq(appSettings.key, SALES_HEALTH_KEY));
+  const health = healthRow?.value as SalesHealth | undefined;
+  const stale = !health || Date.now() - Date.parse(health.checkedAt) > 2 * 3600_000;
 
   return (
     <section className="container-content py-12">
@@ -63,8 +67,7 @@ export default async function SalesDashboardPage() {
       </p>
 
       <p className="text-sm text-brand-ink/60 mb-8 max-w-prose">
-        Manual sales are created as <strong>drafts</strong> on eBay — review
-        and activate them in{" "}
+        Sales go live automatically on their scheduled start date. Review them in{" "}
         <a
           href="https://www.ebay.com/sh/marketing"
           target="_blank"
@@ -73,8 +76,17 @@ export default async function SalesDashboardPage() {
         >
           Seller Hub → Marketing → Discounts
         </a>
-        . Automatic tier sales below go live on their own.
+        . Automatic tiers are maintained daily; their status and coverage are checked hourly.
       </p>
+
+      <div role="status" className={`mb-6 rounded border p-4 text-sm ${stale || health?.issues.length ? 'border-red-300 bg-red-50 text-red-900' : 'border-emerald-200 bg-emerald-50 text-emerald-900'}`}>
+        <p className="font-semibold">{stale ? 'Promotion monitoring needs attention' : health?.issues.length ? 'Automatic sales need attention' : 'Automatic sales are healthy'}</p>
+        {stale && <p>No recent health check is available. Check the scheduled jobs.</p>}
+        {health && <>
+          <p>Last checked: {new Date(health.checkedAt).toLocaleString()} · {health.activeTiers} of {health.eligibleTiers} eligible tiers active.</p>
+          {health.issues.length > 0 && <ul className="list-disc pl-5 mt-2">{health.issues.map(issue => <li key={issue}>{issue}</li>)}</ul>}
+        </>}
+      </div>
 
       <SaleTiersPanel />
 

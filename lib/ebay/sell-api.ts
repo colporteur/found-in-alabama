@@ -4,6 +4,7 @@
 // callers can distinguish recoverable from fatal failures.
 
 import { getValidAccessToken } from "./oauth";
+import { promotionIdFromLocation } from "./promotion-utils";
 
 function isSandbox(): boolean {
   return (process.env.EBAY_ENV ?? "production") === "sandbox";
@@ -61,7 +62,7 @@ export async function sellApi<T = unknown>(
     ...opts.headers,
   };
 
-  const init: RequestInit = { method, headers, cache: "no-store" };
+  const init: RequestInit = { method, headers, cache: "no-store", signal: AbortSignal.timeout(25_000) };
   if (opts.body !== undefined) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(opts.body);
@@ -92,6 +93,13 @@ export async function sellApi<T = unknown>(
       res.status,
       text
     );
+  }
+  // Creation returns the resource ID in Location, often with an empty body.
+  if (method === "POST" && path === "/sell/marketing/v1/item_price_markdown") {
+    const body = text ? JSON.parse(text) : {};
+    const promotionId = body?.promotionId ?? promotionIdFromLocation(res.headers.get("location"));
+    if (!promotionId) throw new Error("eBay accepted the sale but returned no promotion ID; reconcile before retrying.");
+    return { ...body, promotionId } as T;
   }
   // 204 No Content (some DELETE / PATCH endpoints).
   if (!text) return null as T;
