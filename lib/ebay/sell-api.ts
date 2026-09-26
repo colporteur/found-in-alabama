@@ -104,6 +104,7 @@ export async function sellApi<T = unknown>(
       const requested = opts.body as { name: string; startDate: string; endDate: string };
       const wanted = promotionMatchKey(requested.name, requested.startDate, requested.endDate);
       const matches: RemotePromotion[] = [];
+      try {
       for (let offset = 0; offset < 10_000; offset += 100) {
         const page = await sellApi<{ promotions?: RemotePromotion[]; total?: number }>(`/sell/marketing/v1/promotion?marketplace_id=EBAY_US&limit=100&offset=${offset}`);
         if (!Array.isArray(page.promotions)) throw new Error('eBay accepted the sale but returned no promotion ID; reconcile before retrying.');
@@ -112,6 +113,11 @@ export async function sellApi<T = unknown>(
           promotionId = matches.length === 1 ? matches[0].promotionId : undefined;
           break;
         }
+      }
+      } catch {
+        // A failed lookup does not undo the accepted POST. Keep the outcome
+        // explicitly uncertain so maintenance will reconcile, never repost.
+        promotionId = undefined;
       }
     }
     if (!promotionId) throw new Error("eBay accepted the sale but returned no promotion ID; reconcile before retrying.");
