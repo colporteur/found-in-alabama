@@ -1,6 +1,6 @@
 import { db } from '@/db';
 import { appSettings, ebaySales } from '@/db/schema';
-import { eq, inArray } from 'drizzle-orm';
+import { eq, gt } from 'drizzle-orm';
 import { getTiers, getBinTiers, listingIdsForTier, listingIdsForBinTier } from './sale-tiers';
 import { sendAdminEmail, esc } from '@/lib/hip/notify';
 
@@ -10,7 +10,7 @@ export type SalesHealth = { checkedAt: string; issues: string[]; activeTiers: nu
 export async function checkSaleHealth(extraIssues: string[] = []): Promise<SalesHealth> {
   const now = new Date();
   const [age, bins, sales] = await Promise.all([
-    getTiers(), getBinTiers(), db.select().from(ebaySales).where(inArray(ebaySales.status, ['SCHEDULED', 'RUNNING'])),
+    getTiers(), getBinTiers(), db.select().from(ebaySales).where(gt(ebaySales.endsAt, now)),
   ]);
   const issues = [...extraIssues];
   if (!process.env.ADMIN_EMAIL || !process.env.AUTH_EMAIL_FROM || !(process.env.AUTH_RESEND_KEY || process.env.RESEND_API_KEY)) issues.push('Admin email alerts are not fully configured.');
@@ -21,11 +21,13 @@ export async function checkSaleHealth(extraIssues: string[] = []): Promise<Sales
     eligibleTiers++;
     const matching = sales.filter(s => s.scope.autoTierKey === key && s.ebayPromotionId);
     const live = matching.filter(s => s.status === 'RUNNING' && s.startsAt <= now && s.endsAt > now);
+    const interrupted = sales.filter(s => s.scope.autoTierKey === key && s.startsAt <= now && !['RUNNING', 'SCHEDULED'].includes(s.status));
+    if (interrupted.length) issues.push(`${key}: ${interrupted.length} sale part(s) failed, paused, or ended before their planned end. Review coverage in eBay.`);
     if (live.length) {
       activeTiers++;
       return;
     }
-    const next = matching.filter(s => s.startsAt > now && s.endsAt > s.startsAt).sort((a,b) => +a.startsAt - +b.startsAt)[0];
+    const next = matching.filter(s => s.status === 'SCHEDULED' && s.startsAt > now && s.endsAt > s.startsAt).sort((a,b) => +a.startsAt - +b.startsAt)[0];
     issues.push(`${key}: ${eligible} eligible listings but no active sale${next ? `; next starts ${next.startsAt.toISOString()}` : ' or scheduled replacement'}.`);
   }
   for (const tier of age.filter(t => t.enabled)) {
