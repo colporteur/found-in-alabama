@@ -41,7 +41,11 @@ export async function checkSaleHealth(extraIssues: string[] = []): Promise<Sales
   if (eligibleTiers && (!last?.completedAt || now.getTime() - Date.parse(last.completedAt) > 30 * 3600_000)) {
     issues.push('Automatic sales maintenance has not completed successfully in the last 30 hours.');
   }
-  if (last?.errors?.length) issues.push('The most recent maintenance run reported errors; review Sales & promotions.');
+  if (last?.errors?.length) {
+    const first = last.errors[0].slice(0, 300);
+    const more = last.errors.length > 1 ? ` (+${last.errors.length - 1} more)` : '';
+    issues.push(`The most recent maintenance run reported errors; review Sales & promotions. First error: ${first}${more}`);
+  }
   const health: SalesHealth = { checkedAt: now.toISOString(), issues, activeTiers, eligibleTiers };
   await db.insert(appSettings).values({ key: SALES_HEALTH_KEY, value: health, updatedAt: now })
     .onConflictDoUpdate({ target: appSettings.key, set: { value: health, updatedAt: now } });

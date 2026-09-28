@@ -182,8 +182,14 @@ export async function exchangeCodeForTokens(code: string): Promise<void> {
 
 /** Call this before every Sell API request. Refreshes the access token if
  *  it's within 60 seconds of expiry. Returns null if no tokens are stored
- *  (caller should redirect to the connect-OAuth UI). */
-export async function getValidAccessToken(): Promise<string | null> {
+ *  (caller should redirect to the connect-OAuth UI).
+ *
+ *  Pass { forceRefresh: true } when eBay has rejected the stored access
+ *  token (HTTP 401) even though our saved expiry says it is still good —
+ *  eBay can revoke tokens early (password change, security reset). */
+export async function getValidAccessToken(
+  opts: { forceRefresh?: boolean } = {}
+): Promise<string | null> {
   const [row] = await db
     .select()
     .from(ebayOAuthTokens)
@@ -192,8 +198,8 @@ export async function getValidAccessToken(): Promise<string | null> {
   if (!row) return null;
 
   const now = Date.now();
-  // Refresh if access token expires in the next 60s.
-  if (row.accessTokenExpiresAt.getTime() - now > 60_000) {
+  // Refresh if access token expires in the next 60s (or the caller forces it).
+  if (!opts.forceRefresh && row.accessTokenExpiresAt.getTime() - now > 60_000) {
     return row.accessToken;
   }
 

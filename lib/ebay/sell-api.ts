@@ -49,42 +49,54 @@ export async function sellApi<T = unknown>(
   path: string,
   opts: SellApiOptions = {}
 ): Promise<T> {
-  const token = await getValidAccessToken();
-  if (!token) throw new SellApiNoTokenError();
-
   const url = path.startsWith("http") ? path : `${apiHost()}${path}`;
   const method = opts.method ?? "GET";
 
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-    Accept: "application/json",
-    "X-EBAY-C-MARKETPLACE-ID": opts.marketplaceId ?? "EBAY_US",
-    ...opts.headers,
-  };
+  async function send(forceRefresh: boolean) {
+    const token = await getValidAccessToken({ forceRefresh });
+    if (!token) throw new SellApiNoTokenError();
 
-  const init: RequestInit = { method, headers, cache: "no-store", signal: AbortSignal.timeout(25_000) };
-  if (opts.body !== undefined) {
-    headers["Content-Type"] = "application/json";
-    init.body = JSON.stringify(opts.body);
-  }
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+      "X-EBAY-C-MARKETPLACE-ID": opts.marketplaceId ?? "EBAY_US",
+      ...opts.headers,
+    };
 
-  // Set EBAY_DEBUG=1 in env to log Sell API request body + response body
-  // to the server console. Useful for diagnosing 5xx errors where eBay's
-  // error message itself is uninformative.
-  if (process.env.EBAY_DEBUG === "1") {
-    console.log(`[ebay-sell:${method}] ${path}`);
-    if (init.body) {
-      console.log(`[ebay-sell:request-body] ${init.body}`);
+    const init: RequestInit = { method, headers, cache: "no-store", signal: AbortSignal.timeout(25_000) };
+    if (opts.body !== undefined) {
+      headers["Content-Type"] = "application/json";
+      init.body = JSON.stringify(opts.body);
     }
+
+    // Set EBAY_DEBUG=1 in env to log Sell API request body + response body
+    // to the server console. Useful for diagnosing 5xx errors where eBay's
+    // error message itself is uninformative.
+    if (process.env.EBAY_DEBUG === "1") {
+      console.log(`[ebay-sell:${method}] ${path}${forceRefresh ? " (retry with fresh token)" : ""}`);
+      if (init.body) {
+        console.log(`[ebay-sell:request-body] ${init.body}`);
+      }
+    }
+
+    const res = await fetch(url, init);
+    const text = await res.text();
+
+    if (process.env.EBAY_DEBUG === "1") {
+      console.log(
+        `[ebay-sell:${method}:${res.status}] response body (first 2000 chars):\n${text.slice(0, 2000)}`
+      );
+    }
+    return { res, text };
   }
 
-  const res = await fetch(url, init);
-  const text = await res.text();
-
-  if (process.env.EBAY_DEBUG === "1") {
-    console.log(
-      `[ebay-sell:${method}:${res.status}] response body (first 2000 chars):\n${text.slice(0, 2000)}`
-    );
+  let { res, text } = await send(false);
+  // eBay can revoke an access token before our stored expiry. A 401 means the
+  // request was rejected outright (nothing was created), so it is safe to get
+  // a fresh token and try exactly once more — even for POSTs.
+  if (res.status === 401) {
+    console.warn(`[ebay-sell] ${method} ${path} got HTTP 401; forcing token refresh and retrying once.`);
+    ({ res, text } = await send(true));
   }
 
   if (!res.ok) {

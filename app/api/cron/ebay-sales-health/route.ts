@@ -2,6 +2,22 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/auth';
 import { syncSaleStatuses } from '@/lib/ebay/sale-sync';
 import { checkSaleHealth, notifySaleHealth } from '@/lib/ebay/sale-health';
+import { SellApiError } from '@/lib/ebay/sell-api';
+
+/** Short, stable description for the alert email (stable so the 24h dedupe still works). */
+function describeError(err: unknown): string {
+  if (err instanceof SellApiError) {
+    let detail = '';
+    try {
+      const e = JSON.parse(err.body)?.errors?.[0];
+      if (e) detail = ` — ${e.message ?? ''}${e.errorId ? ` (errorId ${e.errorId})` : ''}`;
+    } catch {
+      detail = err.body ? ` — ${err.body.slice(0, 200)}` : '';
+    }
+    return `eBay HTTP ${err.status}${detail}`.slice(0, 300);
+  }
+  return (err instanceof Error ? err.message : String(err)).slice(0, 300);
+}
 
 export const runtime = 'nodejs';
 export const dynamic = 'force-dynamic';
@@ -16,8 +32,9 @@ export async function GET(req: NextRequest) {
   try {
     const sync = await syncSaleStatuses();
     if (sync.unresolvedCurrent.length) errors.push('Some current automatic promotions could not be reconciled with eBay.');
-  } catch {
-    errors.push('Status synchronization with eBay failed. Check the eBay connection.');
+  } catch (err) {
+    console.error('[ebay-sales-health] status sync failed', err);
+    errors.push(`Status synchronization with eBay failed. Check the eBay connection. Details: ${describeError(err)}`);
   }
   try {
     const health = await checkSaleHealth(errors);
