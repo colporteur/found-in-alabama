@@ -1,4 +1,5 @@
-// TES product detail page — /item/[itemId] on the TES domain. Gallery,
+// TES product detail page — /item/[itemId] on the TES domain. Gallery
+// (components/tes/ItemGallery — click-to-swap thumbnails, 1600px photos),
 // price (with sale), the eBay listing description (sanitized), shipping
 // blurb from the schedule, add-to-cart, and Product JSON-LD for SEO.
 
@@ -10,6 +11,8 @@ import { sanitizeListingHtml, plainTextFromHtml } from "@/lib/tes/sanitize";
 import { SHIP_SCHEDULE } from "@/lib/tes/shipping";
 import { tesHome } from "@/lib/tes/host";
 import AddToCartButton from "@/components/tes/AddToCartButton";
+import ItemGallery from "@/components/tes/ItemGallery";
+import { largeEbayImage } from "@/lib/tes/images";
 
 // ISR: served from the cache for STOREFRONT_REVALIDATE_SECONDS (see
 // lib/storefront-cache.ts); sold/ended/repriced items and category
@@ -35,7 +38,7 @@ export async function generateMetadata({
     openGraph: {
       title: item.title,
       description,
-      ...(item.images[0] ? { images: [{ url: item.images[0] }] } : {}),
+      ...(item.images[0] ? { images: [{ url: largeEbayImage(item.images[0]) }] } : {}),
     },
   };
 }
@@ -55,7 +58,7 @@ export default async function TesItemPage({
     "@context": "https://schema.org",
     "@type": "Product",
     name: item.title,
-    ...(item.images.length > 0 ? { image: item.images } : {}),
+    ...(item.images.length > 0 ? { image: item.images.map(largeEbayImage) } : {}),
     ...(item.sku ? { sku: item.sku } : {}),
     description: item.descriptionHtml
       ? plainTextFromHtml(item.descriptionHtml, 500)
@@ -84,45 +87,7 @@ export default async function TesItemPage({
 
       <div className="grid gap-8 lg:grid-cols-[1fr_380px] items-start mt-4">
         {/* Gallery */}
-        <div>
-          {item.images.length === 0 ? (
-            <div className="aspect-square bg-white rounded-xl ring-1 ring-tes-ink/10 flex items-center justify-center">
-              <span className="font-typewriter text-2xl text-tes-ink/30">
-                No photo
-              </span>
-            </div>
-          ) : (
-            <>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={item.images[0]}
-                alt={item.title}
-                className="w-full rounded-xl ring-1 ring-tes-ink/10 bg-white"
-              />
-              {item.images.length > 1 && (
-                <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 mt-2">
-                  {item.images.slice(1).map((url) => (
-                    <a
-                      key={url}
-                      href={url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      title="Open full size"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={url}
-                        alt=""
-                        loading="lazy"
-                        className="aspect-square object-cover rounded-lg ring-1 ring-tes-ink/10 bg-white hover:ring-tes-kraft"
-                      />
-                    </a>
-                  ))}
-                </div>
-              )}
-            </>
-          )}
-        </div>
+        <ItemGallery images={item.images} title={item.title} />
 
         {/* Buy box */}
         <aside className="bg-white rounded-xl ring-1 ring-tes-ink/10 p-6 space-y-4 lg:sticky lg:top-6">
