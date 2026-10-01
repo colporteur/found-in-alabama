@@ -1,4 +1,4 @@
-// The Ephemeral State site header — postmark logo + minimal nav.
+// The Ephemeral State site header — map/postmark logo + minimal nav.
 // Server component; uses tesPrefix() so links work both on the real
 // domain and when previewing at /tes before DNS cutover.
 
@@ -13,16 +13,17 @@ export default function TesHeader() {
   return (
     <header className="border-b border-tes-ink/10 bg-tes-cream">
       <div className="container-content py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <Link href={home} className="inline-flex items-center gap-3 group">
+        <Link href={home} className="inline-flex items-center shrink-0">
+          {/* Map + postmark logo — the name is part of the artwork, so no
+              separate text wordmark. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/tes/logo.png"
+            src="/tes/logo-map.png"
             alt="The Ephemeral State"
-            className="h-20 w-auto sm:h-24"
+            width={800}
+            height={609}
+            className="h-28 w-auto sm:h-36"
           />
-          <span className="font-typewriter text-xl sm:text-2xl tracking-tight text-tes-ink group-hover:text-tes-kraft-dark transition-colors">
-            The Ephemeral State
-          </span>
         </Link>
         <form
           method="GET"
