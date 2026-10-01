@@ -51,13 +51,12 @@ export default function TesHeader() {
           >
             Browse by ephemera type
           </Link>
-          <a
-            href="sms:+12566841253"
+          <Link
+            href={`${prefix}/we-buy`}
             className="hover:underline underline-offset-4 decoration-tes-kraft decoration-2"
-            title="Selling a collection? Text us."
           >
             We buy collections
-          </a>
+          </Link>
           <a
             href="https://www.foundinalabama.com"
             target="_blank"
