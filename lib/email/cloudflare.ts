@@ -26,7 +26,7 @@ export class CloudflareError extends Error {
 }
 
 export function cloudflareConfigured(): boolean {
-  return !!process.env.CLOUDFLARE_API_TOKEN;
+  return !!readToken();
 }
 
 type Envelope<T> = {
@@ -36,8 +36,24 @@ type Envelope<T> = {
   result_info?: { page: number; per_page: number; count: number; total_count: number };
 };
 
+/**
+ * The token as stored in Vercel, cleaned of the usual paste damage:
+ * surrounding whitespace/newlines and wrapping quotes.
+ */
+function readToken(): string | null {
+  const raw = process.env.CLOUDFLARE_API_TOKEN;
+  if (!raw) return null;
+  const t = raw.trim().replace(/^["']+|["']+$/g, "").trim();
+  return t || null;
+}
+
+/** Safe fingerprint for error messages — never the whole token. */
+function tokenFingerprint(t: string): string {
+  return `token in Vercel: ${t.length} chars, starts "${t.slice(0, 4)}…", ends "…${t.slice(-4)}"`;
+}
+
 async function cf<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
-  const token = process.env.CLOUDFLARE_API_TOKEN;
+  const token = readToken();
   if (!token) {
     throw new CloudflareError("CLOUDFLARE_API_TOKEN is not set in Vercel.", 0);
   }
@@ -53,9 +69,10 @@ async function cf<T>(path: string, init?: RequestInit): Promise<Envelope<T>> {
   const body = (await res.json().catch(() => null)) as Envelope<T> | null;
   if (!res.ok || !body?.success) {
     const errs = body?.errors ?? [];
+    const authFailed = res.status === 401 || res.status === 403 || errs.some((e) => e.code === 10000);
     throw new CloudflareError(
-      errs.map((e) => `${e.message} (${e.code})`).join("; ") ||
-        `Cloudflare HTTP ${res.status}`,
+      (errs.map((e) => `${e.message} (${e.code})`).join("; ") ||
+        `Cloudflare HTTP ${res.status}`) + (authFailed ? ` — ${tokenFingerprint(token)}` : ""),
       res.status,
       errs.map((e) => e.code)
     );
