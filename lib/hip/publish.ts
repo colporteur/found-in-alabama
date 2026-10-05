@@ -21,7 +21,7 @@ import { and, desc, eq, gt, inArray, or, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { ebayListings, ebayStoreCategories, hipActions, hipListings } from "@/db/schema";
 import { tesQualifyingSet } from "@/lib/tes/selection";
-import { createOrUpdateListing, hipConfigured, HipApiError, updateListing } from "./client";
+import { createOrUpdateListing, hipConfigured, HipApiError, updateListing, type HipListing } from "./client";
 import { upsertHipListing } from "./ingest";
 import { planHipPublish, summarizePlan, type MappedHipListing, type PlanRow, type PoolItem } from "./publish-plan";
 
@@ -49,6 +49,8 @@ export type HipPublishResult = {
   blocked: string | null;
   plan: ReturnType<typeof summarizePlan>;
   created: number;
+  /** Hip answered 2xx but the reply had no listing id we could read. */
+  createdWithoutId: number;
   updatedExisting: number;
   failed: number;
   priceUpdates: { attempted: number; ok: number; failed: number };
@@ -125,6 +127,26 @@ async function log(kind: string, itemId: string, hipListingId: number | null, ok
   await db.insert(hipActions).values({ kind, itemId, hipListingId, ok, detail: detail.slice(0, 1000) });
 }
 
+/**
+ * Hip doesn't document the create response. Accept the listing at the top
+ * level or under a wrapper key (listing / result / data / results[0]).
+ */
+export function extractHipListing(raw: unknown): (HipListing & { id: number }) | null {
+  const candidates: unknown[] = [raw];
+  if (raw && typeof raw === "object") {
+    const o = raw as Record<string, unknown>;
+    candidates.push(o.listing, o.Listing, o.result, o.data);
+    if (Array.isArray(o.results)) candidates.push(o.results[0]);
+  }
+  for (const c of candidates) {
+    if (!c || typeof c !== "object") continue;
+    const o = c as Record<string, unknown>;
+    const id = Number(o.id ?? o.listing_id ?? o.listingId);
+    if (Number.isInteger(id) && id > 0) return { ...(o as HipListing), id };
+  }
+  return null;
+}
+
 const errText = (e: unknown) => (e instanceof HipApiError ? `HTTP ${e.status}: ${e.body.slice(0, 400)}` : e instanceof Error ? e.message : String(e));
 
 /** Simple concurrency pool — Hip allows 10 requests/second. */
@@ -157,6 +179,7 @@ export async function runHipPublish(opts: HipPublishOptions = {}): Promise<HipPu
     blocked: null,
     plan: summarizePlan(plan),
     created: 0,
+    createdWithoutId: 0,
     updatedExisting: 0,
     failed: 0,
     priceUpdates: { attempted: 0, ok: 0, failed: 0 },
@@ -186,16 +209,23 @@ export async function runHipPublish(opts: HipPublishOptions = {}): Promise<HipPu
   const toCreate = plan.filter((r): r is Extract<PlanRow, { kind: "create" }> => r.kind === "create").slice(0, limit);
   await eachLimited(toCreate, 3, async (r) => {
     try {
-      const listing = await createOrUpdateListing(r.payload);
-      if (listing?.id) {
+      const raw = (await createOrUpdateListing(r.payload)) as unknown;
+      const listing = extractHipListing(raw);
+      if (listing) {
         // Our private_id resolves to the eBay id in upsertHipListing, so
         // HIP-1 (sales) and HIP-2 (closing) see this listing immediately.
         await upsertHipListing({ ...listing, private_id: listing.private_id ?? r.payload.private_id, name: listing.name ?? r.payload.name, current_price: listing.current_price ?? r.payload.buyout_price, quantity: listing.quantity ?? r.payload.quantity });
         result.created++;
         await log("create_hip", r.itemId, listing.id, true, `${r.categoryName}`);
       } else {
-        result.failed++;
-        await log("create_hip", r.itemId, null, false, "Hip returned no listing id");
+        // Hip said OK but we couldn't find an id. The listing most likely
+        // exists: count it as created (the private_id makes any retry an
+        // update, and the next map walk links it) and keep the raw reply.
+        result.created++;
+        result.createdWithoutId++;
+        const detail = `2xx without a recognisable id: ${JSON.stringify(raw).slice(0, 600)}`;
+        if (result.errors.length < 20) result.errors.push({ itemId: r.itemId, detail });
+        await log("create_hip", r.itemId, null, true, detail);
       }
     } catch (e) {
       result.failed++;
