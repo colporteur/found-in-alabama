@@ -1,3 +1,7 @@
+# SCHEDULE MOVED TO VERCEL CRON (Oct 2026, like sync-listings): see
+# vercel.json. GitHub's scheduler fires far less often than requested.
+# Kept for MANUAL runs only (Actions tab -> Run workflow).
+#
 # HipPostcard sales poller — every 15 minutes (Phase HIP-1).
 #
 # COPY THIS FILE TO .github/workflows/hip-sales-cron.yml (workflow files
@@ -12,8 +16,6 @@
 name: Hip sales cron
 
 on:
-  schedule:
-    - cron: "7,22,37,52 * * * *"
   workflow_dispatch: {}
 
 jobs:

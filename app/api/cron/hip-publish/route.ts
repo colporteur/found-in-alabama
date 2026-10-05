@@ -3,7 +3,8 @@
 //   ?dry=1        plan only: counts by Hip category, exclusions, review
 //                 reasons. Default whenever HIP_PUBLISH_ENABLED isn't "1".
 //   ?limit=N      max listings to create this run (default 45, max 300).
-//   ?prices=1     also push eBay price changes to listings already on Hip (15 per run).
+//   ?prices=0     skip pushing eBay price changes to listings already on Hip
+//                 (on by default, 15 per run).
 //   ?samples=N    include N example rows per bucket.
 //
 // Same CRON_SECRET / signed-in-admin auth as the other crons.
@@ -34,7 +35,7 @@ export async function GET(req: NextRequest) {
     const result = await runHipPublish({
       dryRun: q.get("dry") === "1" ? true : undefined,
       limit: num("limit"),
-      prices: q.get("prices") === "1",
+      prices: q.get("prices") !== "0", // on by default (Vercel Cron calls the bare path)
       samples: num("samples"),
     });
     console.log(`[hip-publish] ${JSON.stringify({ ...result, samples: undefined })}`);

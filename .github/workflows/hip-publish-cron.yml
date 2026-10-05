@@ -1,3 +1,7 @@
+# SCHEDULE MOVED TO VERCEL CRON (Oct 2026, like sync-listings): see
+# vercel.json. GitHub's scheduler fires far less often than requested.
+# Kept for MANUAL runs only (Actions tab -> Run workflow).
+#
 # HipPostcard publisher — every 10 minutes (Phase HIP-3).
 #
 # COPY THIS FILE TO .github/workflows/hip-publish-cron.yml by hand.
@@ -11,8 +15,6 @@
 name: Hip publish cron
 
 on:
-  schedule:
-    - cron: "3,13,23,33,43,53 * * * *"
   workflow_dispatch: {}
 
 jobs:

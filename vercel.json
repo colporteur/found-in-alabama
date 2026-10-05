@@ -27,6 +27,18 @@
     {
       "path": "/api/cron/ebay-sales-health",
       "schedule": "15 * * * *"
+    },
+    {
+      "path": "/api/cron/hip-sales",
+      "schedule": "7,22,37,52 * * * *"
+    },
+    {
+      "path": "/api/cron/hip-publish",
+      "schedule": "3,13,23,33,43,53 * * * *"
+    },
+    {
+      "path": "/api/cron/hip-map",
+      "schedule": "30 10 * * *"
     }
   ]
 }
