@@ -1,7 +1,7 @@
 // Hip listing map refresh (Phase HIP-1, used by HIP-2's reconciliation).
 // Walks every active listing in the store and upserts hip_listings so the
-// Hip id ↔ eBay item id map is current. ~1,100 listings at 100/page = a
-// dozen calls; safe to run daily alongside the full eBay sweep.
+// Hip id ↔ eBay item id map is current. ~10,000 listings at 100/page =
+// ~100 calls; safe to run daily alongside the full eBay sweep.
 
 import { eq, inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
@@ -19,7 +19,7 @@ export type HipMapRefreshResult = {
   retired: number;
 };
 
-export async function refreshHipListingMap(maxPages = 60): Promise<HipMapRefreshResult> {
+export async function refreshHipListingMap(maxPages = 250): Promise<HipMapRefreshResult> {
   const result: HipMapRefreshResult = {
     configured: hipConfigured(),
     pages: 0,
@@ -31,20 +31,26 @@ export async function refreshHipListingMap(maxPages = 60): Promise<HipMapRefresh
 
   const startedAt = new Date();
   const limit = 100;
+  let complete = false;
   for (let page = 1; page <= maxPages; page++) {
     const { results } = await findActiveStoreListings({ page, limit });
     result.pages++;
     for (const l of results) {
       await upsertHipListing(l);
       result.seen++;
-      if (l.external_id) result.withExternalId++;
+      if (l.external_id || (l.private_id ?? "").startsWith("tes-ebay:")) result.withExternalId++;
     }
-    if (results.length < limit) break;
+    if (results.length < limit) {
+      complete = true;
+      break;
+    }
   }
 
   // Anything active in our map that this full walk did not touch is no
-  // longer active on Hip (sold, closed by Hip's sync, or by us).
-  if (result.seen > 0) {
+  // longer active on Hip (sold, closed by Hip's sync, or by us). Phase
+  // HIP-3: only when the walk reached the last page — with ~10k listings a
+  // capped walk must never retire the listings it didn't get to.
+  if (result.seen > 0 && complete) {
     const retired = await db
       .update(hipListings)
       .set({ active: false })

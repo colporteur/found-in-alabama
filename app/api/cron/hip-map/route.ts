@@ -10,7 +10,7 @@ import { auth } from "@/auth";
 import { reconcileHipAgainstMirror, refreshHipListingMap } from "@/lib/hip/listings";
 
 export const runtime = "nodejs";
-export const maxDuration = 120;
+export const maxDuration = 300; // HIP-3: ~100 pages once the full pool is on Hip
 export const dynamic = "force-dynamic";
 
 async function authorized(req: NextRequest): Promise<boolean> {

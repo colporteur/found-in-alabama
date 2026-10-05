@@ -1,0 +1,40 @@
+# HipPostcard publisher — every 10 minutes (Phase HIP-3).
+#
+# COPY THIS FILE TO .github/workflows/hip-publish-cron.yml by hand.
+#
+# Creates up to 45 Hip listings per run from the TES pool (~6,500/day,
+# under Hip's 10,000-call daily limit with room for the sales poller and
+# the daily map walk) and pushes eBay price changes to listings already on
+# Hip. Does nothing until HIP_PUBLISH_ENABLED=1 is set in Vercel; once the
+# backlog is cleared each run only picks up newly listed items.
+
+name: Hip publish cron
+
+on:
+  schedule:
+    - cron: "3,13,23,33,43,53 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Publish TES inventory to HipPostcard
+        shell: bash
+        run: |
+          set +e
+          body=$(curl --silent --show-error --max-time 295 \
+            -w "\nHTTP_STATUS=%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://www.foundinalabama.com/api/cron/hip-publish?limit=45&prices=1")
+          status=$(echo "$body" | grep -oE 'HTTP_STATUS=[0-9]+$' | cut -d= -f2)
+          payload=$(echo "$body" | sed '$d')
+          echo "status: ${status:-unknown}"
+          echo "$payload" | head -c 4000
+          # 207 = some items failed (logged in hip_actions); not a job failure.
+          if [ -n "$status" ] && [ "$status" -ge 400 ] && [ "$status" -lt 500 ]; then
+            echo "Hard failure with HTTP $status."
+            exit 1
+          fi
+          exit 0

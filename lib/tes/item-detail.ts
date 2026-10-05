@@ -10,6 +10,8 @@ import { ebayListings, ebayStoreCategories } from "@/db/schema";
 import { getOnSaleLookup } from "@/lib/ebay/active-sales";
 import { tradingCall } from "@/lib/ebay/client";
 import { decodeEntities } from "@/lib/ebay/entities";
+import { tesQualifyingSet } from "./selection";
+export { tesQualifyingSet } from "./selection";
 import {
   bestDiscountPercent,
   discountedPrice,
@@ -42,28 +44,6 @@ type CatRow = {
   isEphemeralState: boolean;
   shipClass: string;
 };
-
-/** Category ids that belong to the TES segment (flagged or descendant). */
-export function tesQualifyingSet(cats: CatRow[]): Set<string> {
-  const parentOf = new Map(cats.map((c) => [c.categoryId, c.parentCategoryId]));
-  const flagged = new Set(
-    cats.filter((c) => c.isEphemeralState).map((c) => c.categoryId)
-  );
-  const out = new Set<string>();
-  for (const c of cats) {
-    let cur: string | null = c.categoryId;
-    let hops = 0;
-    while (cur != null && hops < 20) {
-      if (flagged.has(cur)) {
-        out.add(c.categoryId);
-        break;
-      }
-      cur = parentOf.get(cur) ?? null;
-      hops++;
-    }
-  }
-  return out;
-}
 
 export async function loadTesCategories(): Promise<CatRow[]> {
   return db

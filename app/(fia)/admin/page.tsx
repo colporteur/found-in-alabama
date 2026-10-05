@@ -123,6 +123,11 @@ export default async function AdminDashboard() {
 
       <Group title="The Ephemeral State">
         <Tool
+          href="/admin/hip-readiness"
+          title="HipPostcard readiness"
+          desc="Review selected inventory, compare existing Hip listings, and find items needing categories or listing details."
+        />
+        <Tool
           href="/admin/tes-orders"
           title="TES orders & delist queue"
           desc="Paid orders with packing details; red until every item is delisted from Nifty (the extension usually handles it)."

@@ -49,8 +49,8 @@ export default async function TesHomePage() {
             Paper survivors, sorted by the state they came from.
           </h1>
           <p className="text-lg text-tes-ink/75 max-w-prose leading-relaxed">
-            Postcards, photographs, letters, documents, and other ephemera —
-            the paper that outlived its errand.{" "}
+            Postcards, photographs, letters, documents, and other ephemera.
+            {totalItems > 0 && <br />}
             {totalItems > 0
               ? `${totalItems.toLocaleString()} pieces in stock.`
               : ""}

@@ -15,6 +15,8 @@
 
 const DEFAULT_BASE = "https://www.hippostcard.com/api";
 
+export type HipConnection = { base: string; key: string; username: string };
+
 export class HipNotConfigured extends Error {
   constructor() {
     super("Hip API not configured (HIP_API_KEY / HIP_USERNAME)");
@@ -31,7 +33,7 @@ export class HipApiError extends Error {
   }
 }
 
-export function hipConfig(): { base: string; key: string; username: string } | null {
+export function hipConfig(): HipConnection | null {
   const key = process.env.HIP_API_KEY;
   const username = process.env.HIP_USERNAME;
   if (!key || !username) return null;
@@ -105,9 +107,9 @@ type Query = Record<string, string | number | boolean | undefined>;
 
 async function hipFetch<T>(
   path: string,
-  opts: { method?: "GET" | "PUT" | "POST" | "DELETE"; query?: Query; body?: unknown } = {}
+  opts: { method?: "GET" | "PUT" | "POST" | "DELETE"; query?: Query; body?: unknown; timeoutMs?: number; connection?: HipConnection } = {}
 ): Promise<T> {
-  const cfg = hipConfig();
+  const cfg = opts.connection ?? hipConfig();
   if (!cfg) throw new HipNotConfigured();
 
   const url = new URL(cfg.base.replace(/\/$/, "") + path);
@@ -125,6 +127,7 @@ async function hipFetch<T>(
     },
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
     cache: "no-store",
+    signal: opts.timeoutMs ? AbortSignal.timeout(opts.timeoutMs) : undefined,
   });
 
   const remaining = res.headers.get("x-ratelimit-remaining");
@@ -194,6 +197,17 @@ export async function findActiveStoreListings(opts: {
   return { count: res.count ?? res.results?.length ?? 0, results: res.results ?? [] };
 }
 
+/** Raw, read-only response for the audit's strict parser; no empty-result fallback. */
+export async function readActiveStoreListingPage(page: number, connection = hipConfig()): Promise<unknown> {
+  const cfg = connection;
+  if (!cfg) throw new HipNotConfigured();
+  return hipFetch<unknown>(`/stores/${encodeURIComponent(cfg.username)}/listings/active`, {
+    query: { limit: 100, page, sort: "started_desc" },
+    timeoutMs: 15_000,
+    connection: cfg,
+  });
+}
+
 /**
  * Close (not delete) a Hip listing. 404 = already gone, which is the goal
  * state, so it's reported as ok with alreadyGone = true.
@@ -213,8 +227,49 @@ export async function closeListing(
   }
 }
 
-/** Hip's external_id for an eBay-synced listing, as a string item id. */
+// ─── Publishing (Phase HIP-3) ────────────────────────────────────────────────
+
+/**
+ * private_id our publisher stamps on every listing it creates. Hip treats
+ * a POST whose private_id matches an active listing as an UPDATE (HTTP
+ * 200 instead of 201), which makes publishing idempotent. Never a bin SKU.
+ */
+export const HIP_PRIVATE_ID_PREFIX = "tes-ebay:";
+export const hipPrivateIdFor = (ebayItemId: string) => `${HIP_PRIVATE_ID_PREFIX}${ebayItemId}`;
+
+export type HipListingInput = {
+  name: string;
+  description: string;
+  category_id: number;
+  listing_type: "product";
+  quantity: number;
+  buyout_price: number;
+  private_id: string;
+  images: string[];
+};
+
+/**
+ * POST /listings. 201 = created, 200 = an active listing with the same
+ * private_id was updated. Postage, returns and offers are left to the
+ * store's defaults.
+ */
+export async function createOrUpdateListing(input: HipListingInput): Promise<HipListing> {
+  return hipFetch<HipListing>("/listings", { method: "POST", body: input, timeoutMs: 30_000 });
+}
+
+/** PUT /listings/{id} — used to adopt a listing Hip's eBay sync created. */
+export async function updateListing(id: number, input: Partial<HipListingInput>): Promise<HipListing> {
+  return hipFetch<HipListing>(`/listings/${id}`, { method: "PUT", body: input, timeoutMs: 30_000 });
+}
+
+/**
+ * The eBay item id behind a Hip listing: Hip's external_id for listings
+ * its eBay sync imported, or our `tes-ebay:<itemId>` private_id for
+ * listings the HIP-3 publisher created (those carry no external_id).
+ */
 export function ebayItemIdFromHip(l: HipListing): string | null {
+  const fromPrivate = /^tes-ebay:(\d+)$/.exec(l.private_id ?? "")?.[1];
+  if (fromPrivate) return fromPrivate;
   if (l.external_id == null || l.external_id === "" || l.external_id === 0) return null;
   const type = (l.external_id_type ?? "").toLowerCase();
   // Hip only syncs with eBay today; accept an unnamed type too, but

@@ -8,6 +8,6 @@
       - name: Refresh Hip listing map
         shell: bash
         run: |
-          curl --silent --show-error --max-time 110 \
+          curl --silent --show-error --max-time 290 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             https://www.foundinalabama.com/api/cron/hip-map || true
