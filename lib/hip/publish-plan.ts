@@ -30,7 +30,7 @@ export type MappedHipListing = {
 };
 
 export type PlanRow =
-  | { kind: "on_hip"; itemId: string; hipId: number; ours: boolean; priceDrift: boolean; payload: HipListingInput | null }
+  | { kind: "on_hip"; itemId: string; hipId: number; ours: boolean; priceDrift: boolean; hipPrice: number | null; payload: HipListingInput | null }
   | { kind: "create"; itemId: string; payload: HipListingInput; categoryName: string }
   | { kind: "exclude"; itemId: string; reason: string }
   | { kind: "review"; itemId: string; reason: string };
@@ -101,7 +101,7 @@ export function planHipPublish(
       const built = buildHipPayload(item, env);
       const payload = "payload" in built ? built.payload : null;
       const priceDrift = payload != null && l.price != null && Math.abs(Number(l.price) - payload.buyout_price) >= 0.01;
-      return { kind: "on_hip", itemId: item.itemId, hipId: l.hipId, ours, priceDrift, payload };
+      return { kind: "on_hip", itemId: item.itemId, hipId: l.hipId, ours, priceDrift, hipPrice: l.price != null ? Number(l.price) : null, payload };
     }
 
     const built = buildHipPayload(item, env);
@@ -122,12 +122,22 @@ export function planHipPublish(
 
 export function summarizePlan(rows: PlanRow[]) {
   const counts = { on_hip: 0, create: 0, exclude: 0, review: 0, priceDrift: 0 };
+  // How Hip's prices compare with eBay's on adopted listings (ratio buckets),
+  // to spot a store-wide markup/markdown Hip's sync applied.
+  const driftRatio: Record<string, number> = {};
   const byCategory: Record<string, number> = {};
   const excludeReasons: Record<string, number> = {};
   const reviewReasons: Record<string, number> = {};
   for (const r of rows) {
     counts[r.kind]++;
-    if (r.kind === "on_hip" && r.priceDrift) counts.priceDrift++;
+    if (r.kind === "on_hip" && r.priceDrift) {
+      counts.priceDrift++;
+      if (r.hipPrice != null && r.payload) {
+        const pct = Math.round(((r.hipPrice / r.payload.buyout_price) - 1) * 100);
+        const key = pct > 0 ? `Hip +${pct}%` : `Hip ${pct}%`;
+        driftRatio[key] = (driftRatio[key] ?? 0) + 1;
+      }
+    }
     if (r.kind === "create") byCategory[r.categoryName] = (byCategory[r.categoryName] ?? 0) + 1;
     if (r.kind === "exclude") excludeReasons[r.reason] = (excludeReasons[r.reason] ?? 0) + 1;
     if (r.kind === "review") {
@@ -135,5 +145,6 @@ export function summarizePlan(rows: PlanRow[]) {
       reviewReasons[key] = (reviewReasons[key] ?? 0) + 1;
     }
   }
-  return { counts, byCategory, excludeReasons, reviewReasons };
+  const topDrift = Object.fromEntries(Object.entries(driftRatio).sort((a, b) => b[1] - a[1]).slice(0, 12));
+  return { counts, byCategory, excludeReasons, reviewReasons, driftRatio: topDrift };
 }

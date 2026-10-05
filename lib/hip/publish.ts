@@ -170,6 +170,10 @@ export async function runHipPublish(opts: HipPublishOptions = {}): Promise<HipPu
       create: pick("create", (r) => (r.kind === "create" ? `${r.categoryName} — ${r.payload.name} — $${r.payload.buyout_price}` : "")),
       review: pick("review", (r) => (r.kind === "review" ? r.reason : "")),
       exclude: pick("exclude", (r) => (r.kind === "exclude" ? r.reason : "")),
+      priceDrift: plan
+        .filter((r): r is Extract<PlanRow, { kind: "on_hip" }> => r.kind === "on_hip" && r.priceDrift)
+        .slice(0, n)
+        .map((r) => ({ itemId: r.itemId, detail: `Hip $${r.hipPrice} vs eBay $${r.payload?.buyout_price} (hip #${r.hipId})` })),
     };
   }
 
