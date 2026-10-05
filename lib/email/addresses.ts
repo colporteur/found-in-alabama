@@ -4,6 +4,7 @@
 // recorded on the row (sync_status / sync_error) so a failed push shows up
 // on the page with a Retry button instead of disappearing.
 
+import { resolveMx } from "node:dns/promises";
 import { asc, eq } from "drizzle-orm";
 import { db } from "@/db";
 import { emailAddresses } from "@/db/schema";
@@ -335,6 +336,29 @@ export async function importFromCloudflare(): Promise<ImportResult> {
 
 // ─── Domain status ──────────────────────────────────────────────────────────
 
+/**
+ * Email Routing on/off. The settings endpoint needs a permission the
+ * address-management token doesn't otherwise need (Cloudflare answers
+ * "Authentication error (10000)" without it), so fall back to the MX
+ * records: routing is on when the domain's MX points at Cloudflare.
+ */
+async function routingSettingsOrMx(
+  zoneId: string,
+  domain: string
+): Promise<{ enabled: boolean; status?: string }> {
+  try {
+    return await getRoutingSettings(zoneId);
+  } catch {
+    try {
+      const mx = await resolveMx(domain);
+      const onCloudflare = mx.some((r) => r.exchange.toLowerCase().endsWith("mx.cloudflare.net"));
+      return { enabled: onCloudflare, status: onCloudflare ? "MX → Cloudflare" : "no Cloudflare MX" };
+    } catch {
+      return { enabled: false, status: "no MX records" };
+    }
+  }
+}
+
 export type DomainStatus = {
   domain: string;
   ok: boolean;
@@ -361,7 +385,7 @@ export async function domainStatuses(): Promise<DomainStatus[]> {
       try {
         const zone = await getZone(domain);
         const [settings, catchAll] = await Promise.all([
-          getRoutingSettings(zone.id),
+          routingSettingsOrMx(zone.id, domain),
           getCatchAll(zone.id),
         ]);
         let catchAllText: string | null = null;
