@@ -56,7 +56,7 @@ export async function loadTesCategories(): Promise<CatRow[]> {
     .from(ebayStoreCategories);
 }
 
-async function fetchAndCacheDescription(
+export async function fetchAndCacheDescription(
   itemId: string
 ): Promise<{ description: string | null; imageUrls: string[] }> {
   try {

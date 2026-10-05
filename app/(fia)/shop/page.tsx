@@ -18,7 +18,7 @@ export const revalidate = 600;
 export const metadata: Metadata = {
   title: "Shop the inventory",
   description:
-    "Browse Found in Alabama's estate finds, vintage, books, ephemera, and small antiques by category. Every item links straight to its eBay listing.",
+    "Browse Found in Alabama's estate finds, vintage, books, ephemera, and small antiques by category. Buy direct here, or on eBay.",
 };
 
 function SaleBadge({ cat }: { cat: StorefrontCategory }) {
@@ -141,7 +141,7 @@ export default async function ShopIndexPage() {
       </h1>
       <p className="text-lg text-brand-ink/75 max-w-prose leading-relaxed mb-2">
         {totalItems > 0
-          ? `${totalItems.toLocaleString()} pieces across the shelves — every item links straight to its eBay listing.`
+          ? `${totalItems.toLocaleString()} pieces across the shelves — buy direct here, or on eBay if you prefer.`
           : "Inventory is syncing — check back shortly."}
       </p>
       {onSaleSomewhere && (

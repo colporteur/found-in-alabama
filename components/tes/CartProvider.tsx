@@ -1,7 +1,8 @@
 "use client";
 
-// The Ephemeral State cart — client-side React context persisted to
-// localStorage. Prices/classes stored here are for DISPLAY; checkout
+// Storefront cart (The Ephemeral State, and since Phase FIA-SHOP-1 also
+// foundinalabama.com with its own storage key) — client-side React
+// context persisted to localStorage. Prices/classes stored here are for DISPLAY; checkout
 // (phase 2b) re-verifies every line against the mirror and live eBay
 // server-side, so a tampered localStorage can't change what's charged.
 
@@ -38,13 +39,20 @@ type CartContextValue = {
 const CartContext = createContext<CartContextValue | null>(null);
 const STORAGE_KEY = "tes_cart_v1";
 
-export function CartProvider({ children }: { children: React.ReactNode }) {
+export function CartProvider({
+  children,
+  storageKey = STORAGE_KEY,
+}: {
+  children: React.ReactNode;
+  /** localStorage key — FIA passes its own (Phase FIA-SHOP-1). */
+  storageKey?: string;
+}) {
   const [lines, setLines] = useState<CartLine[]>([]);
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY);
+      const raw = window.localStorage.getItem(storageKey);
       if (raw) {
         const parsed = JSON.parse(raw) as CartLine[];
         if (Array.isArray(parsed)) setLines(parsed.filter((l) => l?.itemId));
@@ -53,16 +61,16 @@ export function CartProvider({ children }: { children: React.ReactNode }) {
       // corrupted cart — start fresh
     }
     setReady(true);
-  }, []);
+  }, [storageKey]);
 
   useEffect(() => {
     if (!ready) return;
     try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(lines));
+      window.localStorage.setItem(storageKey, JSON.stringify(lines));
     } catch {
       // storage full/blocked — cart still works in-memory
     }
-  }, [lines, ready]);
+  }, [lines, ready, storageKey]);
 
   const add = useCallback((line: Omit<CartLine, "quantity">) => {
     setLines((prev) => {

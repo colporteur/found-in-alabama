@@ -16,7 +16,7 @@ import MarkHandledButton from "./MarkHandledButton";
 import HipHandledButton from "./HipHandledButton";
 import PirateShipPanel from "./PirateShipPanel";
 import TrackingEditor from "./TrackingEditor";
-import { trackingUrl } from "@/lib/tes/pirate-ship";
+import { trackingUrl, SHIPPABLE_SOURCES } from "@/lib/tes/pirate-ship";
 
 const HIP_AUTO_DECISIONS = ["hip_wins", "processing"];
 
@@ -77,7 +77,7 @@ export default async function TesOrdersPage() {
     .from(tesOrders)
     .where(
       and(
-        eq(tesOrders.source, "tes"),
+        inArray(tesOrders.source, SHIPPABLE_SOURCES),
         eq(tesOrders.status, "paid"),
         isNull(tesOrders.shippedAt),
         isNotNull(tesOrders.shippingAddress)
@@ -99,7 +99,7 @@ export default async function TesOrdersPage() {
   return (
     <section className="container-content py-12">
       <p className="text-xs uppercase tracking-wider text-brand-earth mb-2">
-        The Ephemeral State
+        The Ephemeral State · Found in Alabama
       </p>
       <h1 className="font-marker text-3xl md:text-4xl mb-3">Orders</h1>
       <p className="text-brand-ink/70 mb-8 max-w-prose">
@@ -224,6 +224,11 @@ export default async function TesOrdersPage() {
                         HIP #{o.hipSaleId}
                       </span>
                     )}
+                    {o.source === "fia" && (
+                      <span className="inline-block text-xs px-2 py-0.5 rounded mr-2 bg-brand-yellow text-brand-ink">
+                        FIA
+                      </span>
+                    )}
                     {o.shippingName ?? "(name pending)"}{" "}
                     <span className="text-brand-ink/50 font-normal">
                       {o.email ?? ""}
@@ -277,10 +282,12 @@ export default async function TesOrdersPage() {
                     {o.freeShipping ? " (free)" : ""} ·{" "}
                     <strong>Total ${o.total}</strong> ·{" "}
                     <span className="text-brand-ink/50">
-                      {o.governingShipClass}
+                      {o.source === "fia"
+                        ? `${o.shipService === "media" ? "Media Mail" : "Ground Advantage"} · ${o.packageWeightOz ?? "?"} oz`
+                        : o.governingShipClass}
                     </span>
                   </p>
-                  {o.status === "paid" && o.source === "tes" && (
+                  {o.status === "paid" && SHIPPABLE_SOURCES.includes(o.source) && (
                     <TrackingEditor
                       orderId={o.id}
                       tracking={o.trackingNumber}

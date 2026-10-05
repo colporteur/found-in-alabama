@@ -32,7 +32,8 @@ const adminNav = [
   { href: "/admin/social", label: "Social" },
   { href: "/admin/newsletter", label: "Newsletter" },
   { href: "/admin/inventory", label: "Inventory" },
-  { href: "/admin/tes-orders", label: "TES Orders" },
+  { href: "/admin/tes-orders", label: "Orders" },
+  { href: "/admin/fia-shop", label: "FIA Shop" },
   { href: "/admin/mail", label: "Mail" },
 ];
 

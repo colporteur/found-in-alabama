@@ -1,4 +1,5 @@
 import Link from "next/link";
+import FiaCartLink from "@/components/fia/FiaCartLink";
 
 const navLinks = [
   { href: "/shop", label: "Shop" },
@@ -32,6 +33,7 @@ export default function Header() {
               {link.label}
             </Link>
           ))}
+          <FiaCartLink />
         </nav>
       </div>
     </header>

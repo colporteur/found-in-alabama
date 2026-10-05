@@ -96,6 +96,56 @@ interface NormalizedListing {
   shippingProfileId: string | null;
   shippingProfileName: string | null;
   shippingServices: string[];
+  pkg: PackageInfo;
+}
+
+export type PackageInfo = {
+  weightOz: number | null;
+  lengthIn: number | null;
+  widthIn: number | null;
+  depthIn: number | null;
+  irregular: boolean | null;
+};
+
+function posNum(v: unknown): number | null {
+  if (v == null) return null;
+  const n = Number(typeof v === "object" ? (v as Record<string, unknown>)["#text"] : v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Phase FIA-SHOP-1: Item.ShippingPackageDetails (or, on older listings,
+ * ShippingDetails.CalculatedShippingRate) → packed weight in ounces and
+ * dimensions in inches. US-site listings carry WeightMajor in pounds and
+ * WeightMinor in ounces; the parser drops the unit attributes, so the US
+ * units are assumed. All-zero values (flat-rate listings) come back null.
+ */
+export function readPackageInfo(i: Record<string, unknown>): PackageInfo {
+  const details = (i.ShippingDetails as Record<string, unknown> | undefined) ?? {};
+  const candidates = [
+    i.ShippingPackageDetails as Record<string, unknown> | undefined,
+    details.CalculatedShippingRate as Record<string, unknown> | undefined,
+  ].filter((c): c is Record<string, unknown> => !!c && typeof c === "object");
+  for (const c of candidates) {
+    const lbs = posNum(c.WeightMajor) ?? 0;
+    const oz = posNum(c.WeightMinor) ?? 0;
+    const weight = lbs * 16 + oz;
+    const length = posNum(c.PackageLength);
+    const width = posNum(c.PackageWidth);
+    const depth = posNum(c.PackageDepth);
+    if (weight > 0 || length || width || depth) {
+      const irr = c.ShippingIrregular;
+      return {
+        weightOz: weight > 0 ? Math.round(weight * 100) / 100 : null,
+        lengthIn: length,
+        widthIn: width,
+        depthIn: depth,
+        irregular:
+          irr == null ? null : String(irr).toLowerCase() === "true",
+      };
+    }
+  }
+  return { weightOz: null, lengthIn: null, widthIn: null, depthIn: null, irregular: null };
 }
 
 /** Item.SellerProfiles.SellerShippingProfile → {id, name}; both null if absent. */
@@ -182,6 +232,7 @@ function normalizeListing(item: unknown): NormalizedListing {
     shippingProfileId: shipProfile.id,
     shippingProfileName: shipProfile.name,
     shippingServices: readShippingServices(i),
+    pkg: readPackageInfo(i),
     itemId: String(i.ItemID ?? ""),
     sku: i.SKU != null ? String(i.SKU) : null,
     title: String(i.Title ?? ""),
@@ -228,6 +279,11 @@ async function upsertPage(listings: NormalizedListing[]): Promise<number> {
       shippingProfileId: l.shippingProfileId,
       shippingProfileName: l.shippingProfileName,
       shippingServices: l.shippingServices.length > 0 ? l.shippingServices : null,
+      pkgWeightOz: l.pkg.weightOz != null ? l.pkg.weightOz.toFixed(2) : null,
+      pkgLengthIn: l.pkg.lengthIn != null ? l.pkg.lengthIn.toFixed(2) : null,
+      pkgWidthIn: l.pkg.widthIn != null ? l.pkg.widthIn.toFixed(2) : null,
+      pkgDepthIn: l.pkg.depthIn != null ? l.pkg.depthIn.toFixed(2) : null,
+      pkgIrregular: l.pkg.irregular,
       lastSyncedAt: new Date(),
     }));
   if (rows.length === 0) return 0;
@@ -257,6 +313,13 @@ async function upsertPage(listings: NormalizedListing[]): Promise<number> {
         shippingProfileId: sql`COALESCE(excluded.shipping_profile_id, ${ebayListings.shippingProfileId})`,
         shippingProfileName: sql`COALESCE(excluded.shipping_profile_name, ${ebayListings.shippingProfileName})`,
         shippingServices: sql`COALESCE(excluded.shipping_services, ${ebayListings.shippingServices})`,
+        // Package weight/dims (Phase FIA-SHOP-1): a sweep that returns none
+        // keeps the old values, same defensive posture as above.
+        pkgWeightOz: sql`COALESCE(excluded.pkg_weight_oz, ${ebayListings.pkgWeightOz})`,
+        pkgLengthIn: sql`COALESCE(excluded.pkg_length_in, ${ebayListings.pkgLengthIn})`,
+        pkgWidthIn: sql`COALESCE(excluded.pkg_width_in, ${ebayListings.pkgWidthIn})`,
+        pkgDepthIn: sql`COALESCE(excluded.pkg_depth_in, ${ebayListings.pkgDepthIn})`,
+        pkgIrregular: sql`COALESCE(excluded.pkg_irregular, ${ebayListings.pkgIrregular})`,
         lastSyncedAt: sql`excluded.last_synced_at`,
       },
     });

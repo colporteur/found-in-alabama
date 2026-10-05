@@ -9,6 +9,7 @@ import "../globals.css";
 import Header from "@/components/Header";
 import Footer from "@/components/Footer";
 import { Analytics } from "@vercel/analytics/next";
+import { CartProvider } from "@/components/tes/CartProvider";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -50,9 +51,13 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} ${marker.variable}`}>
       <body className="bg-brand-paper text-brand-ink font-sans antialiased min-h-screen flex flex-col">
-        <Header />
-        <main className="flex-1">{children}</main>
-        <Footer />
+        {/* Phase FIA-SHOP-1: direct checkout. Own storage key, so the
+            FIA and TES carts never mix even on a shared origin (local dev). */}
+        <CartProvider storageKey="fia_cart_v1">
+          <Header />
+          <main className="flex-1">{children}</main>
+          <Footer />
+        </CartProvider>
         <Analytics />
       </body>
     </html>

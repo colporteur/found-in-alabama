@@ -14,6 +14,7 @@ import { auth } from "@/auth";
 import { db } from "@/db";
 import { tesOrders } from "@/db/schema";
 import { extractTracking, normName, type TrackingRow } from "@/lib/tes/pirate-ship";
+import { SHIPPABLE_SOURCES } from "@/lib/tes/pirate-ship";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -48,7 +49,7 @@ export async function POST(req: NextRequest) {
     ? await db
         .select({ id: tesOrders.id, trackingNumber: tesOrders.trackingNumber })
         .from(tesOrders)
-        .where(and(inArray(tesOrders.id, ids), eq(tesOrders.source, "tes")))
+        .where(and(inArray(tesOrders.id, ids), inArray(tesOrders.source, SHIPPABLE_SOURCES)))
     : [];
   const knownById = new Map(known.map((k) => [k.id, k]));
 
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
         })
         .from(tesOrders)
         .where(
-          and(eq(tesOrders.source, "tes"), eq(tesOrders.status, "paid"), isNull(tesOrders.shippedAt))
+          and(inArray(tesOrders.source, SHIPPABLE_SOURCES), eq(tesOrders.status, "paid"), isNull(tesOrders.shippedAt))
         )
     : [];
   const poolByKey = new Map<string, string[]>();

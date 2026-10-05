@@ -305,3 +305,38 @@ Code: `lib/email/{rules,cloudflare,addresses,inbound}.ts`,
 migration `0027_mail`, tests `scripts/email-rules.test.cjs`.
 Env: `CLOUDFLARE_API_TOKEN`, `EMAIL_INBOUND_SECRET` (optional
 `EMAIL_DOMAINS`, `EMAIL_INBOX_WORKER`).
+
+## Buy direct on foundinalabama.com (Phase FIA-SHOP-1, Oct 2026)
+
+FIA now sells directly with Stripe, reusing the TES order pipeline. Orders
+are `tes_orders` rows with `source = "fia"`, so the shared Stripe webhook
+(`/api/tes/stripe-webhook`, keyed on `metadata.tesOrderId`), the delist
+queue + Nifty extension, the orders board (FIA badge) and the Pirate Ship
+export/tracking import all handle them. eBay and the other marketplaces stay
+linked from every product page.
+
+- **Weights:** the full sweep copies each listing's `ShippingPackageDetails`
+  (or `CalculatedShippingRate`) into `ebay_listings.pkg_weight_oz` /
+  `pkg_length_in` / `pkg_width_in` / `pkg_depth_in` / `pkg_irregular`
+  (`readPackageInfo()` in `lib/ebay/listing-sync.ts`). Fills on the next
+  daily sweep. If `/admin/fia-shop` shows ~0% coverage after a sweep, eBay
+  isn't returning package details in GetSellerList and a GetItem backfill is
+  needed.
+- **Shipping:** `lib/fia/shipping.ts` (pure, tested in
+  `scripts/fia-shipping.test.mts`). Cart weight = Σ unit weights − a
+  packaging credit per extra unit (never below the heaviest unit). Media Mail
+  table when EVERY line's eBay listing offers Media Mail (`shipping_services`
+  contains "Media"), else Ground Advantage. Missing weight → per-ship-class
+  fallback. Items over the weight/side caps are eBay-only (no Add to cart).
+  All of it — tables, handling, free threshold, caps, fallbacks — is in
+  `app_settings.fiaShipSettings`, edited at `/admin/fia-shop`.
+- **Price:** `app_settings.fiaGlobalDiscountPercent` ("X% below eBay",
+  separate from TES); never stacks with an eBay sale, the bigger wins.
+- **Code:** `lib/fia/*` (settings, catalog = shared per-item facts, orders =
+  cart resolver, item-detail), `/api/fia/quote`, `/api/fia/checkout`,
+  `/api/admin/fia-shop`, pages `app/(fia)/item/[itemId]`, `/cart`,
+  `/checkout/success`, `/admin/fia-shop`. `CartProvider` takes a
+  `storageKey` (FIA uses `fia_cart_v1`); `ItemGallery` takes `theme="fia"`.
+- **No sales tax** is collected on either site (Todd's call, Oct 2026).
+  Turning on Stripe Tax later = `automatic_tax: { enabled: true }` on both
+  checkout routes plus his Alabama registration in the Stripe dashboard.

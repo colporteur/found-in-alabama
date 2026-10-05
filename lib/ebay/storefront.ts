@@ -18,7 +18,7 @@ import { getOnSaleLookup, type SaleBadge } from "@/lib/ebay/active-sales";
 import { ebayItemIdFromUrl } from "@/lib/ebay/store-url";
 
 /** Other marketplaces we cross-link to (eBay is the card's main link). */
-const OTHER_MARKETPLACES: { key: string; label: string }[] = [
+export const OTHER_MARKETPLACES: { key: string; label: string }[] = [
   { key: "etsy", label: "Etsy" },
   { key: "poshmark", label: "Poshmark" },
   { key: "mercari", label: "Mercari" },

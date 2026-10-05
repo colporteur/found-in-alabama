@@ -179,6 +179,16 @@ export const ebayListings = pgTable(
     shippingProfileId: text("shipping_profile_id"),
     shippingProfileName: text("shipping_profile_name"),
     shippingServices: jsonb("shipping_services"),
+    // Phase FIA-SHOP-1: package weight + dimensions from the listing's
+    // ShippingPackageDetails (set on calculated-shipping listings). Captured
+    // free by the full sweep (GetSellerList ReturnAll). Null when eBay has
+    // none — the FIA cart then falls back to the ship-class default weight.
+    // Weight is the PACKED weight per unit, in ounces; dimensions in inches.
+    pkgWeightOz: numeric("pkg_weight_oz", { precision: 8, scale: 2 }),
+    pkgLengthIn: numeric("pkg_length_in", { precision: 6, scale: 2 }),
+    pkgWidthIn: numeric("pkg_width_in", { precision: 6, scale: 2 }),
+    pkgDepthIn: numeric("pkg_depth_in", { precision: 6, scale: 2 }),
+    pkgIrregular: boolean("pkg_irregular"),
   },
   (t) => ({
     storeCat1Idx: index("ebay_listings_store_cat1_idx").on(t.storeCategory1Id),
@@ -1026,7 +1036,8 @@ export const tesOrders = pgTable(
     delistStatus: text("delist_status").default("pending").notNull(),
     /**
      * Where the order was placed (Phase HIP-1): "tes" = theephemeralstate.com
-     * Stripe checkout; "hip" = a HipPostcard sale ingested by the Hip poller.
+     * Stripe checkout; "hip" = a HipPostcard sale ingested by the Hip poller;
+     * "fia" = foundinalabama.com Stripe checkout (Phase FIA-SHOP-1).
      * Hip orders reuse this table so the delist queue, the extension and the
      * admin board work them without a second code path.
      */
@@ -1044,6 +1055,14 @@ export const tesOrders = pgTable(
     trackingNumber: text("tracking_number"),
     carrier: text("carrier"),
     shippedAt: timestamp("shipped_at"),
+    /**
+     * Phase FIA-SHOP-1 (source = "fia"): the billable package weight the
+     * weight-based quote charged for, and the USPS service it priced
+     * ("media" = Media Mail, "ground" = Ground Advantage). The Pirate Ship
+     * export uses this weight instead of the ship-class estimate.
+     */
+    packageWeightOz: numeric("package_weight_oz", { precision: 8, scale: 2 }),
+    shipService: text("ship_service"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     paidAt: timestamp("paid_at"),
   },
@@ -1070,6 +1089,8 @@ export const tesOrderItems = pgTable(
     quantity: integer("quantity").notNull(),
     shipClass: text("ship_class").notNull(),
     imageUrl: text("image_url"),
+    /** Packed weight per unit used for the FIA quote (ounces); null for TES/Hip. */
+    weightOz: numeric("weight_oz", { precision: 8, scale: 2 }),
   },
   (t) => ({
     orderIdx: index("tes_order_items_order_idx").on(t.orderId),

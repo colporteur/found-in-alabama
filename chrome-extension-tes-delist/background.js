@@ -145,7 +145,7 @@ async function runQueue(trigger) {
       );
     }
     for (const order of orders) {
-      const tag = order.source === "hip" ? `Hip #${order.hipSaleId ?? "?"}` : "TES";
+      const tag = order.source === "hip" ? `Hip #${order.hipSaleId ?? "?"}` : order.source === "fia" ? "FIA" : "TES";
       await log(`${tag}: ${order.items.length} item(s) for ${order.buyerName ?? "buyer"}`);
       const results = [];
       for (const item of order.items) {

@@ -1,6 +1,9 @@
 // One product card on the storefront. Image, title, price (with a
-// struck-through original + discount banner when on sale), and a link
-// out to the live eBay listing.
+// struck-through original + discount banner when on sale). Since Phase
+// FIA-SHOP-1 the card opens the on-site product page (/item/[id], where
+// it can be bought directly) and lists eBay alongside the other
+// marketplaces the item is on. flatPct = the FIA "buy direct" discount;
+// it never stacks with an eBay sale — the bigger one wins.
 
 import Link from "next/link";
 import type { StorefrontItem } from "@/lib/ebay/storefront";
@@ -16,7 +19,8 @@ function salePrice(p: string | null, pct: number): string | null {
   if (!p) return null;
   const n = parseFloat(p);
   if (!Number.isFinite(n)) return null;
-  return `$${(n * (1 - pct / 100)).toFixed(2)}`;
+  // Same rounding as lib/tes/discount discountedPrice (what checkout charges).
+  return `$${(Math.round(n * (1 - pct / 100) * 100) / 100).toFixed(2)}`;
 }
 
 function endsLabel(endsAt: Date): string {
@@ -26,17 +30,25 @@ function endsLabel(endsAt: Date): string {
   });
 }
 
-export default function StorefrontItemCard({ item }: { item: StorefrontItem }) {
+export default function StorefrontItemCard({
+  item,
+  flatPct = 0,
+}: {
+  item: StorefrontItem;
+  flatPct?: number;
+}) {
   const price = formatPrice(item.price);
   const sale = item.sale;
-  const discounted = sale ? salePrice(item.price, sale.discountPercent) : null;
+  const salePct = sale?.discountPercent ?? 0;
+  const pct = Math.max(salePct, flatPct);
+  const discounted = pct > 0 ? salePrice(item.price, pct) : null;
+  const saleWins = sale != null && salePct >= flatPct;
+  const links = [{ label: "eBay", url: item.ebayUrl }, ...item.marketplaceLinks];
 
   return (
     <div className="group border border-brand-ink/15 rounded-lg overflow-hidden bg-white hover:border-brand-yellow transition-colors flex flex-col">
-      <a
-        href={item.ebayUrl}
-        target="_blank"
-        rel="noopener noreferrer"
+      <Link
+        href={`/item/${item.itemId}`}
         className="block flex-1 flex flex-col"
       >
         <div className="relative">
@@ -55,11 +67,15 @@ export default function StorefrontItemCard({ item }: { item: StorefrontItem }) {
               </span>
             </div>
           )}
-          {sale && (
+          {saleWins && sale ? (
             <span className="absolute top-2 left-2 bg-red-700 text-white text-xs uppercase tracking-wider font-medium px-2 py-1 rounded shadow-sm">
               {Math.round(sale.discountPercent)}% off thru {endsLabel(sale.endsAt)}
             </span>
-          )}
+          ) : pct > 0 ? (
+            <span className="absolute top-2 left-2 bg-brand-ink text-white text-xs uppercase tracking-wider font-medium px-2 py-1 rounded shadow-sm">
+              {Math.round(pct)}% off direct
+            </span>
+          ) : null}
         </div>
         <div className="p-3 flex-1 flex flex-col">
           <p className="text-sm font-medium leading-tight line-clamp-3 mb-2 group-hover:underline decoration-brand-yellow decoration-2 underline-offset-2">
@@ -84,11 +100,11 @@ export default function StorefrontItemCard({ item }: { item: StorefrontItem }) {
             )}
           </div>
         </div>
-      </a>
-      {item.marketplaceLinks.length > 0 && (
+      </Link>
+      {links.length > 0 && (
         <div className="px-3 py-2 border-t border-brand-ink/10 flex flex-wrap items-center gap-1.5">
           <span className="text-[11px] text-brand-ink/45 mr-0.5">Also on</span>
-          {item.marketplaceLinks.map((m) => (
+          {links.map((m) => (
             <a
               key={m.label}
               href={m.url}

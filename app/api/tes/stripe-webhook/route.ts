@@ -1,4 +1,6 @@
-// POST /api/tes/stripe-webhook — Stripe event receiver for TES checkout.
+// POST /api/tes/stripe-webhook — Stripe event receiver for TES checkout
+// and (Phase FIA-SHOP-1) foundinalabama.com checkout — both write
+// tes_orders rows keyed by metadata.tesOrderId; source tells them apart.
 // Verifies the signature with STRIPE_WEBHOOK_SECRET, and on
 // checkout.session.completed: marks the order paid, stores the buyer's
 // email + shipping address, decrements mirror quantities (so the item
@@ -12,6 +14,7 @@ import { eq, sql, and, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { tesOrders, tesOrderItems, ebayListings } from "@/db/schema";
 import { closeHipForItems } from "@/lib/hip/close";
+import { revalidateStorefront } from "@/lib/storefront-cache";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -49,6 +52,14 @@ async function notifyTodd(orderId: string): Promise<void> {
           .join("<br/>")
       : "(no address on file)";
 
+    // Phase FIA-SHOP-1: the same webhook serves foundinalabama.com orders.
+    const isFia = order.source === "fia";
+    const siteTag = isFia ? "FIA" : "TES";
+    const siteName = isFia ? "Found in Alabama" : "Ephemeral State";
+    const shipNote = isFia
+      ? `${order.shipService === "media" ? "Media Mail" : "Ground Advantage"}, ${order.packageWeightOz ?? "?"} oz quoted`
+      : `ship class: ${order.governingShipClass}`;
+
     const rows = items
       .map(
         (i) =>
@@ -65,11 +76,11 @@ async function notifyTodd(orderId: string): Promise<void> {
       body: JSON.stringify({
         from,
         to,
-        subject: `TES order — $${order.total} (${items.length} item${items.length === 1 ? "" : "s"}) — DELIST IN NIFTY`,
-        html: `<h2>New Ephemeral State order</h2>
+        subject: `${siteTag} order — $${order.total} (${items.length} item${items.length === 1 ? "" : "s"}) — DELIST IN NIFTY`,
+        html: `<h2>New ${siteName} order</h2>
 <p><strong>${order.shippingName ?? ""}</strong> &lt;${order.email ?? ""}&gt;<br/>${addressText}</p>
 <table border="0" cellspacing="0">${rows}</table>
-<p>Subtotal $${order.subtotal} · Shipping $${order.shipping}${order.freeShipping ? " (free)" : ""} · <strong>Total $${order.total}</strong> · ship class: ${order.governingShipClass}</p>
+<p>Subtotal $${order.subtotal} · Shipping $${order.shipping}${order.freeShipping ? " (free)" : ""} · <strong>Total $${order.total}</strong> · ${shipNote}</p>
 <p><strong>Next:</strong> delist these items in Nifty (delist everywhere), then mark the order handled at
 <a href="https://www.foundinalabama.com/admin/tes-orders">/admin/tes-orders</a>.</p>`,
       }),
@@ -180,6 +191,9 @@ export async function POST(req: NextRequest) {
       if (soldOut.length > 0) {
         await closeHipForItems(soldOut.map((r) => r.itemId), "tes-webhook");
       }
+      // Sold items leave both storefronts' cached pages now, not at the
+      // next 10-minute ISR window.
+      revalidateStorefront("site order paid");
       await notifyTodd(orderId);
     }
   }

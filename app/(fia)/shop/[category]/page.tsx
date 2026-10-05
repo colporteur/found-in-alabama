@@ -1,5 +1,6 @@
-// One category's item grid. Items link out to their eBay listings;
-// on-sale items show a discount banner and struck-through price.
+// One category's item grid. Items open their on-site product page (buy
+// direct, Phase FIA-SHOP-1, or follow links to eBay and the other
+// marketplaces); discounted items show a banner and struck-through price.
 
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -9,6 +10,7 @@ import {
   resolveCategorySlug,
 } from "@/lib/ebay/storefront";
 import StorefrontItemCard from "@/components/StorefrontItemCard";
+import { getFiaDiscountPercent } from "@/lib/fia/settings";
 
 // ISR: served from the cache for STOREFRONT_REVALIDATE_SECONDS (see
 // lib/storefront-cache.ts); sold/ended/repriced items and category
@@ -24,7 +26,7 @@ export async function generateMetadata({
   if (!cat) return { title: "Category not found" };
   return {
     title: `${cat.name} — Shop`,
-    description: `Browse ${cat.count} ${cat.name.toLowerCase()} pieces from Found in Alabama. Every item links to its eBay listing.`,
+    description: `Browse ${cat.count} ${cat.name.toLowerCase()} pieces from Found in Alabama. Buy direct, or on eBay and our other marketplaces.`,
   };
 }
 
@@ -36,7 +38,10 @@ export default async function ShopCategoryPage({
   const category = await resolveCategorySlug(params.category);
   if (!category) notFound();
 
-  const items = await getCategoryItems(category);
+  const [items, flatPct] = await Promise.all([
+    getCategoryItems(category),
+    getFiaDiscountPercent(),
+  ]);
 
   return (
     <section className="container-content py-12">
@@ -63,7 +68,7 @@ export default async function ShopCategoryPage({
       ) : (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {items.map((item) => (
-            <StorefrontItemCard key={item.itemId} item={item} />
+            <StorefrontItemCard key={item.itemId} item={item} flatPct={flatPct} />
           ))}
         </div>
       )}

@@ -81,12 +81,25 @@ export function estimatePackage(
 
 // ─── CSV out ─────────────────────────────────────────────────────────────────
 
+/**
+ * Order sources whose addresses we hold and ship ourselves: "tes"
+ * (theephemeralstate.com) and "fia" (foundinalabama.com, Phase
+ * FIA-SHOP-1). "hip" is excluded — HipPostcard keeps those addresses.
+ */
+export const SHIPPABLE_SOURCES = ["tes", "fia"];
+
 export type ExportOrder = {
   id: string;
   shippingName: string | null;
   email: string | null;
   shippingAddress: unknown;
   items: { sku: string | null; title: string; quantity: number; shipClass: string }[];
+  /** "tes" | "fia" — labels the order stamp. Default "tes". */
+  source?: string | null;
+  /** Quoted package weight (FIA orders). Overrides the class estimate. */
+  weightOz?: number | null;
+  /** Box from the eBay listing (single-unit orders). Overrides the preset. */
+  box?: { lengthIn: number; widthIn: number; heightIn: number } | null;
 };
 
 type StripeAddress = {
@@ -146,8 +159,16 @@ export function binStamp(items: ExportOrder["items"]): string {
 export function buildPirateShipRows(orders: ExportOrder[]): string[][] {
   return orders.map((o) => {
     const a = (o.shippingAddress ?? {}) as StripeAddress;
-    const pkg = estimatePackage(o.items);
+    const est = estimatePackage(o.items);
+    const pkg = {
+      ...est,
+      ...(o.weightOz != null && o.weightOz > 0
+        ? { weightOz: Math.round(o.weightOz * 10) / 10 }
+        : {}),
+      ...(o.box ?? {}),
+    };
     const units = o.items.reduce((n, i) => n + Math.max(1, i.quantity), 0);
+    const tag = o.source === "fia" ? "FIA" : "TES";
     return [
       o.id,
       o.shippingName ?? "",
@@ -163,7 +184,7 @@ export function buildPirateShipRows(orders: ExportOrder[]): string[][] {
       String(pkg.widthIn),
       String(pkg.heightIn),
       binStamp(o.items),
-      clip(`TES #${o.id.slice(0, 8)}`),
+      clip(`${tag} #${o.id.slice(0, 8)}`),
       clip(`${units} item${units === 1 ? "" : "s"} · ${pkg.shipClass}`),
     ];
   });

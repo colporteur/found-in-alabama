@@ -25,6 +25,8 @@ export function revalidateStorefront(reason: string): void {
   try {
     revalidatePath("/tes", "layout");
     revalidatePath("/shop", "layout");
+    // FIA product pages (Phase FIA-SHOP-1).
+    revalidatePath("/item", "layout");
     revalidatePath("/", "page");
     console.log(`[storefront-cache] purged (${reason})`);
   } catch (err) {
@@ -36,7 +38,10 @@ export function revalidateStorefront(reason: string): void {
 /** Purge just the item pages for specific listings (both sites). */
 export function revalidateStorefrontItems(itemIds: string[]): void {
   try {
-    for (const id of itemIds) revalidatePath(`/tes/item/${id}`, "page");
+    for (const id of itemIds) {
+      revalidatePath(`/tes/item/${id}`, "page");
+      revalidatePath(`/item/${id}`, "page");
+    }
   } catch (err) {
     console.warn("[storefront-cache] item purge failed:", err);
   }
