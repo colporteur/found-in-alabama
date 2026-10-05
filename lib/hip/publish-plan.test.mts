@@ -106,6 +106,18 @@ test("plan adopts Hip-sync listings, creates the rest, flags collisions and repe
   assert.equal(summarizePlan(rows).counts.create, 1);
 });
 
+test("price wiggles under 5% or 25¢ are not drift", () => {
+  const drift = (hip: string, ebay: string) => {
+    const [r] = planHipPublish([{ ...item, price: ebay }], [{ hipId: 1, externalId: item.itemId, privateId: null, title: "x", price: hip }], new Map(), env);
+    return r.kind === "on_hip" && r.priceDrift;
+  };
+  assert.equal(drift("20.72", "20.68"), false);
+  assert.equal(drift("5.87", "5.84"), false);
+  assert.equal(drift("0.99", "1.10"), false); // 10% but only 11¢
+  assert.equal(drift("8.00", "10.00"), true);
+  assert.equal(drift("12.50", "10.00"), true);
+});
+
 test("our private_id resolves back to the eBay item (so sales + closing work)", () => {
   assert.equal(ebayItemIdFromHip({ id: 1, name: "x", private_id: "tes-ebay:117000000001" }), "117000000001");
   assert.equal(ebayItemIdFromHip({ id: 1, name: "x", external_id: 1234, external_id_type: "ebay" }), "1234");

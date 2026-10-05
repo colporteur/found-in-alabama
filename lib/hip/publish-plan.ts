@@ -37,6 +37,9 @@ export type PlanRow =
 
 export const MAX_IMAGES = 12;
 export const MAX_CREATE_FAILURES = 3;
+/** A Hip price is only corrected when it is off by at least 5% AND 25¢. */
+export const PRICE_DRIFT_MIN_PCT = 0.05;
+export const PRICE_DRIFT_MIN_DOLLARS = 0.25;
 
 const normTitle = (s: string) => decodeEntities(s).trim().toLowerCase().replace(/\s+/g, " ");
 const isUrl = (v: unknown): v is string => typeof v === "string" && /^https?:\/\//i.test(v);
@@ -100,7 +103,10 @@ export function planHipPublish(
       const ours = (l.privateId ?? "").startsWith("tes-ebay:");
       const built = buildHipPayload(item, env);
       const payload = "payload" in built ? built.payload : null;
-      const priceDrift = payload != null && l.price != null && Math.abs(Number(l.price) - payload.buyout_price) >= 0.01;
+      // Only real gaps count: the eBay autorun "wiggles" prices by ~1%, and
+      // chasing every cent would burn Hip's daily call budget for nothing.
+      const gap = payload != null && l.price != null ? Math.abs(Number(l.price) - payload.buyout_price) : 0;
+      const priceDrift = payload != null && l.price != null && gap >= PRICE_DRIFT_MIN_DOLLARS && gap >= payload.buyout_price * PRICE_DRIFT_MIN_PCT;
       return { kind: "on_hip", itemId: item.itemId, hipId: l.hipId, ours, priceDrift, hipPrice: l.price != null ? Number(l.price) : null, payload };
     }
 
