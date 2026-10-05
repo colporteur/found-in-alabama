@@ -1203,3 +1203,85 @@ export const hipActions = pgTable(
     itemIdx: index("hip_actions_item_idx").on(t.itemId),
   })
 );
+
+// ─── Mail (Phase MAIL-1) ──────────────────────────────────────────────────────
+// Addresses Todd assigns himself on foundinalabama.com / theephemeralstate.com.
+// Delivery runs on Cloudflare Email Routing (both zones are on Cloudflare):
+//   inbox   — rule → the "fia-inbox" Email Worker → POST /api/email/inbound,
+//             stored in email_messages and read at /admin/mail
+//   forward — native Cloudflare forward rule → forward_to (never touches us)
+//   both    — worker rule; we store a copy and tell the worker to forward
+// cf_rule_id links the row to its Cloudflare rule; sync_* records the last
+// push so a failed Cloudflare call is visible and retryable on the page.
+
+export const emailAddresses = pgTable(
+  "email_addresses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Full lowercase address, e.g. "orders@theephemeralstate.com". */
+    address: text("address").notNull().unique(),
+    localPart: text("local_part").notNull(),
+    domain: text("domain").notNull(),
+    mode: text("mode", { enum: ["inbox", "forward", "both"] })
+      .default("inbox")
+      .notNull(),
+    forwardTo: text("forward_to"),
+    /** Todd's note: what the address is for ("eBay buyers", "auction houses"). */
+    label: text("label"),
+    enabled: boolean("enabled").default(true).notNull(),
+    cfRuleId: text("cf_rule_id"),
+    syncStatus: text("sync_status", { enum: ["pending", "ok", "error"] })
+      .default("pending")
+      .notNull(),
+    syncError: text("sync_error"),
+    syncedAt: timestamp("synced_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    domainIdx: index("email_addresses_domain_idx").on(t.domain),
+  })
+);
+
+/**
+ * Mail received through the Email Worker. raw_base64 keeps the original
+ * RFC 822 message so attachments and the .eml download are always
+ * recoverable; text/html bodies are pre-parsed for display. No delete in
+ * the UI — archive only.
+ */
+export const emailMessages = pgTable(
+  "email_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    addressId: uuid("address_id").references(() => emailAddresses.id, {
+      onDelete: "set null",
+    }),
+    /** Envelope recipient — kept even if the address row is removed. */
+    toAddress: text("to_address").notNull(),
+    fromAddress: text("from_address"),
+    fromName: text("from_name"),
+    replyTo: text("reply_to"),
+    subject: text("subject"),
+    messageIdHeader: text("message_id_header"),
+    sentAt: timestamp("sent_at"),
+    receivedAt: timestamp("received_at").defaultNow().notNull(),
+    textBody: text("text_body"),
+    htmlBody: text("html_body"),
+    attachments: jsonb("attachments")
+      .$type<{ filename: string; mimeType: string; size: number }[]>()
+      .default([])
+      .notNull(),
+    rawBase64: text("raw_base64"),
+    rawSize: integer("raw_size"),
+    /** Message was over the worker's size cap; only headers reached us. */
+    truncated: boolean("truncated").default(false).notNull(),
+    forwardedTo: text("forwarded_to"),
+    readAt: timestamp("read_at"),
+    archivedAt: timestamp("archived_at"),
+  },
+  (t) => ({
+    receivedIdx: index("email_messages_received_idx").on(t.receivedAt),
+    toIdx: index("email_messages_to_idx").on(t.toAddress),
+    archivedIdx: index("email_messages_archived_idx").on(t.archivedAt),
+  })
+);

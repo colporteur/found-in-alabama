@@ -280,3 +280,28 @@ For the upcoming Expert Enhance portal, we’ll additionally use:
 ---
 
 *End of handoff. Good luck.*
+
+## Mail — assigned addresses + site inbox (Phase MAIL-1, Oct 2026)
+
+`/admin/mail/addresses` creates addresses on foundinalabama.com and
+theephemeralstate.com (both zones are on Cloudflare). Each address is a
+Cloudflare Email Routing rule, pushed by the API the moment it's saved:
+
+- **Site inbox** → rule sends to the `fia-inbox` Email Worker
+  (`cloudflare/fia-inbox-worker.js`) → `POST /api/email/inbound` (Bearer
+  `EMAIL_INBOUND_SECRET`) → `email_messages` → read at `/admin/mail`.
+- **Forward only** → native Cloudflare forward rule; never touches the site.
+- **Site inbox + forward** → worker rule; site stores a copy and replies
+  `{forwardTo}`, the worker forwards.
+
+Forward-to addresses must be verified Cloudflare destinations; the page adds
+them and Cloudflare emails the verification link. The worker falls back to
+`FALLBACK_FORWARD` when the site errors or a message exceeds ~4 MB, so mail
+isn't lost. Messages keep the raw RFC 822 (`raw_base64`) for .eml and
+attachment download; no delete, archive only. "Import existing from
+Cloudflare" adopts rules made in the dashboard (read-only toward Cloudflare).
+Code: `lib/email/{rules,cloudflare,addresses,inbound}.ts`,
+`app/api/admin/email/*`, `app/api/email/inbound`, `app/(fia)/admin/mail/*`,
+migration `0027_mail`, tests `scripts/email-rules.test.cjs`.
+Env: `CLOUDFLARE_API_TOKEN`, `EMAIL_INBOUND_SECRET` (optional
+`EMAIL_DOMAINS`, `EMAIL_INBOX_WORKER`).

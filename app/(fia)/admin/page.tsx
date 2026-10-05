@@ -4,8 +4,8 @@
 
 import { auth } from "@/auth";
 import { db, items } from "@/db";
-import { tesOrders } from "@/db/schema";
-import { and, count, eq } from "drizzle-orm";
+import { emailMessages, tesOrders } from "@/db/schema";
+import { and, count, eq, isNull } from "drizzle-orm";
 import Link from "next/link";
 
 export default async function AdminDashboard() {
@@ -26,6 +26,11 @@ export default async function AdminDashboard() {
       and(eq(tesOrders.status, "paid"), eq(tesOrders.delistStatus, "pending"))
     );
   const needsDelist = delistRow?.count ?? 0;
+  const [unreadMailRow] = await db
+    .select({ count: count() })
+    .from(emailMessages)
+    .where(and(isNull(emailMessages.readAt), isNull(emailMessages.archivedAt)));
+  const unreadMail = unreadMailRow?.count ?? 0;
 
   return (
     <section className="container-content py-12">
@@ -174,6 +179,19 @@ export default async function AdminDashboard() {
           href="/admin/newsletter/drafts"
           title="Newsletter drafts"
           desc="Generate, edit, and send the monthly newsletter."
+        />
+      </Group>
+
+      <Group title="Mail">
+        <Tool
+          href="/admin/mail"
+          title={unreadMail > 0 ? `Inbox (${unreadMail} unread)` : "Inbox"}
+          desc="Mail sent to your foundinalabama.com / theephemeralstate.com addresses that are set to the site inbox."
+        />
+        <Tool
+          href="/admin/mail/addresses"
+          title="Email addresses"
+          desc="Create addresses on either domain; deliver to the site inbox, forward to another address, or both."
         />
       </Group>
 

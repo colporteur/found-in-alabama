@@ -33,6 +33,7 @@ const adminNav = [
   { href: "/admin/newsletter", label: "Newsletter" },
   { href: "/admin/inventory", label: "Inventory" },
   { href: "/admin/tes-orders", label: "TES Orders" },
+  { href: "/admin/mail", label: "Mail" },
 ];
 
 export default async function AdminLayout({
