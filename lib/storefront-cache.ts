@@ -27,6 +27,7 @@ export function revalidateStorefront(reason: string): void {
     revalidatePath("/shop", "layout");
     // FIA product pages (Phase FIA-SHOP-1).
     revalidatePath("/item", "layout");
+    revalidatePath("/alabama", "page");
     revalidatePath("/", "page");
     console.log(`[storefront-cache] purged (${reason})`);
   } catch (err) {

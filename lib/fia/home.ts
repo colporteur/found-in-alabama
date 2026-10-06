@@ -19,6 +19,8 @@ export type HomeShelves = {
   alabamaCategories: StorefrontCategory[];
   alabamaItems: StorefrontItem[];
   alabamaTotal: number;
+  /** All in-stock Alabama categories (the shelf shows the first few). */
+  alabamaCategoryCount: number;
   topCategories: StorefrontCategory[];
 };
 
@@ -47,13 +49,7 @@ function flaggedWithDescendants(cats: Cat[], flag: (c: Cat) => boolean): Set<str
   return out;
 }
 
-export async function getHomeShelves(
-  opts: { alabamaCategories?: number; alabamaItems?: number; topCategories?: number } = {}
-): Promise<HomeShelves> {
-  const nAlabamaCats = opts.alabamaCategories ?? 8;
-  const nAlabamaItems = opts.alabamaItems ?? 8;
-  const nTop = opts.topCategories ?? 8;
-
+async function loadSegments() {
   const [cats, storefront] = await Promise.all([
     db
       .select({
@@ -65,12 +61,29 @@ export async function getHomeShelves(
       .from(ebayStoreCategories),
     getStorefrontCategories({ segment: "fia" }),
   ]);
+  return {
+    alabama: flaggedWithDescendants(cats, (c) => c.isAlabamaRelated),
+    ephemera: tesQualifyingSet(cats),
+    shelf: storefront.filter((c) => !c.isNewArrivals && c.count > 0),
+  };
+}
 
-  const alabama = flaggedWithDescendants(cats, (c) => c.isAlabamaRelated);
-  const ephemera = tesQualifyingSet(cats);
+const byCount = (a: StorefrontCategory, b: StorefrontCategory) => b.count - a.count;
 
-  const byCount = (a: StorefrontCategory, b: StorefrontCategory) => b.count - a.count;
-  const shelf = storefront.filter((c) => !c.isNewArrivals && c.count > 0);
+/** Every in-stock Alabama category, biggest first (the /alabama page). */
+export async function getAlabamaCategories(): Promise<StorefrontCategory[]> {
+  const { alabama, shelf } = await loadSegments();
+  return shelf.filter((c) => alabama.has(c.categoryId)).sort(byCount);
+}
+
+export async function getHomeShelves(
+  opts: { alabamaCategories?: number; alabamaItems?: number; topCategories?: number } = {}
+): Promise<HomeShelves> {
+  const nAlabamaCats = opts.alabamaCategories ?? 8;
+  const nAlabamaItems = opts.alabamaItems ?? 8;
+  const nTop = opts.topCategories ?? 8;
+
+  const { alabama, ephemera, shelf } = await loadSegments();
 
   const alabamaCats = shelf.filter((c) => alabama.has(c.categoryId)).sort(byCount);
   const topCategories = shelf
@@ -110,6 +123,7 @@ export async function getHomeShelves(
     alabamaCategories: alabamaCats.slice(0, nAlabamaCats),
     alabamaItems,
     alabamaTotal: alabamaCats.reduce((n, c) => n + c.count, 0),
+    alabamaCategoryCount: alabamaCats.length,
     topCategories,
   };
 }

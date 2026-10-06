@@ -9,7 +9,10 @@ import { getFiaDiscountPercent } from "@/lib/fia/settings";
 export const revalidate = 600;
 
 export default async function HomePage() {
-  const [{ alabamaCategories, alabamaItems, alabamaTotal, topCategories }, flatPct] =
+  const [
+    { alabamaCategories, alabamaItems, alabamaTotal, alabamaCategoryCount, topCategories },
+    flatPct,
+  ] =
     await Promise.all([getHomeShelves(), getFiaDiscountPercent()]);
   return (
     <>
@@ -51,6 +54,12 @@ export default async function HomePage() {
                 </p>
               )}
             </div>
+            <Link
+              href="/alabama"
+              className="text-sm hover:underline underline-offset-4 decoration-brand-yellow decoration-2"
+            >
+              All Alabama categories →
+            </Link>
           </div>
 
           {alabamaCategories.length > 0 && (
@@ -65,6 +74,14 @@ export default async function HomePage() {
                   <span className="text-brand-ink/45">{c.count}</span>
                 </Link>
               ))}
+              {alabamaCategoryCount > alabamaCategories.length && (
+                <Link
+                  href="/alabama"
+                  className="inline-flex items-center text-sm px-3 py-1.5 rounded-full bg-brand-ink text-white hover:bg-brand-ink/85 transition-colors"
+                >
+                  More Alabama categories ({alabamaCategoryCount - alabamaCategories.length}) →
+                </Link>
+              )}
             </div>
           )}
 
