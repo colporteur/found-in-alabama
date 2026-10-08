@@ -247,7 +247,10 @@ async function doSyncAll(tab) {
   }
 
   try {
-    for (let page = 1; page <= 400; page++) {
+    // Was capped at 400 pages (25 items each = 10,000 items), which stopped short of
+    // the full Listed inventory. Now walks until Nifty reports no next page;
+    // 2,000 pages is only a runaway guard.
+    for (let page = 1; page <= 2000; page++) {
       if (cancelled) break;
 
       // 1. Scrape the current page.

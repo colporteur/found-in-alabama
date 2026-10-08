@@ -9,7 +9,9 @@ import {
   index,
   boolean,
   numeric,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import type { AdapterAccountType } from "next-auth/adapters";
 
 // ─── Inventory ────────────────────────────────────────────────────────────────
@@ -1306,3 +1308,123 @@ export const emailMessages = pgTable(
     archivedIdx: index("email_messages_archived_idx").on(t.archivedAt),
   })
 );
+
+// ─── Item Registry (Phase REG-1) ──────────────────────────────────────────────
+// One record per physical item, with every venue listing for it. Built from
+// data the app already has (Nifty capture `items`, the eBay mirror
+// `ebay_listings`, `hip_listings`) by lib/registry/sync.ts, and kept current
+// by the hourly registry-sync cron plus the Nifty capture route. Additive:
+// nothing else reads these tables yet. SKU stays a storage-bin code — the
+// registry id is the item identity.
+
+export const registryItems = pgTable(
+  "registry_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** draft | live | sold | shipped | archived */
+    status: text("status").default("live").notNull(),
+    title: text("title").notNull(),
+    titleNormalized: text("title_normalized").notNull(),
+    /** Storage bin (the Nifty/eBay SKU field). Not unique. */
+    binSku: text("bin_sku"),
+    category: text("category"),
+    isbn: text("isbn"),
+    preIsbn: boolean("pre_isbn").default(false).notNull(),
+    originCountry: text("origin_country"),
+    /** Embargoed / restricted origin — kept off venues that prohibit it. */
+    restrictedOrigin: boolean("restricted_origin").default(false).notNull(),
+    /** items.id of the Nifty capture row, when there is one. */
+    niftyItemRef: uuid("nifty_item_ref"),
+    niftyId: text("nifty_id"),
+    primaryEbayItemId: text("primary_ebay_item_id"),
+    haulPostSlug: text("haul_post_slug"),
+    soldAt: timestamp("sold_at"),
+    soldOnVenue: text("sold_on_venue"),
+    /** ebay_backfill | nifty_backfill | intake | manual */
+    createdFrom: text("created_from").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    niftyRefUq: uniqueIndex("registry_items_nifty_ref_uq")
+      .on(t.niftyItemRef)
+      .where(sql`${t.niftyItemRef} IS NOT NULL`),
+    ebayUq: uniqueIndex("registry_items_ebay_uq")
+      .on(t.primaryEbayItemId)
+      .where(sql`${t.primaryEbayItemId} IS NOT NULL`),
+    statusIdx: index("registry_items_status_idx").on(t.status),
+    binIdx: index("registry_items_bin_idx").on(t.binSku),
+    titleNormIdx: index("registry_items_title_norm_idx").on(t.titleNormalized),
+  })
+);
+
+export const venueListings = pgTable(
+  "venue_listings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    registryItemId: uuid("registry_item_id")
+      .notNull()
+      .references(() => registryItems.id, { onDelete: "cascade" }),
+    /** ebay | mercari | poshmark | depop | whatnot | hip | etsy | tes | fia | … */
+    venue: text("venue").notNull(),
+    /** The venue's own listing id (URL-decoded). */
+    venueListingId: text("venue_listing_id").notNull(),
+    url: text("url"),
+    /** live | sold | ended | unknown */
+    status: text("status").default("unknown").notNull(),
+    price: numeric("price", { precision: 10, scale: 2 }),
+    /** ebay_sync | nifty_capture | hip_sync | manual | sale_email */
+    linkSource: text("link_source").notNull(),
+    /** exact | title | manual */
+    linkConfidence: text("link_confidence").default("exact").notNull(),
+    lastSeenAt: timestamp("last_seen_at").defaultNow().notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    venueIdUq: uniqueIndex("venue_listings_venue_id_uq").on(
+      t.venue,
+      t.venueListingId
+    ),
+    itemIdx: index("venue_listings_item_idx").on(t.registryItemId),
+    venueStatusIdx: index("venue_listings_venue_status_idx").on(
+      t.venue,
+      t.status
+    ),
+  })
+);
+
+/** Matches the sync couldn't settle on its own. Open rows are recomputed on
+ *  every sync; dismissed/resolved rows are left alone. */
+export const registryReview = pgTable(
+  "registry_review",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind").notNull(),
+    registryItemId: uuid("registry_item_id").references(() => registryItems.id, {
+      onDelete: "cascade",
+    }),
+    detail: jsonb("detail").$type<Record<string, unknown>>().default({}).notNull(),
+    /** open | resolved | dismissed */
+    status: text("status").default("open").notNull(),
+    resolvedBy: text("resolved_by"),
+    resolvedAt: timestamp("resolved_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    kindItemUq: uniqueIndex("registry_review_kind_item_uq").on(
+      t.kind,
+      t.registryItemId
+    ),
+    statusIdx: index("registry_review_status_idx").on(t.status, t.kind),
+  })
+);
+
+/** Per-venue connection state for the health view. */
+export const venueStatus = pgTable("venue_status", {
+  venue: text("venue").primaryKey(),
+  /** connected | via_nifty | expired | suspended | disconnected */
+  state: text("state").notNull(),
+  note: text("note"),
+  checkedAt: timestamp("checked_at").defaultNow().notNull(),
+});

@@ -202,6 +202,11 @@ export default async function AdminDashboard() {
           desc="Nifty-captured items across all six marketplaces."
         />
         <Tool
+          href="/admin/registry"
+          title="Item registry"
+          desc="One record per item with every venue listing — cross-venue coverage and the review queue."
+        />
+        <Tool
           href="/admin/ai-models"
           title="AI Models"
           desc="Gateway routing table: which model each alias and app uses. Swap models with no deploy."
