@@ -1,10 +1,11 @@
-// /admin/listings — listing drafts (Phase LIST-1). Items sent from the PC
-// ("Send to listing" on the Scans page) or started in the manual lister.
-// The writer and review/approve steps arrive in LIST-2; for now drafts can
-// be opened, filled in by hand, or discarded. Nothing here publishes.
+// /admin/listings — listing drafts. Items sent from the PC ("Send to
+// listing" on the Scans page) or started in the manual lister (LIST-1),
+// written by the listing writer and reviewed / approved here (LIST-2).
+// Nothing here publishes.
 
 import Link from "next/link";
 import { draftsReady, listDrafts } from "@/lib/listings/drafts";
+import { DraftGrid } from "./DraftGrid";
 
 export const dynamic = "force-dynamic";
 
@@ -17,14 +18,6 @@ const STATUS_LABEL: Record<string, string> = {
   published: "Published",
   sent_back: "Sent back",
   discarded: "Discarded",
-};
-
-const SOURCE_LABEL: Record<string, string> = {
-  scans: "Scans",
-  scanroom: "Scanroom",
-  photoxfer: "PhotoXfer",
-  estate: "Estate Sorter",
-  manual: "Manual",
 };
 
 export default async function ListingsPage({ searchParams }: { searchParams: { status?: string } }) {
@@ -52,12 +45,17 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
             Items on their way to becoming listings. Send items from the Scans page on your PC, or start one here.
           </p>
         </div>
-        <Link
-          href="/admin/listings/new"
-          className="text-sm px-4 py-2 rounded font-medium bg-brand-ink text-white hover:bg-brand-ink/80"
-        >
-          New listing
-        </Link>
+        <div className="flex gap-2">
+          <Link href="/admin/listings/settings" className="text-sm px-4 py-2 rounded border border-brand-ink/20 hover:border-brand-ink/50">
+            Writer settings
+          </Link>
+          <Link
+            href="/admin/listings/new"
+            className="text-sm px-4 py-2 rounded font-medium bg-brand-ink text-white hover:bg-brand-ink/80"
+          >
+            New listing
+          </Link>
+        </div>
       </div>
 
       <div className="flex flex-wrap gap-2 mb-6 text-sm">
@@ -69,37 +67,7 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
         )}
       </div>
 
-      {drafts.length === 0 ? (
-        <p className="text-sm text-brand-ink/60">Nothing here yet.</p>
-      ) : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {drafts.map((d) => (
-            <Link
-              key={d.id}
-              href={`/admin/listings/${d.id}`}
-              className="bg-white border border-brand-ink/15 rounded-lg overflow-hidden hover:border-brand-ink/40"
-            >
-              <div className="aspect-square bg-brand-ink/5 flex items-center justify-center overflow-hidden">
-                {d.cover ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={d.cover} alt="" className="object-contain w-full h-full" />
-                ) : (
-                  <span className="text-xs text-brand-ink/40">{d.photos} photo{d.photos === 1 ? "" : "s"}</span>
-                )}
-              </div>
-              <div className="p-3 text-sm">
-                <p className="font-medium line-clamp-2">{d.title ?? d.titleHint ?? "Untitled item"}</p>
-                <p className="text-xs text-brand-ink/60 mt-1">
-                  {STATUS_LABEL[d.status] ?? d.status} · {SOURCE_LABEL[d.source] ?? d.source}
-                  {d.binSku && <> · bin {d.binSku}</>}
-                  {d.price != null && <> · ${d.price.toFixed(2)}</>}
-                </p>
-                {d.sourceLabel && <p className="text-xs text-brand-ink/40 mt-1 truncate">{d.sourceLabel}</p>}
-              </div>
-            </Link>
-          ))}
-        </div>
-      )}
+      <DraftGrid drafts={drafts} readyCount={counts.ready ?? 0} />
     </section>
   );
 }

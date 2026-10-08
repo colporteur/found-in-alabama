@@ -44,6 +44,11 @@ export type DraftSummary = {
   photos: number;
   cover: string | null;
   createdAt: string;
+  /** Writer's confidence (0–1) and tier, once written. */
+  confidence: number | null;
+  tier: string | null;
+  writtenBy: string | null;
+  generationError: string | null;
 };
 
 export type Draft = DraftSummary & {
@@ -60,11 +65,15 @@ export type Draft = DraftSummary & {
   ebayCategoryName: string | null;
   itemSpecifics: Record<string, string | string[]> | null;
   venuePrices: Record<string, number> | null;
-  writtenBy: string | null;
   reviewNote: string | null;
   createdBy: string | null;
   updatedAt: string;
   photoList: DraftPhoto[];
+  shippingProfile: string | null;
+  aiMeta: Record<string, unknown> | null;
+  generationStartedAt: string | null;
+  approvedAt: string | null;
+  approvedBy: string | null;
 };
 
 export async function draftsReady(): Promise<boolean> {
@@ -79,6 +88,7 @@ export async function listDrafts(status: string | null, limit = 100): Promise<{
   const filter = status ? sql`WHERE d.status = ${status}` : sql`WHERE d.status <> 'discarded'`;
   const found = await rows(sql`
     SELECT d.id, d.status, d.source, d.source_label, d.title, d.title_hint, d.bin_sku, d.price, d.created_at,
+           d.written_by, d.generation_error, d.ai_meta->>'confidence' AS confidence, d.ai_meta->>'tier' AS tier,
            (SELECT count(*) FROM draft_photos p WHERE p.draft_id = d.id) AS photos,
            (SELECT p.url FROM draft_photos p WHERE p.draft_id = d.id AND p.uploaded_at IS NOT NULL
              ORDER BY p.position LIMIT 1) AS cover
@@ -102,6 +112,10 @@ export async function listDrafts(status: string | null, limit = 100): Promise<{
       photos: Number(d.photos),
       cover: s(d.cover),
       createdAt: String(d.created_at),
+      confidence: n(d.confidence),
+      tier: s(d.tier),
+      writtenBy: s(d.written_by),
+      generationError: s(d.generation_error),
     })),
   };
 }
@@ -132,6 +146,9 @@ export async function loadDraft(id: string): Promise<Draft | null> {
     photos: photoList.length,
     cover: photoList.find((p) => p.uploaded)?.url ?? null,
     createdAt: String(d.created_at),
+    confidence: n((d.ai_meta as Record<string, unknown> | null)?.confidence),
+    tier: s((d.ai_meta as Record<string, unknown> | null)?.tier),
+    generationError: s(d.generation_error),
     registryItemId: s(d.registry_item_id),
     facts: (d.facts as Record<string, unknown>) ?? {},
     notes: s(d.notes),
@@ -149,6 +166,11 @@ export async function loadDraft(id: string): Promise<Draft | null> {
     createdBy: s(d.created_by),
     updatedAt: String(d.updated_at),
     photoList,
+    shippingProfile: s(d.shipping_profile),
+    aiMeta: (d.ai_meta as Record<string, unknown> | null) ?? null,
+    generationStartedAt: s(d.generation_started_at),
+    approvedAt: s(d.approved_at),
+    approvedBy: s(d.approved_by),
   };
 }
 
@@ -165,6 +187,9 @@ export type DraftEdit = {
   weightOz?: number | null;
   quantity?: number;
   notes?: string | null;
+  shippingProfile?: string | null;
+  /** Poshmark's own price (null clears it). */
+  poshmarkPrice?: number | null;
 };
 
 /** "Brand: Curt Teich\nEra: Linen (1930-1945)" → { Brand: "Curt Teich", … }.
@@ -209,6 +234,14 @@ export async function updateDraft(id: string, edit: DraftEdit): Promise<{ ok: bo
   if ("weightOz" in edit) col("weight_oz", edit.weightOz);
   if ("quantity" in edit) col("quantity", edit.quantity);
   if ("notes" in edit) col("notes", edit.notes);
+  if ("shippingProfile" in edit) col("shipping_profile", edit.shippingProfile);
+  if ("poshmarkPrice" in edit) {
+    sets.push(
+      edit.poshmarkPrice
+        ? sql`venue_prices = COALESCE(venue_prices, '{}'::jsonb) || jsonb_build_object('poshmark', ${edit.poshmarkPrice}::numeric)`
+        : sql`venue_prices = NULLIF(COALESCE(venue_prices, '{}'::jsonb) - 'poshmark', '{}'::jsonb)`
+    );
+  }
   if (sets.length === 0) return { ok: true };
   sets.push(sql`written_by = CASE WHEN written_by IS NULL OR written_by = 'hand' THEN 'hand' ELSE 'ai+hand' END`);
   sets.push(sql`updated_at = now()`);

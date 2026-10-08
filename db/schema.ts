@@ -1596,6 +1596,14 @@ export const listingDrafts = pgTable(
     /** hand | ai — who wrote the current content. */
     writtenBy: text("written_by"),
     reviewNote: text("review_note"),
+    /** envelope | calculated | media — suggested eBay shipping policy (LIST-2). */
+    shippingProfile: text("shipping_profile"),
+    /** What the writer used and decided: tier, model, guides, confidence,
+     *  price rationale, supply snapshot, flags, cost (LIST-2). */
+    aiMeta: jsonb("ai_meta").$type<Record<string, unknown>>(),
+    generationStartedAt: timestamp("generation_started_at"),
+    generationError: text("generation_error"),
+    approvedBy: text("approved_by"),
     createdBy: text("created_by"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),
@@ -1632,5 +1640,43 @@ export const draftPhotos = pgTable(
   },
   (t) => ({
     draftPosUq: uniqueIndex("draft_photos_draft_pos_uq").on(t.draftId, t.position),
+  })
+);
+
+// ── AI runs (Phase LIST-2) ──────────────────────────────────────────────────
+// One row per model call the listing writer makes (identify, write, retry),
+// so models can later be compared on cost, confidence and sell-through.
+// ai_call_log keeps the cross-app cost log; this table keeps the listing
+// detail (tier, guides and their versions, confidence, the parsed output).
+export const aiRuns = pgTable(
+  "ai_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    draftId: uuid("draft_id").references(() => listingDrafts.id, { onDelete: "cascade" }),
+    /** listing-writer */
+    app: text("app").notNull(),
+    /** identify | write */
+    step: text("step").notNull(),
+    /** simple | general | premium */
+    tier: text("tier"),
+    /** What was asked for, and what the gateway says actually ran. */
+    model: text("model").notNull(),
+    resolvedModel: text("resolved_model"),
+    /** [{ id, version }] of the Expert Guides in the prompt. */
+    guides: jsonb("guides").$type<Array<{ id: string; version: string | null }>>(),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    cacheReadTokens: integer("cache_read_tokens"),
+    costUsd: numeric("cost_usd", { precision: 10, scale: 6 }),
+    durationMs: integer("duration_ms"),
+    confidence: numeric("confidence", { precision: 4, scale: 3 }),
+    success: boolean("success").default(true).notNull(),
+    error: text("error"),
+    output: jsonb("output").$type<Record<string, unknown>>(),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    draftIdx: index("ai_runs_draft_idx").on(t.draftId, t.createdAt),
   })
 );

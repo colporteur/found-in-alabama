@@ -1,10 +1,11 @@
 // PATCH /api/admin/listings/:id — edit a draft's listing content by hand.
-// POST  /api/admin/listings/:id  { action: "discard" | "restore" }
+// POST  /api/admin/listings/:id  { action: "discard" | "restore" | "approve" | "unapprove" | "send_back", note? }
 // Signed-in admin only.
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { parseSpecifics, setDraftStatus, updateDraft, type DraftEdit } from "@/lib/listings/drafts";
+import { approveDrafts, sendBackDraft, unapproveDraft } from "@/lib/listings/review";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -45,6 +46,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if ("weightOz" in b) edit.weightOz = num(b.weightOz);
   if ("quantity" in b) edit.quantity = Math.max(1, Math.round(num(b.quantity) ?? 1));
   if ("notes" in b) edit.notes = text(b.notes, 4000);
+  if ("shippingProfile" in b) {
+    const p = text(b.shippingProfile, 20);
+    edit.shippingProfile = p && ["envelope", "calculated", "media"].includes(p) ? p : null;
+  }
+  if ("poshmarkPrice" in b) edit.poshmarkPrice = num(b.poshmarkPrice);
 
   const r = await updateDraft(params.id, edit);
   return NextResponse.json(r, { status: r.ok ? 200 : 409 });
@@ -53,10 +59,27 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const b = (await req.json().catch(() => ({}))) as { action?: string };
-  if (b.action !== "discard" && b.action !== "restore") {
-    return NextResponse.json({ error: "action must be discard or restore" }, { status: 400 });
+  const b = (await req.json().catch(() => ({}))) as { action?: string; note?: unknown };
+  const who = session.user.email ?? "admin";
+  let r: { ok: boolean; error?: string };
+  switch (b.action) {
+    case "discard":
+    case "restore":
+      r = await setDraftStatus(params.id, b.action, who);
+      break;
+    case "approve": {
+      const out = await approveDrafts([params.id], who);
+      r = out.approved.length ? { ok: true } : { ok: false, error: out.skipped[0]?.reason ?? "Not approved" };
+      break;
+    }
+    case "unapprove":
+      r = await unapproveDraft(params.id);
+      break;
+    case "send_back":
+      r = await sendBackDraft(params.id, typeof b.note === "string" ? b.note : null);
+      break;
+    default:
+      return NextResponse.json({ error: "Unknown action" }, { status: 400 });
   }
-  const r = await setDraftStatus(params.id, b.action, session.user.email ?? "admin");
   return NextResponse.json(r, { status: r.ok ? 200 : 409 });
 }

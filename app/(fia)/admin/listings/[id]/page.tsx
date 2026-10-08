@@ -1,10 +1,13 @@
-// /admin/listings/:id — one listing draft: photos, what intake knew, and the
-// listing fields (editable by hand). Phase LIST-1.
+// /admin/listings/:id — one listing draft: photos, what intake knew, the
+// writer's controls and notes (LIST-2), and the listing fields (editable by
+// hand). Nothing on this page publishes.
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { formatSpecifics, loadDraft } from "@/lib/listings/drafts";
 import { DraftEditor } from "./DraftEditor";
+import { WriterPanel } from "./WriterPanel";
+import { AiNotes } from "./AiNotes";
 
 export const dynamic = "force-dynamic";
 
@@ -12,6 +15,9 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
   const d = await loadDraft(params.id);
   if (!d) notFound();
   const facts = Object.entries(d.facts).filter(([, v]) => v != null && v !== "");
+  const stale =
+    d.status === "generating" &&
+    (!d.generationStartedAt || Date.now() - new Date(d.generationStartedAt).getTime() > 10 * 60 * 1000);
 
   return (
     <section className="container-content py-12">
@@ -61,6 +67,18 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
         </div>
       )}
 
+      <WriterPanel
+        id={d.id}
+        status={d.status}
+        writtenBy={d.writtenBy}
+        reviewNote={d.reviewNote}
+        generationError={d.generationError}
+        stale={stale}
+        handMode={d.facts.mode === "hand"}
+      />
+
+      {d.aiMeta && <AiNotes meta={d.aiMeta} shippingProfile={d.shippingProfile} venuePrices={d.venuePrices} />}
+
       <DraftEditor
         id={d.id}
         status={d.status}
@@ -77,6 +95,8 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
           weightOz: d.weightOz != null ? String(d.weightOz) : "",
           quantity: String(d.quantity),
           notes: d.notes ?? "",
+          shippingProfile: d.shippingProfile ?? "",
+          poshmarkPrice: d.venuePrices?.poshmark != null ? String(d.venuePrices.poshmark) : "",
         }}
       />
     </section>

@@ -386,3 +386,40 @@ First step of Phase 3 (push-button listing, own listing writer). Items get from 
 - **Admin:** `/admin/listings` (queue with status filters), `/admin/listings/new` (manual lister: photos are resized in the browser to ≤3,200 px and kept under the 4.5 MB request limit; "let the writer fill it" vs "I'll write it myself" is stored as `facts.mode`), `/admin/listings/:id` (photos, intake facts, editable fields).
 - **PC side (not in this repo):** `PhotoXfer/listing_sender.py`, hooked into `scans_web.py` / `scans.html`, adds "Send checked to listing" and a per-item "Send" button to the Scans page. It reads photos only, never moves, rotates or deletes anything, and records what was sent in `PhotoXfer/listing_sent.json`. The API key lives in `PhotoXfer/fia_api_key.txt`. Tests: `PhotoXfer/test_listing_sender.py`.
 - **Sale matcher:** draft/archived registry items are excluded from title matching (`lib/sales/pipeline.ts`).
+
+## Listing writer + review queue (Phase LIST-2, Oct 2026)
+
+- **What it does:** `lib/listings/writer.ts` `generateDraft(id, {tier, corrections, who})` writes one draft and leaves it in `review`. Steps:
+  1. **identify**: quick vision pass on up to 3 photos with the identify model. Returns kind, card type, keywords, rough value and difficulty.
+  2. **route**: `pickTier()` in `lib/listings/rules.ts`. Artwork, signed, ≥$75 or hard items go to premium; common postcards and simple paper to simple; everything else to general.
+  3. **context**: up to two matching Expert Guides (listing + pricing sections only, `guidePromptText`), a live supply snapshot (`/v1/supply` on the gateway, active eBay asks), and the 40 best-fitting eBay categories from the ones the store already uses (`ebay_listings.site_category_*`).
+  4. **write**: the tier's model returns JSON (title, plain-text description, condition, category id, item specifics, price and range, rationale, confidence, flags). If confidence is below `retryBelow`, it runs once more one tier up and keeps the more confident result. There is no retry when a tier was chosen by hand.
+  5. **rules**:
+     - titles: 80 characters, bin codes stripped, "Vtg" only if needed
+     - descriptions: plain text, 1,500 cap, the first ~1,000 characters stand alone
+     - prices: nearest .87, $5.87 floor (RPPC $9.87, early cards $7.87), postcards at $20–$24 go to $19.99, Poshmark price $15 below that
+     - shipping: Standard Envelope only for ESE-eligible categories at ≤$20 and ≤3.5 oz; books and media go Media Mail
+- **Photos** are fetched from R2 and downsized with `sharp` (long edge 1,568 px) before they go to the model, so big scans never hit image limits.
+- **Claiming:** a run sets `status='generating'` atomically. A run older than 10 minutes counts as crashed and can be retried. A failed run restores the previous status and stores `generation_error`. A draft discarded mid-run is not overwritten.
+- **Records (migration 0032):**
+  - `ai_runs`: one row per model call, with step, tier, model, resolved model, guide ids and versions, tokens, cost, confidence, parsed output and errors.
+  - `listing_drafts` gains `ai_meta` (what the writer used and decided), `shipping_profile`, `generation_started_at`, `generation_error` and `approved_by`.
+  - Every call is also in `ai_call_log` (ops `listing_identify` / `listing_write`), sent with `x-app: listing-writer`.
+- **Settings:** `/admin/listings/settings`, stored in app_settings `listingWriter`:
+  - model per tier (OpenRouter ids or gateway aliases). Defaults: simple `anthropic/claude-haiku-4.5`, general `anthropic/claude-sonnet-5`, premium `anthropic/claude-fable-5`, identify `anthropic/claude-haiku-4.5`
+  - photos sent (6), retry threshold (0.6), floors
+- **Review:** `lib/listings/review.ts`.
+  - Approve needs a title, description, price and condition.
+  - Bulk approve, unapprove, and send back with a note. On the next write the note becomes the writer's corrections.
+  - Approval only marks the draft. Nothing publishes yet; that comes in LIST-3, the Nifty bridge.
+- **API:**
+  - `POST /api/admin/listings/:id/generate` (session or API key, `maxDuration` 300)
+  - `POST /api/admin/listings/bulk` (`approve` | `writable`)
+  - `GET/PUT /api/admin/listings/settings`
+  - `POST /api/admin/listings/:id` now also takes `approve`, `unapprove` and `send_back`
+- **Admin UI:**
+  - The queue has "Write all ready". It runs in the browser, two at a time; manual-lister drafts marked "I'll write it myself" are skipped.
+  - Queue cards show a confidence badge and have checkboxes; there are "Pick confident (≥ 80%)" and "Approve selected" buttons.
+  - The draft page has Write / Rewrite (choose the tier and type corrections), Approve / Send back, and the writer's notes: model, cost, guides, price reasoning, supply comps and flags.
+- **Not yet:** APR sold comps (APR runs on the PC). Prices use the guide plus active supply for now.
+- **Tests:** `npx tsx --test lib/listings/rules.test.mts`.
