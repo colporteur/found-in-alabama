@@ -396,6 +396,8 @@ export function parseWriteOutput(text: string, opts: { binSku?: string | null; c
   if (!j) return { ok: false, error: "The model's reply wasn't JSON" };
   const title = cleanTitle(str(j.title, 300), opts.binSku);
   if (title.length < 10) return { ok: false, error: "The model returned no usable title" };
+  const extraFlags: string[] = [];
+  if (title.length < 60) extraFlags.push(`Title is only ${title.length} of 80 characters — room for more search words`);
   const description = cleanDescription(typeof j.description === "string" ? j.description : "");
   if (description.length < 40) return { ok: false, error: "The model returned no usable description" };
   const condRaw = str(j.condition, 60);
@@ -432,7 +434,7 @@ export function parseWriteOutput(text: string, opts: { binSku?: string | null; c
       priceHigh: money(j.price_high),
       priceRationale: str(j.price_rationale, 800),
       confidence: clamp01(j.confidence),
-      flags: strList(j.flags, 8, 200),
+      flags: [...strList(j.flags, 8, 200), ...extraFlags],
     },
   };
 }

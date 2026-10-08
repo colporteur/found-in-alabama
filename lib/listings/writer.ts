@@ -275,9 +275,9 @@ NON-NEGOTIABLE RULES (they override the expert guide):
 2. Never mention shipping, packing, handling time, discounts, returns, payment or price in the title or description.
 3. Never include bin or SKU codes (e.g. NA331) anywhere.
 
-TITLE: at most 80 characters (aim for 65–80). Front-load what buyers search, following the guide's title formula. No ALL-CAPS words except real acronyms (RPPC), no filler (WOW, L@@K, RARE unless the guide supports it), no quotes.
+TITLE: at most 80 characters, and use the room — aim for 70–80 (add place, era, maker, format words buyers search; eBay ranks on them). Front-load what buyers search, following the guide's title formula. No ALL-CAPS words except real acronyms (RPPC), no filler (WOW, L@@K, RARE unless the guide supports it), no quotes.
 
-DESCRIPTION: plain text only — no HTML, no markdown, no bullet symbols other than "•". At most 1,400 characters. The FIRST 1,000 characters must stand alone because Mercari and Depop cut off after that: what the item is, its key identifying details, and its condition. Any extra detail (history of the place, publisher notes) comes after. Short paragraphs.
+DESCRIPTION: plain text only — no HTML, no markdown, no bullet symbols other than "•". At most 1,400 characters. The FIRST 1,000 characters must stand alone because Mercari and Depop cut off after that, so the FIRST paragraph must say what the item is, its key identifying details, its size if known, AND a one-sentence condition summary. Extra detail (contents, history of the place, publisher notes) comes after. Short paragraphs.
 
 CONDITION: one of: ${CONDITIONS.join(", ")}. For vintage paper "Used" is normal. condition_note: the specific visible flaws (corner wear, creases, writing, postmark/stamp, toning, pin holes, trimming), or "" if none are visible. Do not overclaim.
 
