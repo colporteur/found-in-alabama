@@ -144,7 +144,10 @@ export function WriterPanel({
         {msg && <span className="text-sm text-brand-ink/70">{msg}</span>}
       </div>
       {status === "approved" && (
-        <p className="text-xs text-brand-ink/50">Approved. Sending approved drafts to Nifty comes in the next milestone; nothing has been published.</p>
+        <p className="text-xs text-brand-ink/50">
+          Approved. To put it in Nifty as a draft, open app.nifty.ai in Chrome and press “Send approved to Nifty” in the Found in
+          Alabama extension. Nothing is published until you publish it in Nifty.
+        </p>
       )}
     </div>
   );

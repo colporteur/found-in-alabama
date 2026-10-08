@@ -21,6 +21,7 @@ import sharp from "sharp";
 import { gatewayChat, type GatewayContentPart } from "@/lib/gateway";
 import { computeLlmCost, getRate, logAiCall } from "@/lib/enhance/cost";
 import { listGuides, loadGuide, routeGuides, guideKeywordHits, type Guide } from "@/lib/enhance/guides";
+import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 import { buildSupplyQuery, fetchSupply, REPRICE_DEFAULTS, type SupplySnapshot } from "@/lib/enhance/supply";
 import {
   applyPriceRules,
@@ -32,6 +33,7 @@ import {
   parseWriterSettings,
   pickTier,
   rankCategories,
+  rankStoreCategories,
   suggestShipping,
   CONDITIONS,
   type CategoryOption,
@@ -277,11 +279,13 @@ NON-NEGOTIABLE RULES (they override the expert guide):
 
 TITLE: at most 80 characters, and use the room — aim for 70–80 (add place, era, maker, format words buyers search; eBay ranks on them). Front-load what buyers search, following the guide's title formula. No ALL-CAPS words except real acronyms (RPPC), no filler (WOW, L@@K, RARE unless the guide supports it), no quotes.
 
-DESCRIPTION: plain text only — no HTML, no markdown, no bullet symbols other than "•". At most 1,400 characters. The FIRST 1,000 characters must stand alone because Mercari and Depop cut off after that, so the FIRST paragraph must say what the item is, its key identifying details, its size if known, AND a one-sentence condition summary. Extra detail (contents, history of the place, publisher notes) comes after. Short paragraphs.
+DESCRIPTION: plain text only — no HTML, no markdown, no bullet symbols other than "•". At most 1,400 characters. The FIRST 1,000 characters must stand alone because Mercari and Depop cut off after that, so the FIRST paragraph must say what the item is, its key identifying details, its size if known, AND a one-sentence condition summary. Extra detail (contents, history of the place, publisher notes) comes after. Write 2–4 short paragraphs separated by a blank line — never one solid block.
 
 CONDITION: one of: ${CONDITIONS.join(", ")}. For vintage paper "Used" is normal. condition_note: the specific visible flaws (corner wear, creases, writing, postmark/stamp, toning, pin holes, trimming), or "" if none are visible. Do not overclaim.
 
 CATEGORY: choose ebay_category_id from the list provided (they are the categories this store uses). If none fits, return null and put the eBay category path you would use in ebay_category_suggestion.
+
+STORE CATEGORIES: pick up to two of the store's own shelves (store_category_ids) from the list provided. First: the shelf for what the item IS. Second: if the item has a clear tie to Alabama, an Alabama shelf (marked [AL]); otherwise, if it is tied to another US state, that state's shelf under "Found in Other States"; otherwise a second shelf that adds information (not a near-duplicate of the first). Leave the second out if nothing fits.
 
 ITEM SPECIFICS: eBay item specific names and values for that category (follow the guide's item specifics map if it has one). Only values you are sure of; omit the rest. Typical for postcards: Type, Theme, Subject, City, State, Region, Country/Region of Manufacture, Era, Postage Condition, Publisher, Original/Licensed Reprint, Size.
 
@@ -295,6 +299,7 @@ Return ONLY this JSON object:
   "condition_note": "",
   "ebay_category_id": "",
   "ebay_category_suggestion": "",
+  "store_category_ids": ["", ""],
   "item_specifics": { "Name": "value" },
   "price": 0,
   "price_low": 0,
@@ -392,6 +397,13 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
     ]);
     const candidates = rankCategories(cats, routeText, 40);
     const catIds = new Set(candidates.map((c) => c.id));
+    const storeOptions = await buildCategoryOptions().catch(() => []);
+    const storeCands = rankStoreCategories(
+      storeOptions.map((o) => ({ id: o.id, path: o.path.replace(/&amp;/g, "&"), isAlabama: o.isAlabama })),
+      routeText,
+      50
+    );
+    const storeIds = new Set(storeCands.map((c) => c.id));
     const guideRefs = guides.map((g) => ({ id: g.id, version: g.version ?? g.updated ?? null }));
     const guideText = guides.length ? guidePromptText(guides.map((g) => ({ id: g.id, name: g.name, content: g.content }))) : "";
 
@@ -401,6 +413,9 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
       ident ? `Quick identification (a first look — the photos win if they disagree): ${ident.identification}; kind ${ident.kind}; era ${ident.era || "?"}; places ${ident.places.join(", ") || "?"}.` : "",
       supplyText(supply),
       `eBay categories this store uses (id — path):\n${candidates.map((c) => `${c.id} — ${c.path}`).join("\n")}`,
+      storeCands.length
+        ? `The store's own shelves (eBay store categories; id — path):\n${storeCands.map((c) => `${c.id} — ${c.isAlabama ? "[AL] " : ""}${c.path}`).join("\n")}`
+        : "",
       guides.length ? "" : "No expert guide matched this item; rely on general collectibles knowledge and be conservative on price.",
       correctionBlock.trim(),
     ]
@@ -424,7 +439,7 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
         who: opts.who,
       });
       totalCost += call.costUsd;
-      const parsed = parseWriteOutput(call.text, { binSku: d.bin_sku as string | null, categoryIds: catIds });
+      const parsed = parseWriteOutput(call.text, { binSku: d.bin_sku as string | null, categoryIds: catIds, storeCategoryIds: storeIds });
       await noteRun(call.runId, parsed.ok ? parsed.value.confidence : null, parsed.ok ? parsed.value : { error: parsed.error, raw: call.text.slice(0, 4000) });
       attempts.push({ tier, model, out: parsed.ok ? parsed.value : null, error: parsed.ok ? undefined : parsed.error, resolvedModel: call.resolvedModel });
       const conf = parsed.ok ? parsed.value.confidence ?? 1 : 0;
@@ -493,6 +508,7 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
         price = ${priced?.price ?? null},
         venue_prices = ${priced?.venuePrices ? JSON.stringify(priced.venuePrices) : null}::jsonb,
         shipping_profile = ${ship?.profile ?? null},
+        store_category_ids = ${out.storeCategoryIds.length ? JSON.stringify(out.storeCategoryIds) : null}::jsonb,
         ai_meta = ${JSON.stringify(aiMeta)}::jsonb,
         written_by = 'ai',
         review_note = NULL,

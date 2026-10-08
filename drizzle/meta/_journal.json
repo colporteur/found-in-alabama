@@ -232,6 +232,13 @@
       "when": 1791474526146,
       "tag": "0032_listing_writer",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1791483560585,
+      "tag": "0033_nifty_bridge",
+      "breakpoints": true
     }
   ]
 }

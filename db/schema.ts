@@ -1565,7 +1565,7 @@ export const listingDrafts = pgTable(
     registryItemId: uuid("registry_item_id").references(() => registryItems.id, {
       onDelete: "set null",
     }),
-    /** uploading | ready | generating | review | approved | published | sent_back | discarded */
+    /** uploading | ready | generating | review | approved | in_nifty | published | sent_back | discarded */
     status: text("status").default("uploading").notNull(),
     /** scans | scanroom | photoxfer | estate | manual */
     source: text("source").notNull(),
@@ -1604,6 +1604,14 @@ export const listingDrafts = pgTable(
     generationStartedAt: timestamp("generation_started_at"),
     generationError: text("generation_error"),
     approvedBy: text("approved_by"),
+    /** Up to two eBay store category ids (LIST-3). */
+    storeCategoryIds: jsonb("store_category_ids").$type<string[]>(),
+    /** The Nifty draft created by the bridge (LIST-3), when it was sent,
+     *  the last send error, and the bridge's warnings (fields it couldn't fill). */
+    niftyItemId: text("nifty_item_id"),
+    niftySentAt: timestamp("nifty_sent_at"),
+    niftyError: text("nifty_error"),
+    niftyWarnings: jsonb("nifty_warnings").$type<string[]>(),
     createdBy: text("created_by"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().notNull(),

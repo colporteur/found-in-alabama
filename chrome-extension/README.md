@@ -82,3 +82,34 @@ reload-arrow on the extensions page. After pulling new code:
 2. Find "Found in Alabama — Nifty Sync"
 3. Click the reload arrow (↻)
 4. Done — next click of the extension uses the new code.
+
+## Send approved listings to Nifty (v1.2.0, Oct 2026)
+
+Approved drafts from **foundinalabama.com/admin/listings** can be put into
+Nifty as **drafts** — no "Generate", no credits, nothing published.
+
+1. Approve drafts on foundinalabama.com/admin/listings.
+2. Open any app.nifty.ai page in Chrome, click the extension icon.
+3. Under **Approved listings**, click **Send approved to Nifty**. Keep the
+   popup open until it says Done (one item every few seconds).
+4. Each line links to the new Nifty draft. Review it in Nifty → Drafts and
+   publish from there as usual.
+
+How it works (`nifty-bridge.js`): it copies the fixed marketplace settings
+(shipping, returns, payment, Mercari/Depop/Whatnot shipping, Poshmark size,
+venue categories) from a **template** Nifty listing of the same kind —
+chosen on foundinalabama.com/admin/listings/settings — and fills in the
+draft's own title, description, condition, prices, SKU, photos, eBay
+category, item specifics and store categories. It calls Nifty's own
+"Save draft" request (`inventory.saveAsDraftV2`), then re-reads the item and
+stops if any marketplace shows it as listed. It will never call
+`inventory.addItemV2` — that is Nifty's **Publish**.
+
+Notes per item (fields the bridge couldn't fill, e.g. an item specific that
+isn't a field in that eBay category) are shown in the popup and on the draft
+page at foundinalabama.com.
+
+Tests: `node --test nifty-bridge.test.cjs`.
+Rollback: restore `popup.before-nifty-bridge-20261008.js` → `popup.js` and
+`manifest.before-nifty-bridge-20261008.json` → `manifest.json`, delete
+`nifty-bridge.js`, then reload the extension.

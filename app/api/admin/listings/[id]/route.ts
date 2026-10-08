@@ -51,6 +51,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     edit.shippingProfile = p && ["envelope", "calculated", "media"].includes(p) ? p : null;
   }
   if ("poshmarkPrice" in b) edit.poshmarkPrice = num(b.poshmarkPrice);
+  if ("storeCategoryIds" in b) {
+    const ids = (Array.isArray(b.storeCategoryIds) ? b.storeCategoryIds : [])
+      .map((v) => String(v ?? "").replace(/\D/g, ""))
+      .filter(Boolean);
+    edit.storeCategoryIds = Array.from(new Set(ids)).slice(0, 2);
+  }
 
   const r = await updateDraft(params.id, edit);
   return NextResponse.json(r, { status: r.ok ? 200 : 409 });

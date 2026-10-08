@@ -15,6 +15,7 @@ const STATUS_LABEL: Record<string, string> = {
   generating: "Writing",
   review: "To review",
   approved: "Approved",
+  in_nifty: "In Nifty (draft)",
   published: "Published",
   sent_back: "Sent back",
   discarded: "Discarded",
