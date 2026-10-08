@@ -31,8 +31,19 @@ export type R2Config = {
   publicBase: string;
 };
 
+/** Accepts a bare account ID or the full S3 endpoint URL Cloudflare shows
+ *  ("https://<id>.r2.cloudflarestorage.com/<bucket>") and returns the ID. */
+export function normalizeAccountId(raw: string | undefined): string | undefined {
+  const v = raw?.trim();
+  if (!v) return undefined;
+  return v
+    .replace(/^[a-z]+:\/\//i, "")
+    .replace(/[/?#].*$/, "")
+    .replace(/\.r2\.cloudflarestorage\.com$/i, "");
+}
+
 export function r2Config(): R2Config | null {
-  const accountId = process.env.R2_ACCOUNT_ID?.trim();
+  const accountId = normalizeAccountId(process.env.R2_ACCOUNT_ID);
   const accessKeyId = process.env.R2_ACCESS_KEY_ID?.trim();
   const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY?.trim();
   const bucket = process.env.R2_BUCKET?.trim();
