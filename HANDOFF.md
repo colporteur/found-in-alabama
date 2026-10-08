@@ -446,3 +446,13 @@ First step of Phase 3 (push-button listing, own listing writer). Items get from 
   - A text-only pass on the identify model then fills them from the finished listing. `fitSpecifics()` (`lib/ebay/aspects.ts`, tested) keeps only the category's own field names and allowed values.
   - Required fields still empty become review flags.
   - If eBay can't be reached, the writer's own specifics are kept, as before.
+
+## Send to listing from Scanroom and the Estate panel (Phase 3d, Oct 2026)
+
+- The PC side isn't in this repo. See `Scanroom/SEND-TO-LISTING.md` and `PhotoXfer/SEND-TO-LISTING.md` on the PC.
+- **Scanroom:** after Save to Batch or Save by SKU Class, a **➜ Send to listing** button sends exactly the item folders that save created. It calls PhotoXfer `POST /scans/send-to-listing {folder, items}`.
+- **Estate panel** (PhotoXfer `/estate`): **➜ Send to listing** sends `estate:<folder>`. Each lot (listing.json) and each single (singles.json) becomes a draft with `source: "estate"`. The sorter's title, description and price arrive as `facts.estate_title`, `facts.estate_description` and `facts.estate_price`, and the writer gets them as a draft to improve.
+- **PhotoXfer listing sender:**
+  - Sends are queued when one is already running (two Scanrooms, or the Scans page).
+  - text/plain JSON is accepted, which file:// Scanroom needs.
+  - POSTs from other websites are refused (Origin guard).
