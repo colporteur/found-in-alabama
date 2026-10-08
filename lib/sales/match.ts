@@ -51,11 +51,29 @@ function tierOf(c: Candidate): number {
   return 4;
 }
 
-export function pickCandidate(rows: Candidate[], price: number | null): MatchDecision {
+/** For an old sale (history, backfill) the right item has usually already
+ *  been recorded as sold, and a live same-titled item is a relist or more
+ *  stock — so sold beats live. */
+function historicalTierOf(c: Candidate): number {
+  const linked = c.venueStatus !== null;
+  const sold = c.itemStatus === "sold";
+  if (linked && c.venueStatus === "sold") return 1; // sold on this very venue
+  if (linked && sold) return 2;
+  if (linked) return 3;
+  if (sold) return 4;
+  return 5;
+}
+
+export function pickCandidate(
+  rows: Candidate[],
+  price: number | null,
+  opts: { historical?: boolean } = {}
+): MatchDecision {
   const cands = dedupeCandidates(rows);
   if (cands.length === 0) return { status: "unmatched" };
-  for (let tier = 1; tier <= 4; tier++) {
-    const inTier = cands.filter((c) => tierOf(c) === tier);
+  const tierOf_ = opts.historical ? historicalTierOf : tierOf;
+  for (let tier = 1; tier <= 5; tier++) {
+    const inTier = cands.filter((c) => tierOf_(c) === tier);
     if (inTier.length === 0) continue;
     if (inTier.length === 1) {
       return { status: "matched", registryItemId: inTier[0].registryItemId, tier, byPrice: false };

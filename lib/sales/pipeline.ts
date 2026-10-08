@@ -323,6 +323,7 @@ async function matchOne(e: Row): Promise<MatchResult> {
   const decision = pickCandidate(
     await titleCandidates(venue, title, prefix),
     price,
+    { historical: e.historical === true },
   );
   const method = prefix ? "title_prefix" : "title_exact";
   if (decision.status === "matched") {
@@ -356,7 +357,8 @@ export async function matchPending(
   limit = 500,
 ): Promise<Record<string, number>> {
   const pending = await rows(sql`
-    SELECT id, venue, venue_listing_id, ebay_item_id, title, title_truncated, price
+    SELECT id, venue, venue_listing_id, ebay_item_id, title, title_truncated, price,
+           COALESCE(sold_at, detected_at) < now() - make_interval(days => ${PLAN_WINDOW_DAYS}) AS historical
     FROM sale_events WHERE status = 'pending' ORDER BY detected_at LIMIT ${limit}`);
   const counts: Record<string, number> = {};
   for (const e of pending) {
@@ -508,7 +510,10 @@ export async function planMatched(limit = 500): Promise<{
 
     // The registry's own record: the item is sold, and so is the listing
     // it sold through (eBay and Hip rows stay owned by their API syncs).
-    if (!multiQty) {
+    // Older sales (history / Gmail backfill) never change the registry: the
+    // Nifty capture already reflects them, and a title match on an old sale
+    // must not mark a live relist sold.
+    if (!multiQty && s.historical !== true) {
       await exec(sql`
       UPDATE registry_items SET status = 'sold', sold_at = ${at}::timestamptz, sold_on_venue = ${venue},
              updated_at = now()
@@ -530,7 +535,7 @@ export async function planMatched(limit = 500): Promise<{
 
     await exec(sql`
       UPDATE sale_events SET planned_at = now(), updated_at = now(),
-             note = CASE WHEN ${s.historical === true}::boolean THEN COALESCE(note, 'Older sale: registry updated, no delist plan')
+             note = CASE WHEN ${s.historical === true}::boolean THEN COALESCE(note, 'Older sale: recorded for history only (no delist plan, registry unchanged)')
                          WHEN ${!!other}::boolean THEN COALESCE(note, 'Double sale: plan kept on the first sale')
                          WHEN ${multiQty}::boolean THEN COALESCE(note, 'Multi-quantity item: one unit sold, item stays live')
                          ELSE note END
