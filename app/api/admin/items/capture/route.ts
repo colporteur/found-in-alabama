@@ -31,10 +31,13 @@ import { db } from "@/db";
 import { items as itemsTable } from "@/db/schema";
 import { bearerFromRequest, verifyApiKey } from "@/lib/api-keys";
 import {
+  buildMarketplaceUrl,
   buildMarketplaceUrls,
   detectSoldMarketplace,
+  normalizeMarketplaceName,
   type MarketplaceMetadata,
 } from "@/lib/marketplace-urls";
+import { syncRegistryFromCapture, type CapturedListing } from "@/lib/registry/sync";
 import { privateNotesToHaulSlug } from "@/lib/posts-slugs";
 import { buildSlug } from "@/lib/items/slug";
 import { eq, sql } from "drizzle-orm";
@@ -98,6 +101,8 @@ export async function POST(req: NextRequest) {
   let linkedToHaul = 0;
   let markedSold = 0;
   const errors: { niftyId?: string; error: string }[] = [];
+  // Phase REG-1: per-venue listing ids + Nifty's own status, for the registry.
+  const registryListings: CapturedListing[] = [];
 
   for (const incoming of payload.items) {
     try {
@@ -178,6 +183,17 @@ export async function POST(req: NextRequest) {
         });
 
       upserted += 1;
+      for (const [rawName, meta] of Object.entries(marketplaces)) {
+        const key = normalizeMarketplaceName(rawName);
+        if (!key || !meta?.externalId) continue;
+        registryListings.push({
+          niftyId: incoming.niftyId,
+          marketplace: key,
+          externalId: String(meta.externalId).trim(),
+          status: meta.status ?? null,
+          url: buildMarketplaceUrl(key, meta.externalId),
+        });
+      }
       if (haulSlug) linkedToHaul += 1;
       if (isSold) markedSold += 1;
     } catch (err) {
@@ -188,7 +204,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Keep the item registry current. Never fails the capture: the hook
+  // swallows its own errors (e.g. before the REG-1 migration has run).
+  const registry = await syncRegistryFromCapture(registryListings);
+
   return NextResponse.json({
+    registry,
     upserted,
     linkedToHaul,
     markedSold,

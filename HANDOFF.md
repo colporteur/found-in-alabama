@@ -340,3 +340,18 @@ linked from every product page.
 - **No sales tax** is collected on either site (Todd's call, Oct 2026).
   Turning on Stripe Tax later = `automatic_tax: { enabled: true }` on both
   checkout routes plus his Alabama registration in the Stripe dashboard.
+
+## Item registry (Phase REG-1, Oct 2026)
+
+First phase of the Integrated Resale System (scope doc lives in the "Vibecoding Reselling Tools" Claude project). One record per physical item, with every venue listing for it.
+
+- **Tables (migration 0029, additive only):** `registry_items`, `venue_listings`, `registry_review`, `venue_status`. Nothing else reads them yet.
+- **Sync:** `lib/registry/sync.ts` → `runRegistrySync()`. It's an ordered list of idempotent SQL steps that read `items` (Nifty capture), `ebay_listings` and `hip_listings`, and write only the registry tables. Runs hourly (`/api/cron/registry-sync`, `40 * * * *`) and from the "Run sync now" button.
+- **Capture hook:** `/api/admin/items/capture` calls `syncRegistryFromCapture()` after each batch, recording Nifty's per-venue status (LISTED → live, SOLD → sold, DELISTED → ended). The hook swallows its own errors, so a capture never fails because of the registry.
+- **Admin page:** `/admin/registry` (linked from the dashboard under Data & setup) shows totals, cross-venue coverage, venue status and the review queue. Dismissed review rows survive syncs.
+- **Gotchas:**
+  - `ebay_listings.quantity` is AVAILABLE quantity. eBay keeps sold-out qty-1 listings open until their end time, so "for sale" means quantity > 0.
+  - SKU is a bin, not an identity.
+  - Venue listing ids are stored URL-decoded (Whatnot ids are base64 and end in `=`).
+  - The eBay mirror only adds brand-new listings at the daily sweep. Items listed today show in the "Nifty listed, eBay not in mirror" review bucket until then.
+- **Nifty Sync extension:** the bulk capture's 400-page cap (= 10,000 items) was raised to 2,000 pages on Oct 7. Locally patched in `chrome-extension/popup.js` and committed with this phase.

@@ -204,6 +204,13 @@
       "when": 1791242481560,
       "tag": "0028_bent_silver_centurion",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1791418354639,
+      "tag": "0029_item_registry",
+      "breakpoints": true
     }
   ]
 }
