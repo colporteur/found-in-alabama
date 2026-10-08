@@ -52,3 +52,19 @@ test("rows for the same item (several venue listings) count once", () => {
 test("likePrefix escapes LIKE wildcards", () => {
   assert.equal(likePrefix("100% cotton_tee"), "100\\% cotton\\_tee%");
 });
+
+test("old sales prefer the item already sold on that venue over a live relist", () => {
+  const rows = [c("relist", "live", "live"), c("orig", "sold", "sold"), c("other", "sold", "ended")];
+  assert.deepEqual(pickCandidate(rows, null), { status: "matched", registryItemId: "relist", tier: 1, byPrice: false });
+  assert.deepEqual(pickCandidate(rows, null, { historical: true }), {
+    status: "matched",
+    registryItemId: "orig",
+    tier: 1,
+    byPrice: false,
+  });
+});
+
+test("old sales: two items sold on the venue with the same title go to review", () => {
+  const r = pickCandidate([c("a", "sold", "sold"), c("b", "sold", "sold")], null, { historical: true });
+  assert.equal(r.status, "ambiguous");
+});
