@@ -324,3 +324,22 @@ test("normalizeTitle matches the capture normalizer and drops a trailing ellipsi
 test("htmlToText keeps cell boundaries as line breaks", () => {
   assert.equal(htmlToText("<tr><td>a</td></tr><tr><td>b</td></tr>"), "a\n b");
 });
+
+test("depop: clothing size lines don't replace the title", () => {
+  const text = ["Order details", "image Denim & Co Light Blue Short Sleeve...", " Size:", "L", "", "$5.25", "Ship to"].join("\n");
+  const r = parseSaleEmail({ from: "sold@alerts.depop.com", subject: "Your USPS shipping label and sale confirmation for @x.", text, html: null });
+  assert.ok(r && r.kind === "sale");
+  assert.deepEqual(r.lines.map((l) => [l.title, l.price]), [["Denim & Co Light Blue Short Sleeve", 5.25]]);
+});
+
+test("poshmark: invisible direction marks inside the subject title are removed", () => {
+  const r = parseSaleEmail({
+    from: "orders@poshmark.com",
+    subject: '"Cintas Men\'s Design Collective\u200e Dress Pants 42x30" just sold to @buyer_handle on Poshmark!',
+    text: "Hi Todd!",
+    html: null,
+  });
+  assert.ok(r && r.kind === "sale");
+  assert.equal(r.lines[0].title, "Cintas Men's Design Collective Dress Pants 42x30");
+  assert.equal(normalizeTitle("Fairy\u200e Tale"), "fairy tale");
+});

@@ -80,10 +80,16 @@ export function htmlToText(html: string): string {
     .trim();
 }
 
+/** Zero-width and direction marks (Poshmark subjects carry U+200E inside
+ *  titles) and soft hyphens: invisible, but they break exact matching. */
+export function stripInvisible(s: string): string {
+  return s.replace(/[\u00ad\u200b-\u200f\u202a-\u202e\u2060\ufeff]/g, "");
+}
+
 /** Lowercase, collapse whitespace, strip a trailing ellipsis. Matches
  *  items.title_normalized (lower + trim + single spaces). */
 export function normalizeTitle(t: string): string {
-  return decodeEntities(t)
+  return stripInvisible(decodeEntities(t))
     .toLowerCase()
     .replace(/(\.\.\.|…)\s*$/u, "")
     .replace(/\s+/g, " ")
@@ -125,7 +131,7 @@ function venueKey(name: string): string | null {
 // ─── venue parsers ────────────────────────────────────────────────────────────
 
 function parseMercari(e: EmailInput, body: string): ParsedSale | null {
-  const subject = decodeEntities(e.subject ?? "");
+  const subject = stripInvisible(decodeEntities(e.subject ?? ""));
   const m = subject.match(/^You(?:'|’)ve made a sale:\s*(.+)$/i);
   if (!m) return null;
   const id = body.match(/\bID:\s*(m\d{6,})\b/);
@@ -147,7 +153,7 @@ function parseMercari(e: EmailInput, body: string): ParsedSale | null {
 }
 
 function parsePoshmark(e: EmailInput, body: string): ParsedSale | null {
-  const subject = decodeEntities(e.subject ?? "");
+  const subject = stripInvisible(decodeEntities(e.subject ?? ""));
   // Single item: "\"<title>\" just sold to @buyer on Poshmark!"
   const single = subject.match(/^"(.+)"\s+just sold to @\S+ on Poshmark/i);
   const bundle = /just sold/i.test(subject) && /bundle/i.test(subject);
@@ -182,7 +188,7 @@ function parsePoshmark(e: EmailInput, body: string): ParsedSale | null {
 }
 
 function parseWhatnot(e: EmailInput, body: string): ParsedSale | null {
-  const subject = decodeEntities(e.subject ?? "");
+  const subject = stripInvisible(decodeEntities(e.subject ?? ""));
   const m = subject.match(/^Your (.+) got sold!/i);
   if (!m) return null;
   const price = body.match(/has sold for \$([\d,]+\.\d{2})/i);
@@ -195,7 +201,7 @@ function parseWhatnot(e: EmailInput, body: string): ParsedSale | null {
 }
 
 function parseDepop(e: EmailInput, body: string): ParsedSale | null {
-  const subject = decodeEntities(e.subject ?? "");
+  const subject = stripInvisible(decodeEntities(e.subject ?? ""));
   if (!/sale confirmation/i.test(subject) && !/You(?:'|’)ve made a sale/i.test(body)) return null;
   const start = body.search(/Order details/i);
   if (start < 0) return null;
@@ -226,14 +232,17 @@ function parseDepop(e: EmailInput, body: string): ParsedSale | null {
       pending = null;
       continue;
     }
-    pending = l.replace(/^image\s+/i, "");
+    // Clothing adds "Size:" / "L" lines between the title and the price;
+    // the title is the first line of each item block.
+    if (/^Size:/i.test(l)) continue;
+    if (pending === null) pending = l.replace(/^image\s+/i, "");
   }
   if (out.length === 0) return null;
   return { kind: "sale", venue: "depop", orderRef: null, lines: out };
 }
 
 function parseNifty(e: EmailInput, body: string): ParsedNiftyAlert | null {
-  const subject = decodeEntities(e.subject ?? "");
+  const subject = stripInvisible(decodeEntities(e.subject ?? ""));
   const reconnect = subject.match(/Reconnect your (\w+) account/i);
   if (reconnect) {
     const v = venueKey(reconnect[1]);
