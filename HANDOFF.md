@@ -355,3 +355,19 @@ First phase of the Integrated Resale System (scope doc lives in the "Vibecoding 
   - Venue listing ids are stored URL-decoded (Whatnot ids are base64 and end in `=`).
   - The eBay mirror only adds brand-new listings at the daily sweep. Items listed today show in the "Nifty listed, eBay not in mirror" review bucket until then.
 - **Nifty Sync extension:** the bulk capture's 400-page cap (= 10,000 items) was raised to 2,000 pages on Oct 7. Locally patched in `chrome-extension/popup.js` and committed with this phase.
+
+## Sale detection, shadow mode (Phase SALES-1, Oct 2026)
+
+Second phase of the Integrated Resale System. Notices every sale on every venue, ties it to its registry item, records which other listings should come down, and checks whether Nifty took them down. **It never delists anything** — Nifty still does all of that. The scoreboard is the readiness test for the later phase that replaces Nifty's delisting.
+
+- **Tables (migration 0030, additive only):** `sale_events` (one row per sale signal, unique on source + source_ref + line), `delist_plans` (one row per listing that should come down, with its outcome), `sale_email_scans` (which inbox messages the parser has read), `nifty_alerts` (Nifty's failure / reconnect notices).
+- **Signals:**
+  - eBay — hook in `lib/ebay/events-sync.ts`: a listing whose available quantity hits 0 with QuantitySold > 0 is a sale (a manual end has QuantitySold 0). Calls `recordEbaySales()`, which never throws.
+  - Hip — `hip_sales` lines. TES / FIA — paid `tes_orders` (source tes / fia; Hip orders come in through `hip_sales`).
+  - Mercari / Poshmark / Depop / Whatnot / Nifty — sale emails forwarded from Gmail to `sales@foundinalabama.com` (Site inbox), parsed by `lib/sales/parse.ts`. Buyer names and addresses are never extracted; they stay only in the stored message.
+- **Pipeline:** `lib/sales/pipeline.ts` → `runSalesSync()`, every 5 minutes (`/api/cron/sales-sync`) and from "Run now" on `/admin/sales`. Steps: ingest → match (listing id → eBay id → exact title → title prefix for Depop's shortened titles; ties go to review, rules in `lib/sales/match.ts`) → plan → Nifty alerts → outcomes.
+- **Registry writes:** a matched sale marks the registry item sold, and the selling venue's listing sold. Multi-quantity eBay stock stays live. `lib/registry/sync.ts` has guards (`expandSaleGuards`) so the hourly sync doesn't flip a just-sold item back to live from an older Nifty capture or eBay mirror row, and doesn't assume-close a listing that's a planned delist leg (its real status is what the score is waiting for).
+- **Outcomes:** eBay from the mirror, Hip from `hip_listings`, the other venues from the next Nifty Sync capture (per-venue DELISTED / SOLD). A Nifty "Failed auto-delist" email marks that leg `failed_nifty`. Legs with no evidence after 24 h are `unverified`.
+- **Older sales:** anything more than 3 days old when first matched (the 45-day Hip/Stripe lookback, a Gmail backfill) updates the registry but gets no delist plan.
+- **Review:** `/admin/sales` review queue. Pick a candidate, type an eBay item id / URL / registry id, or Ignore (`/api/admin/sales/review`).
+- **Tests:** `npx tsx --test lib/sales/parse.test.mts lib/sales/match.test.mts`. Fixtures are redacted reconstructions — never paste a real buyer's details (public repo).

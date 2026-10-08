@@ -1428,3 +1428,124 @@ export const venueStatus = pgTable("venue_status", {
   note: text("note"),
   checkedAt: timestamp("checked_at").defaultNow().notNull(),
 });
+
+// ─── Sale detection (Phase SALES-1, shadow mode) ──────────────────────────────
+// Every sale signal from every venue, tied to a registry item, plus the
+// listings that SHOULD come down because of it and whether they did. Nothing
+// here acts on a marketplace: Nifty keeps delisting; this records and scores
+// it (lib/sales/pipeline.ts, /admin/sales).
+
+export const saleEvents = pgTable(
+  "sale_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** ebay_events | hip | stripe | email | manual */
+    source: text("source").notNull(),
+    /** eBay item id, Hip sale id, tes_order_items id, email_messages id. */
+    sourceRef: text("source_ref").notNull(),
+    /** Line within the source (bundles / multi-item orders). */
+    line: integer("line").default(0).notNull(),
+    /** Venue the item sold on: ebay | hip | tes | fia | mercari | poshmark | depop | whatnot */
+    venue: text("venue").notNull(),
+    venueListingId: text("venue_listing_id"),
+    ebayItemId: text("ebay_item_id"),
+    title: text("title"),
+    titleTruncated: boolean("title_truncated").default(false).notNull(),
+    price: numeric("price", { precision: 10, scale: 2 }),
+    orderRef: text("order_ref"),
+    soldAt: timestamp("sold_at"),
+    detectedAt: timestamp("detected_at").defaultNow().notNull(),
+    registryItemId: uuid("registry_item_id").references(() => registryItems.id, {
+      onDelete: "set null",
+    }),
+    /** exact_id | ebay_id | title_exact | title_prefix | manual */
+    matchMethod: text("match_method"),
+    /** pending | matched | ambiguous | unmatched | duplicate | ignored */
+    status: text("status").default("pending").notNull(),
+    /** double_sale = the same item also sold on another venue. */
+    flag: text("flag"),
+    /** Registry ids the matcher couldn't choose between. */
+    candidates: jsonb("candidates").$type<string[]>(),
+    duplicateOf: uuid("duplicate_of"),
+    /** Set once delist_plans rows were written for this sale. */
+    plannedAt: timestamp("planned_at"),
+    resolvedBy: text("resolved_by"),
+    note: text("note"),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    sourceUq: uniqueIndex("sale_events_source_uq").on(t.source, t.sourceRef, t.line),
+    statusIdx: index("sale_events_status_idx").on(t.status),
+    itemIdx: index("sale_events_item_idx").on(t.registryItemId),
+    detectedIdx: index("sale_events_detected_idx").on(t.detectedAt),
+  })
+);
+
+export const delistPlans = pgTable(
+  "delist_plans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    saleEventId: uuid("sale_event_id")
+      .notNull()
+      .references(() => saleEvents.id, { onDelete: "cascade" }),
+    registryItemId: uuid("registry_item_id").references(() => registryItems.id, {
+      onDelete: "set null",
+    }),
+    venue: text("venue").notNull(),
+    venueListingId: text("venue_listing_id").notNull(),
+    /** delist | end_ebay | close_hip | decrement */
+    plannedAction: text("planned_action").notNull(),
+    plannedAt: timestamp("planned_at").defaultNow().notNull(),
+    /** pending | done | still_live | failed_nifty | unverified */
+    outcome: text("outcome").default("pending").notNull(),
+    outcomeAt: timestamp("outcome_at"),
+    evidence: jsonb("evidence").$type<Record<string, unknown>>(),
+    checkedAt: timestamp("checked_at"),
+  },
+  (t) => ({
+    legUq: uniqueIndex("delist_plans_leg_uq").on(t.saleEventId, t.venue, t.venueListingId),
+    outcomeIdx: index("delist_plans_outcome_idx").on(t.outcome),
+    venueIdIdx: index("delist_plans_venue_id_idx").on(t.venue, t.venueListingId),
+  })
+);
+
+/** One row per email_messages row the sale parser has looked at. */
+export const saleEmailScans = pgTable("sale_email_scans", {
+  messageId: uuid("message_id")
+    .primaryKey()
+    .references(() => emailMessages.id, { onDelete: "cascade" }),
+  /** sale | nifty_alert | ignored | error */
+  result: text("result").notNull(),
+  detail: text("detail"),
+  scannedAt: timestamp("scanned_at").defaultNow().notNull(),
+});
+
+/** Nifty's own failure notices — the benchmark's "Nifty missed it" signal. */
+export const niftyAlerts = pgTable(
+  "nifty_alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    messageId: uuid("message_id")
+      .notNull()
+      .unique()
+      .references(() => emailMessages.id, { onDelete: "cascade" }),
+    /** nifty_failed_delist | nifty_failed_adjust | nifty_reconnect */
+    kind: text("kind").notNull(),
+    title: text("title"),
+    titleNormalized: text("title_normalized"),
+    soldVenue: text("sold_venue"),
+    /** [{ venue, reason }] */
+    failed: jsonb("failed").$type<{ venue: string; reason: string }[]>().default([]).notNull(),
+    /** Reconnect notices: the venue to reconnect. */
+    venue: text("venue"),
+    registryItemId: uuid("registry_item_id").references(() => registryItems.id, {
+      onDelete: "set null",
+    }),
+    receivedAt: timestamp("received_at").notNull(),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    receivedIdx: index("nifty_alerts_received_idx").on(t.receivedAt),
+    titleIdx: index("nifty_alerts_title_idx").on(t.titleNormalized),
+  })
+);

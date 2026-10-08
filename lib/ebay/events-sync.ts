@@ -27,6 +27,7 @@ import { ebayListings, ebaySyncLog, appSettings } from "@/db/schema";
 import { tradingCall } from "@/lib/ebay/client";
 import { closeHipForItems } from "@/lib/hip/close";
 import { revalidateStorefront } from "@/lib/storefront-cache";
+import { recordEbaySales, type EbaySaleSignal } from "@/lib/sales/pipeline";
 
 const CURSOR_KEY = "listingEventsCursor";
 const OVERLAP_MS = 2 * 60_000;
@@ -64,6 +65,9 @@ type ItemDelta = {
   quantity: number | null;
   price: string | null;
   ended: boolean;
+  /** Units sold over the listing's life (SellingStatus.QuantitySold). */
+  quantitySold: number;
+  title: string | null;
 };
 
 function parsePrice(currentPrice: unknown): string | null {
@@ -104,6 +108,8 @@ function normalizeEvent(item: unknown): ItemDelta | null {
     quantity: available,
     price: parsePrice(sellingStatus.CurrentPrice),
     ended,
+    quantitySold: Number.isFinite(qtySold) ? qtySold : 0,
+    title: i.Title != null ? String(i.Title) : null,
   };
 }
 
@@ -118,6 +124,8 @@ export type EventsSyncResult = {
   zeroed: number;
   /** Events for items not in the mirror (new listings — daily sweep's job). */
   skippedUnknown: number;
+  /** Sold-out listings handed to sale detection (Phase SALES-1). */
+  saleSignals?: number;
   noop: boolean;
 };
 
@@ -206,6 +214,15 @@ export async function syncListingEventsDelta(): Promise<EventsSyncResult> {
 
   await saveCursor({ lastTo: windowTo });
 
+  // Phase SALES-1 (shadow mode): a listing that sold out (available 0 with
+  // units sold) is a sale signal for the sale-detection pipeline. Recorded
+  // even for listings not yet in the mirror. A manual end (nothing sold) is
+  // not a sale. Best-effort; never fails this sync.
+  const saleSignals: EbaySaleSignal[] = deltas
+    .filter((d) => d.quantity === 0 && d.quantitySold > 0)
+    .map((d) => ({ itemId: d.itemId, title: d.title, price: d.price, quantitySold: d.quantitySold }));
+  const sales = await recordEbaySales(saleSignals);
+
   // Storefront pages are ISR-cached; anything that sold, ended or was
   // repriced must vanish/update now, not at the next 10-minute window.
   // (A full purge, not per-item: a sold item also changes its category
@@ -232,6 +249,8 @@ export async function syncListingEventsDelta(): Promise<EventsSyncResult> {
         scanned: deltas.length,
         zeroed,
         skippedUnknown,
+        saleSignals: saleSignals.length,
+        salesRecorded: sales.inserted,
       },
       startedAt,
       endedAt: new Date(),
@@ -245,6 +264,7 @@ export async function syncListingEventsDelta(): Promise<EventsSyncResult> {
     updated,
     zeroed,
     skippedUnknown,
+    saleSignals: saleSignals.length,
     noop: false,
   };
 }
