@@ -269,6 +269,7 @@ export function cleanTitle(raw: string, binSku?: string | null): string {
     t = t.replace(new RegExp(`[\\s\\-:|]*(?:SKU\\s*[:#-]?\\s*)?[\\[(]?\\s*\\b${esc}\\b\\s*[\\])]?`, "gi"), " ");
   }
   t = t.replace(/\s+/g, " ").trim();
+  t = t.replace(/\bVTG\b/g, "Vtg");
   if (t.length > TITLE_MAX) t = t.replace(/\bvintage\b/gi, "Vtg");
   if (t.length > TITLE_MAX) {
     const cut = t.slice(0, TITLE_MAX + 1);
@@ -297,10 +298,28 @@ export function cleanDescription(raw: string): string {
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
+  d = moveConditionUp(d);
   if (d.length > DESC_MAX) {
     const cut = d.slice(0, DESC_MAX);
     const end = Math.max(cut.lastIndexOf(". "), cut.lastIndexOf(".\n"), cut.lastIndexOf("\n"));
     d = (end > 1000 ? cut.slice(0, end + 1) : cut.slice(0, cut.lastIndexOf(" "))).trim();
+  }
+  return d;
+}
+
+/** Mercari and Depop show only the first ~1,000 characters, so a
+ *  "Condition: …" paragraph that landed later moves up to second place. */
+export function moveConditionUp(d: string): string {
+  const paras = d.split(/\n\n/);
+  if (paras.length < 3) return d;
+  let offset = 0;
+  for (let i = 0; i < paras.length; i++) {
+    if (i >= 2 && /^condition\b/i.test(paras[i].trim()) && offset + paras[i].length > 900) {
+      const [c] = paras.splice(i, 1);
+      paras.splice(1, 0, c);
+      return paras.join("\n\n");
+    }
+    offset += paras[i].length + 2;
   }
   return d;
 }
