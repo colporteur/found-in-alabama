@@ -46,6 +46,27 @@ export const AUTO_REVIEW_KINDS = [
 
 type Step = { name: string; sql: string };
 
+// Phase SALES-1 guards. Sale detection marks an item sold minutes after the
+// sale, usually before Nifty's capture or the eBay mirror catch up, so the
+// hourly sync must not flip it back to live from older data:
+//   {{SALE_AFTER:<col>}} — a matched sale for r was detected after <col>
+//   {{LEG_PLANNED}}      — listing v is a planned delist leg whose real
+//                          status the outcome checker is waiting to see
+// Before the SALES-1 migration both expand to FALSE (Phase 1 behaviour).
+export function expandSaleGuards(text: string, salesReady: boolean): string {
+  return text
+    .replace(/\{\{SALE_AFTER:([a-z_.]+)\}\}/g, (_, col) =>
+      salesReady
+        ? `EXISTS (SELECT 1 FROM sale_events s WHERE s.registry_item_id = r.id AND s.status = 'matched' AND s.detected_at > ${col})`
+        : "FALSE"
+    )
+    .replace(/\{\{LEG_PLANNED\}\}/g, () =>
+      salesReady
+        ? "EXISTS (SELECT 1 FROM delist_plans p WHERE p.venue = v.venue AND p.venue_listing_id = v.venue_listing_id)"
+        : "FALSE"
+    );
+}
+
 export const REGISTRY_SYNC_STEPS: Step[] = [
   {
     name: "seed venue status",
@@ -131,6 +152,7 @@ export const REGISTRY_SYNC_STEPS: Step[] = [
         bin_sku = i.sku, haul_post_slug = i.haul_post_slug, updated_at = now()
       FROM items i
       WHERE r.nifty_item_ref = i.id AND r.status IN ('live', 'sold')
+        AND NOT (i.status <> 'sold' AND r.status = 'sold' AND {{SALE_AFTER:i.updated_at}})
         AND (r.status IS DISTINCT FROM CASE WHEN i.status = 'sold' THEN 'sold' ELSE 'live' END
              OR r.title IS DISTINCT FROM i.title
              OR r.bin_sku IS DISTINCT FROM i.sku
@@ -154,6 +176,7 @@ export const REGISTRY_SYNC_STEPS: Step[] = [
       FROM ebay_listings e
       WHERE r.created_from = 'ebay_backfill' AND e.item_id = r.primary_ebay_item_id
         AND r.status IN ('live', 'sold')
+        AND NOT (e.quantity > 0 AND r.status = 'sold' AND {{SALE_AFTER:e.last_synced_at}})
         AND r.status IS DISTINCT FROM CASE WHEN e.quantity > 0 THEN 'live' ELSE 'sold' END`,
   },
   {
@@ -206,7 +229,8 @@ export const REGISTRY_SYNC_STEPS: Step[] = [
       SET status = CASE WHEN r.sold_on_venue = v.venue THEN 'sold' ELSE 'ended' END, updated_at = now()
       FROM registry_items r
       WHERE v.registry_item_id = r.id AND r.status = 'sold'
-        AND v.venue NOT IN ('ebay', 'hip') AND v.status IN ('unknown', 'live')`,
+        AND v.venue NOT IN ('ebay', 'hip') AND v.status IN ('unknown', 'live')
+        AND NOT {{LEG_PLANNED}}`,
   },
   {
     name: "Hip venue listings",
@@ -269,10 +293,16 @@ export type RegistrySyncResult = {
 export async function runRegistrySync(): Promise<RegistrySyncResult> {
   const started = Date.now();
   const steps: RegistrySyncResult["steps"] = [];
+  const ready = (await db.execute(
+    sql`SELECT to_regclass('public.sale_events') IS NOT NULL AS ok`
+  )) as { rows?: { ok?: boolean }[] };
+  const salesReady = !!ready.rows?.[0]?.ok;
   for (const step of REGISTRY_SYNC_STEPS) {
     const t = Date.now();
     try {
-      const res = (await db.execute(sql.raw(step.sql))) as { rowCount?: number | null };
+      const res = (await db.execute(sql.raw(expandSaleGuards(step.sql, salesReady)))) as {
+        rowCount?: number | null;
+      };
       steps.push({ name: step.name, rows: res.rowCount ?? null, ms: Date.now() - t });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);

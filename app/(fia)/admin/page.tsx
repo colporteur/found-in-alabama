@@ -207,6 +207,11 @@ export default async function AdminDashboard() {
           desc="One record per item with every venue listing — cross-venue coverage and the review queue."
         />
         <Tool
+          href="/admin/sales"
+          title="Sale detection"
+          desc="Every sale on every venue, matched to its item, and whether its other listings came down (shadow mode)."
+        />
+        <Tool
           href="/admin/ai-models"
           title="AI Models"
           desc="Gateway routing table: which model each alias and app uses. Swap models with no deploy."

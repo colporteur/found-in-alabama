@@ -211,6 +211,13 @@
       "when": 1791418354639,
       "tag": "0029_item_registry",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1791423265096,
+      "tag": "0030_sale_detection",
+      "breakpoints": true
     }
   ]
 }
