@@ -2,6 +2,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  moveConditionUp,
   applyPriceRules,
   cleanDescription,
   cleanTitle,
@@ -74,6 +75,7 @@ test("titles: bin codes stripped, 80 characters, Vtg only when needed", () => {
   assert.ok(t.length <= 80, t);
   assert.ok(t.startsWith("Vtg Linen"));
   assert.equal(cleanTitle("Vintage Postcard Selma"), "Vintage Postcard Selma");
+  assert.equal(cleanTitle("VTG Cleveland Terminal Tower Brochure"), "Vtg Cleveland Terminal Tower Brochure");
 });
 
 test("descriptions: plain text, capped at 1,500 at a sentence end", () => {
@@ -154,4 +156,12 @@ test("writer output validation", () => {
   });
   assert.ok(badCat.ok && badCat.value.ebayCategoryId === null);
   assert.equal(parseWriteOutput("sorry").ok, false);
+});
+
+test("a late condition paragraph moves up to second place", () => {
+  const long = "Intro about the item.\n\n" + "Detail. ".repeat(130) + "\n\nCondition: light toning.";
+  const moved = moveConditionUp(long);
+  assert.ok(moved.indexOf("Condition:") < 40, moved.slice(0, 80));
+  const short = "Intro.\n\nDetail.\n\nCondition: fine.";
+  assert.equal(moveConditionUp(short), short);
 });

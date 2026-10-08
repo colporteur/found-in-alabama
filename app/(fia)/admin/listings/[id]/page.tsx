@@ -80,6 +80,7 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
       {d.aiMeta && <AiNotes meta={d.aiMeta} shippingProfile={d.shippingProfile} venuePrices={d.venuePrices} />}
 
       <DraftEditor
+        key={d.updatedAt}
         id={d.id}
         status={d.status}
         initial={{
