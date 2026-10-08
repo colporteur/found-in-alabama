@@ -20,10 +20,13 @@ import { sql } from "drizzle-orm";
 import sharp from "sharp";
 import { gatewayChat, type GatewayContentPart } from "@/lib/gateway";
 import { computeLlmCost, getRate, logAiCall } from "@/lib/enhance/cost";
-import { listGuides, loadGuide, routeGuides, guideKeywordHits, type Guide } from "@/lib/enhance/guides";
+import { listGuides, loadGuide, routeGuides, guideKeywordHits, guideSection, ITEM_SPECIFICS_HEADING, type Guide } from "@/lib/enhance/guides";
+import { categoryAspects } from "@/lib/ebay/taxonomy";
+import { aspectPromptText, fitSpecifics } from "@/lib/ebay/aspects";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 import { buildSupplyQuery, fetchSupply, REPRICE_DEFAULTS, type SupplySnapshot } from "@/lib/enhance/supply";
 import {
+  extractJson,
   applyPriceRules,
   cleanCategoryPath,
   guidePromptText,
@@ -105,7 +108,7 @@ async function preparePhotos(photos: Photo[]): Promise<{ parts: GatewayContentPa
 
 type CallMeta = {
   draftId: string;
-  step: "identify" | "write";
+  step: "identify" | "write" | "specifics";
   tier: Tier | null;
   guides: Array<{ id: string; version: string | null }>;
   who: string;
@@ -313,6 +316,17 @@ Return ONLY this JSON object:
 }
 confidence (0–1): how sure you are of the identification and the facts in the listing.`;
 
+const SPECIFICS_SYSTEM = `You fill in eBay item specifics for one listing, using ONLY the field names in the category's list.
+
+Rules:
+- Use facts from the title, description, identification and intake facts. Never invent brands, makers, publishers, dates or places. Leave a field out rather than guess.
+- For fields marked "choose from", use one of the listed values exactly as written.
+- Fill every REQUIRED field you can, then the recommended ones, then any optional ones the listing clearly supports.
+- "one value" fields get a single string; "several values ok" fields may get a list of strings.
+- Values are short (1–4 words), in the form buyers filter by.
+
+Return ONLY a JSON object: { "Field name": "value" | ["value", "value"] }`;
+
 // ── the run ─────────────────────────────────────────────────────────────────
 
 export type GenerateOptions = {
@@ -470,6 +484,57 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
             poshmarkFloor: settings.poshmarkFloor,
           })
         : null;
+    // 4b. item specifics that fit the chosen eBay category: look up the
+    // category's real fields (Taxonomy API, cached) and have the
+    // inexpensive model fill them from the finished listing (text only).
+    let specifics = out.itemSpecifics;
+    const specFlags: string[] = [];
+    const aspects = cat ? await categoryAspects(cat.id) : null;
+    if (aspects && aspects.length) {
+      const map = guides.map((g) => guideSection(g.content, ITEM_SPECIFICS_HEADING)).filter(Boolean).join("\n\n").slice(0, 4000);
+      try {
+        const sp = await callModel(
+          settings.identifyModel,
+          [{ type: "text", text: SPECIFICS_SYSTEM }],
+          [
+            {
+              type: "text",
+              text: [
+                `eBay category: ${cat!.path}`,
+                `Title: ${out.title}`,
+                `Description:\n${out.description}`,
+                `Condition: ${out.condition}${out.conditionNote ? ` — ${out.conditionNote}` : ""}`,
+                ident ? `Identification: ${ident.identification}; era ${ident.era || "?"}; places ${ident.places.join(", ") || "?"}` : "",
+                facts,
+                Object.keys(out.itemSpecifics).length ? `First-draft specifics (may use wrong names): ${JSON.stringify(out.itemSpecifics)}` : "",
+                map ? `Expert guide item specifics map:\n${map}` : "",
+                `This category's item specifics:\n${aspectPromptText(aspects)}`,
+              ]
+                .filter(Boolean)
+                .join("\n\n"),
+            },
+          ],
+          1500,
+          { draftId, step: "specifics", tier: null, guides: guideRefs, who: opts.who }
+        );
+        totalCost += sp.costUsd;
+        const parsed = extractJson(sp.text);
+        const raw: Record<string, string | string[]> = {};
+        for (const [k, v] of Object.entries(parsed ?? {})) {
+          if (Array.isArray(v)) raw[k] = v.map(String);
+          else if (v != null && String(v).trim()) raw[k] = String(v);
+        }
+        const fit = fitSpecifics({ ...out.itemSpecifics, ...raw }, aspects);
+        await noteRun(sp.runId, null, { specifics: fit.kept, dropped: fit.dropped });
+        specifics = fit.kept;
+        if (fit.missingRequired.length) specFlags.push(`eBay requires: ${fit.missingRequired.join(", ")} — still empty`);
+      } catch (err) {
+        const fit = fitSpecifics(out.itemSpecifics, aspects);
+        specifics = fit.kept;
+        specFlags.push(`Item specifics step failed (${(err as Error).message.slice(0, 80)}); kept the ones that fit the category`);
+      }
+    }
+
     const ship = priced
       ? suggestShipping({ price: priced.price, categoryPath: cat?.path ?? out.ebayCategorySuggestion, kind: ident?.kind ?? "other", weightOz: d.weight_oz != null ? Number(d.weight_oz) : null })
       : null;
@@ -486,7 +551,8 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
         ? { q: supply.q_used ?? supply.q, band: supply.band, same: supply.same_stats, similar: supply.similar_stats, items: (supply.items ?? []).slice(0, 6) }
         : null,
       confidence: out.confidence,
-      flags: [...out.flags, ...photos.skipped.map((s) => `skipped ${s}`)],
+      flags: [...out.flags, ...specFlags, ...photos.skipped.map((s) => `skipped ${s}`)],
+      aspectsChecked: !!(aspects && aspects.length),
       priceSuggested: out.price,
       priceLow: out.priceLow,
       priceHigh: out.priceHigh,
@@ -507,7 +573,7 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
         condition_note = ${out.conditionNote || null},
         ebay_category_id = ${cat?.id ?? null},
         ebay_category_name = ${cat?.path ?? (out.ebayCategorySuggestion || null)},
-        item_specifics = ${Object.keys(out.itemSpecifics).length ? JSON.stringify(out.itemSpecifics) : null}::jsonb,
+        item_specifics = ${Object.keys(specifics).length ? JSON.stringify(specifics) : null}::jsonb,
         price = ${priced?.price ?? null},
         venue_prices = ${priced?.venuePrices ? JSON.stringify(priced.venuePrices) : null}::jsonb,
         shipping_profile = ${ship?.profile ?? null},
