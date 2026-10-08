@@ -9,6 +9,7 @@
 
 const DEFAULT_ENDPOINT = "https://www.foundinalabama.com";
 const NIFTY_INVENTORY_PATTERN = /^https:\/\/app\.nifty\.ai\/inventory/;
+const NIFTY_APP_PATTERN = /^https:\/\/app\.nifty\.ai\//;
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -30,11 +31,18 @@ async function init() {
     active: true,
     currentWindow: true,
   });
-  if (!tab?.url || !NIFTY_INVENTORY_PATTERN.test(tab.url)) {
+  if (!tab?.url || !NIFTY_APP_PATTERN.test(tab.url)) {
     renderWrongTab({ lastSync });
     return;
   }
-  renderReadyToSync({ tab, endpoint, lastSync });
+  if (!NIFTY_INVENTORY_PATTERN.test(tab.url)) {
+    // Any other Nifty page: only the "Send approved to Nifty" section.
+    $("#main").innerHTML = `<div id="nifty-send"></div>`;
+    setFooter(true);
+  } else {
+    renderReadyToSync({ tab, endpoint, lastSync });
+  }
+  renderNiftySend(tab);
 }
 
 // ─── View renderers ──────────────────────────────────────────────────────────
@@ -79,8 +87,8 @@ function renderSettings({ apiKey = "", endpoint = "" }) {
 
 function renderWrongTab({ lastSync }) {
   $("#main").innerHTML = `
-    <h2>Not a Nifty inventory page</h2>
-    <p class="muted">Open <a href="https://app.nifty.ai/inventory" target="_blank">app.nifty.ai/inventory</a> (or any of its filtered views) and click the extension icon again.</p>
+    <h2>Not a Nifty page</h2>
+    <p class="muted">Open <a href="https://app.nifty.ai/inventory" target="_blank">app.nifty.ai/inventory</a> (or any of its filtered views) and click the extension icon again. Any Nifty page works for sending approved listings.</p>
     ${
       lastSync
         ? `<p class="muted" style="margin-top:8px">Last sync: ${escapeHtml(formatTime(lastSync.at))} · ${lastSync.upserted} captured, ${lastSync.linkedToHaul} linked.</p>`
@@ -108,10 +116,119 @@ function renderReadyToSync({ tab, lastSync }) {
         ? `<p class="muted" style="margin-top:12px">Last sync: ${escapeHtml(formatTime(lastSync.at))} · ${lastSync.upserted} captured, ${lastSync.linkedToHaul} linked, ${lastSync.markedSold} sold.</p>`
         : ""
     }
+    <div id="nifty-send"></div>
   `;
   $("#sync").addEventListener("click", () => doSync(tab));
   $("#sync-all").addEventListener("click", () => doSyncAll(tab));
   setFooter(true);
+}
+
+// ─── Send approved listing drafts to Nifty (Phase LIST-3) ───────────────────
+//
+// Approved drafts from foundinalabama.com/admin/listings are created in Nifty
+// as DRAFTS (Nifty's own "Save draft" request) from this signed-in tab, one
+// at a time. No "Generate", no credits, nothing published: Todd reviews each
+// draft in Nifty and publishes it there. nifty-bridge.js does the work.
+
+const NIFTY_SEND_PAUSE_MS = 2500;
+
+async function fiaFetch(path, init = {}) {
+  const { apiKey, endpoint } = await chrome.storage.local.get(["apiKey", "endpoint"]);
+  const res = await fetch((endpoint || DEFAULT_ENDPOINT) + path, {
+    ...init,
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, ...(init.headers || {}) },
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(body.error ?? `HTTP ${res.status}`);
+  return body;
+}
+
+async function renderNiftySend(tab) {
+  const box = $("#nifty-send");
+  if (!box) return;
+  box.innerHTML = `<hr style="margin:14px 0;border:none;border-top:1px solid rgba(0,0,0,.1)"><h2>Approved listings</h2><p class="muted">Checking foundinalabama.com…</p>`;
+  let items;
+  try {
+    items = (await fiaFetch("/api/admin/listings/nifty-queue")).items || [];
+  } catch (err) {
+    box.innerHTML = `<hr style="margin:14px 0;border:none;border-top:1px solid rgba(0,0,0,.1)"><h2>Approved listings</h2><div class="alert error">${escapeHtml(err.message)}</div>`;
+    return;
+  }
+  box.innerHTML = `
+    <hr style="margin:14px 0;border:none;border-top:1px solid rgba(0,0,0,.1)">
+    <h2>Approved listings</h2>
+    ${
+      items.length
+        ? `<p>${items.length} approved draft${items.length === 1 ? "" : "s"} waiting. They go into Nifty as <strong>drafts</strong> — nothing is published.</p>
+           <div class="row" style="margin-top:8px"><button class="primary" id="nifty-send-btn">Send approved to Nifty</button></div>`
+        : `<p class="muted">No approved drafts waiting. Approve drafts at foundinalabama.com/admin/listings.</p>`
+    }
+    <div id="nifty-log" class="muted" style="margin-top:8px;font-size:12px"></div>`;
+  const btn = $("#nifty-send-btn");
+  if (btn) btn.addEventListener("click", () => doSendToNifty(tab, items));
+}
+
+async function doSendToNifty(tab, items) {
+  const btn = $("#nifty-send-btn");
+  btn.disabled = true;
+  const log = $("#nifty-log");
+  const line = (html) => {
+    log.insertAdjacentHTML("beforeend", `<div>${html}</div>`);
+  };
+  let sent = 0;
+  let failed = 0;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", files: ["nifty-bridge.js"] });
+  } catch (err) {
+    line(`<span style="color:#7f1d1d">Couldn't load the bridge on this page: ${escapeHtml(err.message)}</span>`);
+    btn.disabled = false;
+    return;
+  }
+  for (const [i, item] of items.entries()) {
+    btn.textContent = `Sending ${i + 1} of ${items.length}…`;
+    let out;
+    try {
+      const [res] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN",
+        func: async (draft) => {
+          try {
+            return await window.niftyBridgeSend(draft, {});
+          } catch (e) {
+            return { ok: false, error: String((e && e.message) || e) };
+          }
+        },
+        args: [item],
+      });
+      out = res?.result || { ok: false, error: "No result from the page" };
+    } catch (err) {
+      out = { ok: false, error: err.message };
+    }
+    try {
+      await fiaFetch(`/api/admin/listings/${item.draftId}/nifty`, {
+        method: "POST",
+        body: JSON.stringify(out.ok ? { niftyId: out.niftyId, warnings: out.warnings } : { error: out.error, warnings: out.warnings }),
+      });
+    } catch (err) {
+      out.reportError = err.message;
+    }
+    const title = escapeHtml(item.title.slice(0, 60));
+    if (out.ok) {
+      sent++;
+      const w = (out.warnings || []).length;
+      line(`✓ <a href="https://app.nifty.ai/inventory/edit/${out.niftyId}" target="_blank">${title}</a>${w ? ` <span title="${escapeHtml(out.warnings.join("\n"))}">(${w} note${w === 1 ? "" : "s"})</span>` : ""}`);
+    } else {
+      failed++;
+      line(`<span style="color:#7f1d1d">✗ ${title}: ${escapeHtml(out.error || "failed")}</span>`);
+      if (/LISTED/.test(out.error || "")) {
+        line(`<strong style="color:#7f1d1d">Stopped: Nifty listed an item instead of saving a draft. Check Nifty.</strong>`);
+        break;
+      }
+    }
+    if (out.reportError) line(`<span style="color:#78350f">Couldn't tell foundinalabama.com: ${escapeHtml(out.reportError)}</span>`);
+    await sleep(NIFTY_SEND_PAUSE_MS);
+  }
+  btn.textContent = `Done: ${sent} in Nifty${failed ? `, ${failed} failed` : ""}`;
 }
 
 function renderError(msg) {

@@ -423,3 +423,19 @@ First step of Phase 3 (push-button listing, own listing writer). Items get from 
   - The draft page has Write / Rewrite (choose the tier and type corrections), Approve / Send back, and the writer's notes: model, cost, guides, price reasoning, supply comps and flags.
 - **Not yet:** APR sold comps (APR runs on the PC). Prices use the guide plus active supply for now.
 - **Tests:** `npx tsx --test lib/listings/rules.test.mts`.
+
+## Nifty bridge (Phase LIST-3, Oct 2026)
+
+- **What:** approved listing drafts are created in Nifty as **drafts** (no "Generate", no credits, nothing published) by the FIA Nifty Sync extension's **Send approved to Nifty** button (`chrome-extension/nifty-bridge.js`, v1.2.0). It runs in Todd's signed-in app.nifty.ai tab, because Nifty's API (tRPC at `api.nifty.ai/api/v1`) authenticates with the browser session.
+- **Nifty API notes (private, observed Oct 8 2026):**
+  - Reads: `inventory.getInventoryItem {inventoryItemId, mode:"edit"}`, `taxonomy.getMarketplaceTaxonomy {marketplace, categoryId, sections:"ALL_SECTIONS", includeGlobal:true}`, `taxonomy.getCategories {marketplace, query}`, `taxonomy.loadDynamicProvider` (eBay store categories).
+  - Write used: **`inventory.saveAsDraftV2`** — same body as the item response (media, inventoryItem, marketplaceListings, inventoryItemId) plus `lifecycleStatus` (`IN_PROGRESS` | `READY_TO_LIST`); returns `{draftId}`.
+  - **Never `inventory.addItemV2`:** despite its `isDraft` field it is Nifty's Publish. A test on Oct 8 listed the Terminal Tower brochure on all five venues (Todd kept it). The bridge's fetch wrapper refuses any write except `saveAsDraftV2`, and after saving it re-reads the item and stops if any venue shows `LISTED`.
+- **Templates:** fixed marketplace settings (shipping, returns, payment, offers, Mercari/Depop/Whatnot shipping, Poshmark size, venue categories) are copied from one existing Nifty listing per kind. The kinds are postcard, photo, paper (envelope / calculated), book, media and general. They're editable at `/admin/listings/settings` and stored in app_settings `niftyTemplates`; `pickTemplateKey()` in `lib/listings/nifty.ts` picks the kind. From the template only SHIPPING / PRICING / SIZE sections and required fields are kept; SPECIFIC / BRAND / COLOR / TAGS describe the template's own item and are dropped.
+- **From the draft:** title, description, condition (mapped to Nifty's NEW / LIKE_NEW / … / GOOD / FAIR), condition note (eBay only), price, Poshmark price, SKU (bin), private notes (`FIA <id8> | SKU: …`), photos (sent as `external` pictures pointing at photos.foundinalabama.com; Nifty copies them to its own storage), eBay category (looked up by path), eBay item specifics (matched by field name; values that don't fit go to warnings), and eBay store categories.
+- **Store categories:** the writer now picks up to two store shelves from `ebay_store_categories` (item shelf, then Alabama or the "Found in Other States" state shelf). Stored in `listing_drafts.store_category_ids` and editable on the draft page. Re-sync store categories in the eBay tool after changing them on eBay.
+- **FIA API:** `GET /api/admin/listings/nifty-queue` (approved and not yet sent) and `POST /api/admin/listings/:id/nifty {niftyId|error, warnings}`. A successful send sets status `in_nifty`, `nifty_item_id` and `nifty_sent_at`, and copies the Nifty id to the registry item. Both routes accept the API key or a session.
+- **Migration 0033:** `store_category_ids`, `nifty_item_id`, `nifty_sent_at`, `nifty_error`, `nifty_warnings` on `listing_drafts`.
+- **Tests:**
+  - `npx tsx --test lib/listings/nifty.test.mts lib/listings/rules.test.mts`
+  - `node --test chrome-extension/nifty-bridge.test.cjs` (fake Nifty API; asserts only `saveAsDraftV2` is called)

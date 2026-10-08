@@ -252,6 +252,23 @@ export function cleanCategoryPath(p: string): string {
   return p.replace(/&amp;/g, "&").split(/\s*:\s*/).join(" > ");
 }
 
+// ── eBay store categories (the store's own shelves) ─────────────────────────
+
+export type StoreCategoryOption = { id: string; path: string; isAlabama: boolean };
+
+/** Store shelves that best fit the item. Alabama shelves and the
+ *  "Found in Other States" state shelves are always kept in the list so the
+ *  writer can pick the place shelf as the second category. */
+export function rankStoreCategories(options: StoreCategoryOption[], text: string, limit = 50): StoreCategoryOption[] {
+  const want = new Set(words(text));
+  const scored = options.map((o) => ({ o, s: words(o.path).filter((w) => want.has(w)).length }));
+  scored.sort((a, b) => b.s - a.s);
+  const top = scored.filter((x) => x.s > 0).slice(0, limit).map((x) => x.o);
+  const always = options.filter((o) => o.isAlabama && /alabama interest|alabama ephemera/i.test(o.path));
+  for (const o of always) if (!top.includes(o)) top.push(o);
+  return top;
+}
+
 // ── title / description cleanup ─────────────────────────────────────────────
 
 export const TITLE_MAX = 80;
@@ -399,6 +416,8 @@ export type WriteOutput = {
   conditionNote: string;
   ebayCategoryId: string | null;
   ebayCategorySuggestion: string;
+  /** Up to two eBay store category ids (from the store's own list). */
+  storeCategoryIds: string[];
   itemSpecifics: Record<string, string | string[]>;
   price: number | null;
   priceLow: number | null;
@@ -408,7 +427,10 @@ export type WriteOutput = {
   flags: string[];
 };
 
-export function parseWriteOutput(text: string, opts: { binSku?: string | null; categoryIds?: Set<string> } = {}):
+export function parseWriteOutput(
+  text: string,
+  opts: { binSku?: string | null; categoryIds?: Set<string>; storeCategoryIds?: Set<string> } = {}
+):
   | { ok: true; value: WriteOutput }
   | { ok: false; error: string } {
   const j = extractJson(text);
@@ -423,6 +445,14 @@ export function parseWriteOutput(text: string, opts: { binSku?: string | null; c
   const condition = CONDITIONS.find((c) => c.toLowerCase() === condRaw.toLowerCase()) ?? "Used";
   let catId = str(j.ebay_category_id, 20).replace(/\D/g, "") || null;
   if (catId && opts.categoryIds && !opts.categoryIds.has(catId)) catId = null;
+  const store: string[] = [];
+  for (const v of Array.isArray(j.store_category_ids) ? j.store_category_ids : []) {
+    const id = String(v ?? "").replace(/\D/g, "");
+    if (!id || store.includes(id)) continue;
+    if (opts.storeCategoryIds && !opts.storeCategoryIds.has(id)) continue;
+    store.push(id);
+    if (store.length === 2) break;
+  }
   const specs: Record<string, string | string[]> = {};
   if (j.item_specifics && typeof j.item_specifics === "object" && !Array.isArray(j.item_specifics)) {
     for (const [k0, v] of Object.entries(j.item_specifics as Record<string, unknown>)) {
@@ -447,6 +477,7 @@ export function parseWriteOutput(text: string, opts: { binSku?: string | null; c
       conditionNote: str(j.condition_note, 1000),
       ebayCategoryId: catId,
       ebayCategorySuggestion: str(j.ebay_category_suggestion, 300),
+      storeCategoryIds: store,
       itemSpecifics: specs,
       price: money(j.price),
       priceLow: money(j.price_low),

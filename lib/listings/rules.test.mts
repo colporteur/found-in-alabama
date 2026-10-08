@@ -165,3 +165,11 @@ test("a late condition paragraph moves up to second place", () => {
   const short = "Intro.\n\nDetail.\n\nCondition: fine.";
   assert.equal(moveConditionUp(short), short);
 });
+
+test("store categories: only ids from the offered list, at most two", () => {
+  const ok = parseWriteOutput(
+    JSON.stringify({ title: "A long enough title here", description: "d".repeat(60), store_category_ids: ["54113704012", "999", "54147286012", "1"] }),
+    { storeCategoryIds: new Set(["54113704012", "54147286012", "1"]) }
+  );
+  assert.ok(ok.ok && ok.value.storeCategoryIds.join(",") === "54113704012,54147286012");
+});

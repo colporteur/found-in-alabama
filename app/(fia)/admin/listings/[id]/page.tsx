@@ -8,6 +8,7 @@ import { formatSpecifics, loadDraft } from "@/lib/listings/drafts";
 import { DraftEditor } from "./DraftEditor";
 import { WriterPanel } from "./WriterPanel";
 import { AiNotes } from "./AiNotes";
+import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,9 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
   const d = await loadDraft(params.id);
   if (!d) notFound();
   const facts = Object.entries(d.facts).filter(([, v]) => v != null && v !== "");
+  const storeOptions = (await buildCategoryOptions().catch(() => []))
+    .map((o) => ({ id: o.id, path: o.path.replace(/&amp;/g, "&") }))
+    .sort((a, b) => a.path.localeCompare(b.path));
   const stale =
     d.status === "generating" &&
     (!d.generationStartedAt || Date.now() - new Date(d.generationStartedAt).getTime() > 10 * 60 * 1000);
@@ -77,10 +81,34 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
         handMode={d.facts.mode === "hand"}
       />
 
+      {(d.niftyItemId || d.niftyError) && (
+        <div className="bg-white border border-brand-ink/15 rounded-lg p-4 mb-8 text-sm space-y-1">
+          <h2 className="text-xs uppercase tracking-wider text-brand-earth mb-1">Nifty</h2>
+          {d.niftyItemId && (
+            <p>
+              Saved as a Nifty draft{d.niftySentAt && <> on {new Date(d.niftySentAt).toLocaleString("en-US")}</>}:{" "}
+              <a className="underline" href={`https://app.nifty.ai/inventory/edit/${d.niftyItemId}`} target="_blank" rel="noreferrer">
+                open in Nifty
+              </a>
+              . Review it and publish from Nifty.
+            </p>
+          )}
+          {d.niftyError && <p className="text-red-800">Last send failed: {d.niftyError}</p>}
+          {d.niftyWarnings.length > 0 && (
+            <ul className="text-xs list-disc pl-4 text-brand-ink/70">
+              {d.niftyWarnings.map((w, k) => (
+                <li key={k}>{w}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
+
       {d.aiMeta && <AiNotes meta={d.aiMeta} shippingProfile={d.shippingProfile} venuePrices={d.venuePrices} />}
 
       <DraftEditor
         key={d.updatedAt}
+        storeOptions={storeOptions}
         id={d.id}
         status={d.status}
         initial={{
@@ -98,6 +126,8 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
           notes: d.notes ?? "",
           shippingProfile: d.shippingProfile ?? "",
           poshmarkPrice: d.venuePrices?.poshmark != null ? String(d.venuePrices.poshmark) : "",
+          storeCategory1: d.storeCategoryIds[0] ?? "",
+          storeCategory2: d.storeCategoryIds[1] ?? "",
         }}
       />
     </section>

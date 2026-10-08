@@ -21,12 +21,24 @@ type Fields = {
   notes: string;
   shippingProfile: string;
   poshmarkPrice: string;
+  storeCategory1: string;
+  storeCategory2: string;
 };
 
 const CONDITIONS = ["Used", "Pre-owned - Good", "Pre-owned - Fair", "Like New", "New", "For parts or not working"];
 const EDITABLE = new Set(["uploading", "ready", "review", "sent_back"]);
 
-export function DraftEditor({ id, status, initial }: { id: string; status: string; initial: Fields }) {
+export function DraftEditor({
+  id,
+  status,
+  initial,
+  storeOptions,
+}: {
+  id: string;
+  status: string;
+  initial: Fields;
+  storeOptions: Array<{ id: string; path: string }>;
+}) {
   const router = useRouter();
   const [f, setF] = useState<Fields>(initial);
   const [busy, setBusy] = useState(false);
@@ -41,7 +53,7 @@ export function DraftEditor({ id, status, initial }: { id: string; status: strin
       const res = await fetch(`/api/admin/listings/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(f),
+        body: JSON.stringify({ ...f, storeCategoryIds: [f.storeCategory1, f.storeCategory2].filter(Boolean) }),
       });
       const out = (await res.json().catch(() => ({}))) as { ok?: boolean; error?: string };
       if (!res.ok || !out.ok) throw new Error(out.error ?? `HTTP ${res.status}`);
@@ -143,6 +155,19 @@ export function DraftEditor({ id, status, initial }: { id: string; status: strin
         <div>
           <label className={label}>Condition note</label>
           <textarea className={`${input} h-20`} value={f.conditionNote} onChange={set("conditionNote")} disabled={!editable} />
+        </div>
+        <div>
+          <label className={label}>eBay store categories</label>
+          {(["storeCategory1", "storeCategory2"] as const).map((k) => (
+            <select key={k} className={`${input} mb-2`} value={f[k]} onChange={set(k)} disabled={!editable}>
+              <option value="">—</option>
+              {storeOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.path}
+                </option>
+              ))}
+            </select>
+          ))}
         </div>
         <div className="grid grid-cols-3 gap-3">
           <div>

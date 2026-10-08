@@ -19,6 +19,7 @@ export const DRAFT_STATUSES = [
   "generating",
   "review",
   "approved",
+  "in_nifty",
   "published",
   "sent_back",
   "discarded",
@@ -74,6 +75,11 @@ export type Draft = DraftSummary & {
   generationStartedAt: string | null;
   approvedAt: string | null;
   approvedBy: string | null;
+  storeCategoryIds: string[];
+  niftyItemId: string | null;
+  niftySentAt: string | null;
+  niftyError: string | null;
+  niftyWarnings: string[];
 };
 
 export async function draftsReady(): Promise<boolean> {
@@ -171,6 +177,11 @@ export async function loadDraft(id: string): Promise<Draft | null> {
     generationStartedAt: s(d.generation_started_at),
     approvedAt: s(d.approved_at),
     approvedBy: s(d.approved_by),
+    storeCategoryIds: (d.store_category_ids as string[] | null) ?? [],
+    niftyItemId: s(d.nifty_item_id),
+    niftySentAt: s(d.nifty_sent_at),
+    niftyError: s(d.nifty_error),
+    niftyWarnings: (d.nifty_warnings as string[] | null) ?? [],
   };
 }
 
@@ -190,6 +201,7 @@ export type DraftEdit = {
   shippingProfile?: string | null;
   /** Poshmark's own price (null clears it). */
   poshmarkPrice?: number | null;
+  storeCategoryIds?: string[] | null;
 };
 
 /** "Brand: Curt Teich\nEra: Linen (1930-1945)" → { Brand: "Curt Teich", … }.
@@ -235,6 +247,9 @@ export async function updateDraft(id: string, edit: DraftEdit): Promise<{ ok: bo
   if ("quantity" in edit) col("quantity", edit.quantity);
   if ("notes" in edit) col("notes", edit.notes);
   if ("shippingProfile" in edit) col("shipping_profile", edit.shippingProfile);
+  if ("storeCategoryIds" in edit) {
+    sets.push(sql`store_category_ids = ${edit.storeCategoryIds?.length ? JSON.stringify(edit.storeCategoryIds) : null}::jsonb`);
+  }
   if ("poshmarkPrice" in edit) {
     sets.push(
       edit.poshmarkPrice
