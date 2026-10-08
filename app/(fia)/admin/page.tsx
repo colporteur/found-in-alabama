@@ -207,6 +207,11 @@ export default async function AdminDashboard() {
           desc="One record per item with every venue listing — cross-venue coverage and the review queue."
         />
         <Tool
+          href="/admin/listings"
+          title="Listings"
+          desc="Items sent from the Scans page or started by hand, on their way to becoming listings."
+        />
+        <Tool
           href="/admin/sales"
           title="Sale detection"
           desc="Every sale on every venue, matched to its item, and whether its other listings came down (shadow mode)."

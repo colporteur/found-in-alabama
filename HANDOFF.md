@@ -371,3 +371,18 @@ Second phase of the Integrated Resale System. Notices every sale on every venue,
 - **Older sales:** anything more than 3 days old when first matched (the 45-day Hip/Stripe lookback, a Gmail backfill) is recorded for history only: no delist plan and no registry change. Its title match prefers the item already recorded as sold on that venue, so an old sale can't mark a live relist sold.
 - **Review:** `/admin/sales` review queue. Pick a candidate, type an eBay item id / URL / registry id, or Ignore (`/api/admin/sales/review`).
 - **Tests:** `npx tsx --test lib/sales/parse.test.mts lib/sales/match.test.mts`. Fixtures are redacted reconstructions — never paste a real buyer's details (public repo).
+
+## Listing intake + drafts (Phase LIST-1, Oct 2026)
+
+First step of Phase 3 (push-button listing, own listing writer). Items get from the PC into the app as **listing drafts**; the writer, review/approve and the Nifty bridge come in LIST-2/3. Nothing here publishes anywhere.
+
+- **Tables (migration 0031):** `listing_drafts` (one per item; status `uploading → ready → generating → review → approved → published`, or `sent_back` / `discarded`), `draft_photos` (R2 key, public URL, order, role, sha256). Each draft creates a `registry_items` row at intake (status `draft`, created_from `intake`), so the item id exists before any text is written. Discard → registry item `archived`.
+- **Photo storage:** Cloudflare R2 via `lib/storage/r2.ts` (S3 API, path-style, automatic checksums off so presigned PUTs work). Env: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `R2_PUBLIC_BASE` (custom domain `photos.foundinalabama.com`). Keys are `drafts/<draftId>/<NN>-<sha12>.<ext>`.
+- **API:**
+  - `POST /api/admin/listings/intake`: Bearer API key from `/admin/api-keys` (the PC sender) or a signed-in session (manual lister). Validated by `lib/listings/validate.ts`. Idempotent on (source, sourceRef); `replace: true` swaps photos while still `uploading`/`ready`. Returns presigned PUT URLs (PC) or per-photo POST routes (browser).
+  - `POST /api/admin/listings/:id/photo?position=N`: browser upload through the app; sha256 must match.
+  - `POST /api/admin/listings/:id/complete`: HEADs each object; all present → `ready`.
+  - `PATCH` / `POST /api/admin/listings/:id`: hand edits, discard/restore (session only).
+- **Admin:** `/admin/listings` (queue with status filters), `/admin/listings/new` (manual lister: photos are resized in the browser to ≤3,200 px and kept under the 4.5 MB request limit; "let the writer fill it" vs "I'll write it myself" is stored as `facts.mode`), `/admin/listings/:id` (photos, intake facts, editable fields).
+- **PC side (not in this repo):** `PhotoXfer/listing_sender.py`, hooked into `scans_web.py` / `scans.html`, adds "Send checked to listing" and a per-item "Send" button to the Scans page. It reads photos only, never moves, rotates or deletes anything, and records what was sent in `PhotoXfer/listing_sent.json`. The API key lives in `PhotoXfer/fia_api_key.txt`. Tests: `PhotoXfer/test_listing_sender.py`.
+- **Sale matcher:** draft/archived registry items are excluded from title matching (`lib/sales/pipeline.ts`).
