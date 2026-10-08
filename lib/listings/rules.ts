@@ -263,7 +263,9 @@ export function rankStoreCategories(options: StoreCategoryOption[], text: string
   const want = new Set(words(text));
   const scored = options.map((o) => ({ o, s: words(o.path).filter((w) => want.has(w)).length }));
   scored.sort((a, b) => b.s - a.s);
-  const top = scored.filter((x) => x.s > 0).slice(0, limit).map((x) => x.o);
+  // Matching shelves first, then the rest of the list so the writer always has
+  // candidates for a good second shelf (the store has ~200 leaf shelves).
+  const top = [...scored.filter((x) => x.s > 0), ...scored.filter((x) => x.s === 0)].slice(0, limit).map((x) => x.o);
   const always = options.filter((o) => o.isAlabama && /alabama interest|alabama ephemera/i.test(o.path));
   for (const o of always) if (!top.includes(o)) top.push(o);
   return top;
