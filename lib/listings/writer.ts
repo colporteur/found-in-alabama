@@ -285,7 +285,10 @@ CONDITION: one of: ${CONDITIONS.join(", ")}. For vintage paper "Used" is normal.
 
 CATEGORY: choose ebay_category_id from the list provided (they are the categories this store uses). If none fits, return null and put the eBay category path you would use in ebay_category_suggestion.
 
-STORE CATEGORIES: pick up to two of the store's own shelves (store_category_ids) from the list provided. First: the shelf for what the item IS. Second: if the item has a clear tie to Alabama, an Alabama shelf (marked [AL]); otherwise, if it is tied to another US state, that state's shelf under "Found in Other States"; otherwise a second shelf that adds information (not a near-duplicate of the first). Leave the second out if nothing fits.
+STORE CATEGORIES: pick two of the store's own shelves (store_category_ids) from the list provided.
+- First: the shelf for what the item IS.
+- Second: a place shelf ONLY when the photos or facts clearly tie the item to a place — an Alabama shelf (marked [AL]) for Alabama, or that state's shelf under "Found in Other States" for another US state. Do not guess a state.
+- Otherwise the second is the next-best shelf a buyer might browse for this item (its subject, theme, era, maker or use), different from the first and not a near-duplicate of it. Always try to find a good second shelf; leave it out only when nothing on the list genuinely fits.
 
 ITEM SPECIFICS: eBay item specific names and values for that category (follow the guide's item specifics map if it has one). Only values you are sure of; omit the rest. Typical for postcards: Type, Theme, Subject, City, State, Region, Country/Region of Manufacture, Era, Postage Condition, Publisher, Original/Licensed Reprint, Size.
 
@@ -401,7 +404,7 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
     const storeCands = rankStoreCategories(
       storeOptions.map((o) => ({ id: o.id, path: o.path.replace(/&amp;/g, "&"), isAlabama: o.isAlabama })),
       routeText,
-      50
+      120
     );
     const storeIds = new Set(storeCands.map((c) => c.id));
     const guideRefs = guides.map((g) => ({ id: g.id, version: g.version ?? g.updated ?? null }));
