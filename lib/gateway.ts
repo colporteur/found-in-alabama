@@ -28,6 +28,8 @@ export type GatewayChatParams = {
   maxTokens: number;
   /** Extra body fields passed straight to OpenRouter (plugins, reasoning, ...). */
   extra?: Record<string, unknown>;
+  /** App name sent as x-app (gateway routing + OpenRouter attribution). */
+  app?: string;
 };
 
 export type GatewayChatResult = {
@@ -99,7 +101,7 @@ export async function gatewayChat(p: GatewayChatParams): Promise<GatewayChatResu
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
-      "x-app": APP_NAME,
+      "x-app": p.app || APP_NAME,
     },
     body: JSON.stringify(body),
   });

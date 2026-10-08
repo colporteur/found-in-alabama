@@ -1,8 +1,7 @@
 "use client";
 
 // Hand-editing for a listing draft (Phase LIST-1). The AI writer (LIST-2)
-// fills the same fields; anything typed here is kept and marked as written
-// by hand.
+// fills the same fields; saving here marks the draft as edited by hand.
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
@@ -20,6 +19,8 @@ type Fields = {
   weightOz: string;
   quantity: string;
   notes: string;
+  shippingProfile: string;
+  poshmarkPrice: string;
 };
 
 const CONDITIONS = ["Used", "Pre-owned - Good", "Pre-owned - Fair", "Like New", "New", "For parts or not working"];
@@ -105,6 +106,10 @@ export function DraftEditor({ id, status, initial }: { id: string; status: strin
             <input className={input} inputMode="decimal" value={f.price} onChange={set("price")} disabled={!editable} />
           </div>
           <div>
+            <label className={label}>Poshmark price ($)</label>
+            <input className={input} inputMode="decimal" value={f.poshmarkPrice} onChange={set("poshmarkPrice")} disabled={!editable} placeholder="same as eBay" />
+          </div>
+          <div>
             <label className={label}>Quantity</label>
             <input className={input} inputMode="numeric" value={f.quantity} onChange={set("quantity")} disabled={!editable} />
           </div>
@@ -116,6 +121,15 @@ export function DraftEditor({ id, status, initial }: { id: string; status: strin
             <label className={label}>Weight (oz)</label>
             <input className={input} inputMode="decimal" value={f.weightOz} onChange={set("weightOz")} disabled={!editable} />
           </div>
+        </div>
+        <div>
+          <label className={label}>eBay shipping</label>
+          <select className={input} value={f.shippingProfile} onChange={set("shippingProfile")} disabled={!editable}>
+            <option value="">—</option>
+            <option value="envelope">Standard Envelope (≤ $20, ≤ 3.5 oz, eligible category)</option>
+            <option value="calculated">Calculated (GA/Priority USPS + FedEx + UPS)</option>
+            <option value="media">Media Mail (books &amp; media)</option>
+          </select>
         </div>
         <div>
           <label className={label}>Condition</label>
@@ -168,9 +182,7 @@ export function DraftEditor({ id, status, initial }: { id: string; status: strin
           )}
           {msg && <span className="text-sm text-brand-ink/70">{msg}</span>}
         </div>
-        <p className="text-xs text-brand-ink/50">
-          Approving and sending to Nifty come in the next steps. Nothing on this page publishes anything.
-        </p>
+        <p className="text-xs text-brand-ink/50">Nothing on this page publishes anything.</p>
       </div>
     </div>
   );

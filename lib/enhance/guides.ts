@@ -31,6 +31,8 @@ export type GuideMeta = {
   priority: number;
   description: string;
   updated: string | null;
+  /** Manifest version of the guide, when the manifest has one. */
+  version?: string | null;
   /** true when this row came from the bundled fallback, not the gateway */
   local?: boolean;
 };
@@ -70,6 +72,7 @@ function normalizeRow(g: Record<string, unknown>): GuideMeta {
     priority: Number(g.priority ?? 3) || 3,
     description: String(g.description ?? ""),
     updated: g.updated ? String(g.updated) : null,
+    version: g.version != null ? String(g.version) : null,
   };
 }
 

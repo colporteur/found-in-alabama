@@ -225,6 +225,13 @@
       "when": 1791465185339,
       "tag": "0031_listing_drafts",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1791474526146,
+      "tag": "0032_listing_writer",
+      "breakpoints": true
     }
   ]
 }
