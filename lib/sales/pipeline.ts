@@ -261,7 +261,7 @@ async function titleCandidates(
     LEFT JOIN venue_listings v ON v.registry_item_id = r.id AND v.venue = ${venue}
     LEFT JOIN items i ON i.id = r.nifty_item_ref
     LEFT JOIN ebay_listings e ON e.item_id = r.primary_ebay_item_id
-    WHERE ${cond}
+    WHERE ${cond} AND r.status NOT IN ('draft', 'archived')
     LIMIT 50`);
   return found.map((f) => ({
     registryItemId: String(f.id),

@@ -1549,3 +1549,88 @@ export const niftyAlerts = pgTable(
     titleIdx: index("nifty_alerts_title_idx").on(t.titleNormalized),
   })
 );
+
+// ─── Listing intake + drafts (Phase LIST-1) ───────────────────────────────────
+// One draft per physical item on its way to becoming a listing. Created by
+// "Send to listing" on the PC (PhotoXfer / Scans page / Scanroom) or by the
+// manual lister in the admin, with a registry item created at the same
+// moment — the item's id exists before any text is written, so drafts are
+// never matched back by title or SKU. Photos are copies in R2; originals on
+// the PC are never touched. Nothing here publishes anywhere.
+
+export const listingDrafts = pgTable(
+  "listing_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    registryItemId: uuid("registry_item_id").references(() => registryItems.id, {
+      onDelete: "set null",
+    }),
+    /** uploading | ready | generating | review | approved | published | sent_back | discarded */
+    status: text("status").default("uploading").notNull(),
+    /** scans | scanroom | photoxfer | estate | manual */
+    source: text("source").notNull(),
+    /** Stable id of the source item (PC folder path, …) — re-sends are idempotent. */
+    sourceRef: text("source_ref"),
+    /** Human label of where it came from ("scans2 / 19 Hello from ALASKA"). */
+    sourceLabel: text("source_label"),
+    /** What intake knew: size, planned SKU, SKU class, match confidence, … */
+    facts: jsonb("facts").$type<Record<string, unknown>>().default({}).notNull(),
+    /** Todd's notes for the writer (condition, story, anything known). */
+    notes: text("notes"),
+    titleHint: text("title_hint"),
+    /** Storage bin (Planned SKU). */
+    binSku: text("bin_sku"),
+    weightOz: numeric("weight_oz", { precision: 8, scale: 2 }),
+    quantity: integer("quantity").default(1).notNull(),
+    // Listing content (written by the generator in LIST-2, or by hand).
+    title: text("title"),
+    description: text("description"),
+    condition: text("condition"),
+    conditionNote: text("condition_note"),
+    ebayCategoryId: text("ebay_category_id"),
+    ebayCategoryName: text("ebay_category_name"),
+    itemSpecifics: jsonb("item_specifics").$type<Record<string, string | string[]>>(),
+    price: numeric("price", { precision: 10, scale: 2 }),
+    /** Per-venue overrides, e.g. { poshmark: 15 }. */
+    venuePrices: jsonb("venue_prices").$type<Record<string, number>>(),
+    /** hand | ai — who wrote the current content. */
+    writtenBy: text("written_by"),
+    reviewNote: text("review_note"),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+    approvedAt: timestamp("approved_at"),
+  },
+  (t) => ({
+    sourceRefUq: uniqueIndex("listing_drafts_source_ref_uq")
+      .on(t.source, t.sourceRef)
+      .where(sql`${t.sourceRef} IS NOT NULL`),
+    statusIdx: index("listing_drafts_status_idx").on(t.status, t.createdAt),
+    itemIdx: index("listing_drafts_item_idx").on(t.registryItemId),
+  })
+);
+
+export const draftPhotos = pgTable(
+  "draft_photos",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    draftId: uuid("draft_id")
+      .notNull()
+      .references(() => listingDrafts.id, { onDelete: "cascade" }),
+    position: integer("position").notNull(),
+    /** cover | front | back | inside | detail | other */
+    role: text("role"),
+    storageKey: text("storage_key").notNull().unique(),
+    url: text("url").notNull(),
+    originalName: text("original_name"),
+    sha256: text("sha256"),
+    bytes: integer("bytes"),
+    contentType: text("content_type").notNull(),
+    /** Set once the object is confirmed in storage. */
+    uploadedAt: timestamp("uploaded_at"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    draftPosUq: uniqueIndex("draft_photos_draft_pos_uq").on(t.draftId, t.position),
+  })
+);
