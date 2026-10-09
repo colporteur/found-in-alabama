@@ -239,6 +239,13 @@
       "when": 1791483560585,
       "tag": "0033_nifty_bridge",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1791492244164,
+      "tag": "0034_ebay_category_aspects",
+      "breakpoints": true
     }
   ]
 }

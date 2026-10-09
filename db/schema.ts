@@ -1688,3 +1688,12 @@ export const aiRuns = pgTable(
     draftIdx: index("ai_runs_draft_idx").on(t.draftId, t.createdAt),
   })
 );
+
+// ── eBay category aspects cache (Phase LIST-3) ──────────────────────────────
+// Item specifics each eBay category accepts, from the Taxonomy API
+// (lib/ebay/taxonomy.ts). Refreshed when older than 30 days.
+export const ebayCategoryAspects = pgTable("ebay_category_aspects", {
+  categoryId: text("category_id").primaryKey(),
+  aspects: jsonb("aspects").$type<unknown[]>().notNull(),
+  fetchedAt: timestamp("fetched_at").defaultNow().notNull(),
+});

@@ -439,3 +439,10 @@ First step of Phase 3 (push-button listing, own listing writer). Items get from 
 - **Tests:**
   - `npx tsx --test lib/listings/nifty.test.mts lib/listings/rules.test.mts`
   - `node --test chrome-extension/nifty-bridge.test.cjs` (fake Nifty API; asserts only `saveAsDraftV2` is called)
+
+- **Item specifics fitted to the eBay category (Oct 8):**
+  - After the writer picks a category, `lib/ebay/taxonomy.ts` fetches that category's aspects from the eBay Taxonomy API. It uses an application token from `EBAY_APP_ID` / `EBAY_CERT_ID` (no user consent) and caches results for 30 days in `ebay_category_aspects` (migration 0034).
+  - The aspects are names, required / recommended, pick-list vs free text, single vs multiple, and allowed values.
+  - A text-only pass on the identify model then fills them from the finished listing. `fitSpecifics()` (`lib/ebay/aspects.ts`, tested) keeps only the category's own field names and allowed values.
+  - Required fields still empty become review flags.
+  - If eBay can't be reached, the writer's own specifics are kept, as before.
