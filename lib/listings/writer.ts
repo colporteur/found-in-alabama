@@ -250,6 +250,20 @@ function factsText(d: Row): string {
   if (Number(d.quantity) > 1) lines.push(`Quantity: ${d.quantity}`);
   if (f.condition) lines.push(`Condition noted at intake: ${f.condition}`);
   if (d.notes) lines.push(`Todd's notes (true facts — use them): ${d.notes}`);
+  if (f.estate_title || f.estate_description) {
+    // Estate Photo Sorter already wrote a listing: a starting point to
+    // improve, not a source of new facts beyond what the photos show.
+    lines.push(
+      [
+        "Estate Photo Sorter's draft (written from these photos; improve it, keep what's accurate):",
+        f.estate_title ? `- title: ${f.estate_title}` : "",
+        f.estate_price != null ? `- price: $${f.estate_price}` : "",
+        f.estate_description ? `- description: ${String(f.estate_description).slice(0, 1600)}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n")
+    );
+  }
   return lines.length ? lines.join("\n") : "No intake facts beyond the photos.";
 }
 
