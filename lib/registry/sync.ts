@@ -380,7 +380,9 @@ export async function syncRegistryFromCapture(
 
     // 2. Venue listings with Nifty's own status. eBay and Hip status stay
     //    owned by their API syncs, so eBay rows are only created here, never
-    //    overwritten.
+    //    overwritten. last_seen_at moves on every capture, even with no status
+    //    change: the delist checker needs to know a listing was SEEN still
+    //    live after a sale (Phase 2 readiness).
     let venueRows = 0;
     for (const l of listings) {
       const venue = l.marketplace.toLowerCase().trim();
@@ -394,8 +396,7 @@ export async function syncRegistryFromCapture(
         ON CONFLICT (venue, venue_listing_id) DO UPDATE
           SET status = EXCLUDED.status, url = COALESCE(EXCLUDED.url, venue_listings.url),
               last_seen_at = now(), updated_at = now()
-          WHERE venue_listings.venue NOT IN ('ebay', 'hip')
-            AND venue_listings.status IS DISTINCT FROM EXCLUDED.status`)) as {
+          WHERE venue_listings.venue NOT IN ('ebay', 'hip')`)) as {
         rowCount?: number | null;
       };
       venueRows += res.rowCount ?? 0;
