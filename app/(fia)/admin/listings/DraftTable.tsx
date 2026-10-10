@@ -7,7 +7,7 @@
 // that can still be edited (ready / to review / sent back) take edits.
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DraftSummary } from "@/lib/listings/drafts";
 import { MinPriceControl } from "./MinPriceControl";
@@ -53,6 +53,29 @@ export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelve
   const router = useRouter();
   const start = useMemo(() => Object.fromEntries(drafts.map((d) => [d.id, toRow(d)])), [drafts]);
   const [rows, setRows] = useState<Record<string, Row>>(start);
+  // After a save or a bulk change (router.refresh) the server values change:
+  // take them for every cell that wasn't being edited, keep unsaved edits.
+  const prevStart = useRef(start);
+  useEffect(() => {
+    const old = prevStart.current;
+    prevStart.current = start;
+    if (old === start) return;
+    setRows((cur) => {
+      const next: Record<string, Row> = {};
+      for (const [id, fresh] of Object.entries(start)) {
+        const mine = cur[id];
+        const before = old[id];
+        if (!mine || !before) {
+          next[id] = fresh;
+          continue;
+        }
+        const merged = { ...fresh };
+        for (const f of FIELDS) if (mine[f] !== before[f]) merged[f] = mine[f];
+        next[id] = merged;
+      }
+      return next;
+    });
+  }, [start]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
