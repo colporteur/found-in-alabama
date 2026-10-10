@@ -3,11 +3,12 @@
 //   { action: "writable" }                → ids the "Write all ready" runner works through
 //   { action: "min_price", ids, min, round87 } → raise prices below the minimum
 //   { action: "store_shelf", ids, shelf, keepPlace } → set one of the two store shelves
+//   { action: "unapprove", ids }        → approved (not yet in Nifty) → back to review
 // Signed-in admin only. Approval only marks drafts; nothing is published.
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { approveDrafts } from "@/lib/listings/review";
+import { approveDrafts, unapproveDraft } from "@/lib/listings/review";
 import { writableDraftIds, writerSettings } from "@/lib/listings/writer";
 import { raiseMinPrice } from "@/lib/listings/drafts";
 import { setStoreShelf } from "@/lib/listings/bulk";
@@ -46,6 +47,17 @@ export async function POST(req: NextRequest) {
   if (b.action === "approve") {
     const ids = Array.isArray(b.ids) ? b.ids.map(String) : [];
     return NextResponse.json({ ok: true, ...(await approveDrafts(ids, session.user.email ?? "admin")) });
+  }
+  if (b.action === "unapprove") {
+    const ids = (Array.isArray(b.ids) ? b.ids.map(String) : []).slice(0, 300);
+    let unapproved = 0;
+    const skipped: Array<{ id: string; reason: string }> = [];
+    for (const id of ids) {
+      const r = await unapproveDraft(id);
+      if (r.ok) unapproved++;
+      else skipped.push({ id, reason: "not approved (or already in Nifty)" });
+    }
+    return NextResponse.json({ ok: true, unapproved, skipped });
   }
   if (b.action === "writable") {
     return NextResponse.json({ ok: true, ids: await writableDraftIds() });
