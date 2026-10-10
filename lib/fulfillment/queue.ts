@@ -99,6 +99,10 @@ export async function syncShipQueue(): Promise<SyncResult> {
     console.error("[ship] eBay orders failed", err);
   }
   await claimEbayEvents();
+  // With eBay order access, eBay packages come only from eBay orders (sale
+  // events just attach to them): a sell-out without an order isn't a sale.
+  const ebayFromOrders = ebayOrders !== null && !ebayError;
+  const venueFilter = ebayFromOrders ? sql`AND e.venue <> 'ebay'` : sql``;
 
   // 1. one package per order key
   const orders = await exec(sql`
@@ -116,6 +120,7 @@ export async function syncShipQueue(): Promise<SyncResult> {
       WHERE e.status NOT IN ('duplicate', 'ignored')
         AND COALESCE(e.sold_at, e.detected_at) >= ${since}
         AND NOT EXISTS (SELECT 1 FROM ship_order_lines x WHERE x.sale_event_id = e.id)
+        ${venueFilter}
     ) k
     LEFT JOIN tes_orders t ON t.id::text = k.tes_order_id
     GROUP BY k.venue, k.order_key
@@ -141,6 +146,7 @@ export async function syncShipQueue(): Promise<SyncResult> {
     LEFT JOIN tes_order_items ti ON e.source = 'stripe' AND ti.id::text = e.source_ref
     WHERE e.status NOT IN ('duplicate', 'ignored')
       AND COALESCE(e.sold_at, e.detected_at) >= ${since}
+      ${venueFilter}
     ON CONFLICT (sale_event_id) DO NOTHING`);
 
   // 3. sales matched after they were queued: fill in bin, title, photo

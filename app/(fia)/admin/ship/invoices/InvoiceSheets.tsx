@@ -239,7 +239,7 @@ const INVOICE_CSS = `
   .inv-footer { margin-top: 12px; font-size: 10px; text-align: center; }
   @page { size: 4in 6in; margin: 0.15in; }
   @media print {
-    html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; }
+    html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; min-height: 0 !important; display: block !important; }
     body header, body footer, body nav, .no-print { display: none !important; }
     .inv-page { padding: 0; background: #fff; }
     .invoice { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; break-after: page; }

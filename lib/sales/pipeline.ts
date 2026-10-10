@@ -25,6 +25,8 @@ import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { parseSaleEmail, normalizeTitle, type ParsedSaleLine } from "./parse";
 import { pickCandidate, likePrefix, type Candidate } from "./match";
+import { fetchEbayOrdersSince } from "@/lib/ebay/orders";
+import { FULFILLMENT_SCOPE, hasGrantedScope } from "@/lib/ebay/oauth";
 
 type Row = Record<string, unknown>;
 
@@ -84,14 +86,18 @@ export async function recordEbaySales(
   if (signals.length === 0) return { ok: true, inserted: 0 };
   try {
     if (!(await salesTablesReady())) return { ok: true, inserted: 0 };
+    // With eBay order access, a sell-out is only a sale once an eBay order
+    // backs it (verifyEbaySales) — renewals of long-sold GTC listings look
+    // exactly like sell-outs otherwise.
+    const status = (await hasGrantedScope(FULFILLMENT_SCOPE).catch(() => false)) ? "verifying" : "pending";
     let inserted = 0;
     for (const s of signals) {
       inserted += await exec(sql`
         INSERT INTO sale_events (source, source_ref, line, venue, venue_listing_id, ebay_item_id,
-                                 title, price, sold_at, note)
+                                 title, price, sold_at, note, status)
         VALUES ('ebay_events', ${s.itemId}, 0, 'ebay', ${s.itemId}, ${s.itemId},
                 COALESCE(${s.title}, (SELECT title FROM ebay_listings WHERE item_id = ${s.itemId})),
-                ${s.price}::numeric, now(), ${`quantity sold ${s.quantitySold}`})
+                ${s.price}::numeric, now(), ${`quantity sold ${s.quantitySold}`}, ${status})
         ON CONFLICT DO NOTHING`);
     }
     return { ok: true, inserted };
@@ -100,6 +106,56 @@ export async function recordEbaySales(
     console.warn(`[sales] eBay sale hook skipped: ${message}`);
     return { ok: false, inserted: 0, error: message };
   }
+}
+
+/** How long a sell-out may wait for its eBay order before it's ruled out. */
+const EBAY_ORDER_GRACE_MIN = 30;
+/** How far back eBay sale signals are checked against eBay orders. */
+const EBAY_VERIFY_DAYS = 14;
+
+/**
+ * Check eBay sale signals against real eBay orders (Fulfillment API, read
+ * only). Backed by an order → order_ref set ("verifying" → "pending", so it
+ * gets matched). No order after the grace period → "ignored" (not a sale:
+ * usually a renewal of a listing that sold out long ago). Skipped while
+ * eBay order access isn't granted.
+ */
+export async function verifyEbaySales(): Promise<{ checked: number; verified: number; ruledOut: number } | null> {
+  const events = await rows(sql`
+    SELECT id, ebay_item_id, status, detected_at FROM sale_events
+    WHERE source = 'ebay_events' AND order_ref IS NULL
+      AND status IN ('verifying', 'pending', 'matched', 'unmatched', 'ambiguous')
+      AND detected_at > now() - make_interval(days => ${EBAY_VERIFY_DAYS})`);
+  if (!events.length) return { checked: 0, verified: 0, ruledOut: 0 };
+  const orders = await fetchEbayOrdersSince(new Date(Date.now() - (EBAY_VERIFY_DAYS + 3) * 86_400_000).toISOString());
+  if (orders === null) return null;
+  let verified = 0;
+  let ruledOut = 0;
+  for (const e of events) {
+    const itemId = String(e.ebay_item_id ?? "");
+    const raw = e.detected_at;
+    const at = raw instanceof Date ? raw.getTime() : new Date(/Z|[+-]\d\d:?\d\d$/.test(String(raw)) ? String(raw) : `${raw}Z`).getTime();
+    if (!Number.isFinite(at)) continue;
+    const order = orders.find(
+      (o) =>
+        o.lines.some((l) => l.legacyItemId === itemId) &&
+        o.createdAt != null &&
+        new Date(o.createdAt).getTime() <= at + 3_600_000 &&
+        new Date(o.createdAt).getTime() >= at - 3 * 86_400_000,
+    );
+    if (order) {
+      verified += await exec(sql`
+        UPDATE sale_events SET order_ref = ${order.orderId},
+               status = CASE WHEN status = 'verifying' THEN 'pending' ELSE status END, updated_at = now()
+        WHERE id = ${String(e.id)}`);
+    } else if (Date.now() - at > EBAY_ORDER_GRACE_MIN * 60_000) {
+      ruledOut += await exec(sql`
+        UPDATE sale_events SET status = 'ignored', resolved_by = 'no-ebay-order', updated_at = now(),
+               note = trim(both ' ' from coalesce(note, '') || ' · no eBay order: not a sale (listing renewal or edit)')
+        WHERE id = ${String(e.id)}`);
+    }
+  }
+  return { checked: events.length, verified, ruledOut };
 }
 
 export async function ingestHip(): Promise<number> {
@@ -674,6 +730,7 @@ export async function runSalesSync(): Promise<SalesSyncResult> {
   await run("hip", ingestHip);
   await run("stripe", ingestStripe);
   await run("email", () => ingestEmails());
+  await run("ebayVerify", verifyEbaySales);
   await run("match", () => matchPending());
   await run("plan", () => planMatched());
   await run("niftyAlerts", linkNiftyAlerts);
