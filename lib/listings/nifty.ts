@@ -14,6 +14,7 @@
 
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
+import { planWeight } from "./weight";
 
 type Row = Record<string, unknown>;
 async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
@@ -90,7 +91,7 @@ export function pickTemplateKey(i: { kind?: string | null; categoryPath?: string
   const path = (i.categoryPath ?? "").toLowerCase();
   const title = (i.title ?? "").toLowerCase();
   const ship = (i.shippingProfile ?? "").toLowerCase();
-  if (kind === "book" || kind === "magazine" || /^books/.test(path)) return "book";
+  if (kind === "book" || kind === "magazine" || /^books/.test(path) || ship === "media") return "book";
   if (kind === "record" || /^(music|movies)/.test(path)) return "media";
   if (kind === "postcard" || /postcard/.test(path)) {
     return /\brppc\b|real photo/.test(title) ? "photo" : "postcard";
@@ -120,6 +121,10 @@ export type NiftyQueueItem = {
   ebayCategoryPath: string | null;
   itemSpecifics: Record<string, string | string[]>;
   storeCategoryIds: string[];
+  /** Shipping weight: Todd's, else the writer's assumption; null = keep the template's. */
+  weightOz: number | null;
+  weightSource: "given" | "assumed" | null;
+  shippingProfile: string | null;
 };
 
 /** Approved drafts not yet in Nifty, oldest first. */
@@ -159,6 +164,22 @@ export async function niftyQueue(limit = 25): Promise<NiftyQueueItem[]> {
       ebayCategoryPath: (d.ebay_category_name as string | null) ?? null,
       itemSpecifics: (d.item_specifics as Record<string, string | string[]> | null) ?? {},
       storeCategoryIds: (d.store_category_ids as string[] | null) ?? [],
+      shippingProfile: (d.shipping_profile as string | null) ?? null,
+      ...(() => {
+        if (d.weight_oz != null && Number(d.weight_oz) > 0) return { weightOz: Number(d.weight_oz), weightSource: "given" as const };
+        const w = (meta.weight ?? null) as { oz?: number | null } | null;
+        if (w?.oz) return { weightOz: Number(w.oz), weightSource: "assumed" as const };
+        // Written before weights were assumed: apply the same rules now.
+        const plan = planWeight({
+          givenOz: null,
+          kind: (ident.kind as string | undefined) ?? null,
+          title: (d.title as string | null) ?? null,
+          identification: (ident.identification as string | undefined) ?? null,
+          sizeInches: (((d.facts ?? {}) as Record<string, unknown>).size_inches as string | undefined) ?? null,
+          source: String(d.source ?? ""),
+        });
+        return plan.oz ? { weightOz: plan.oz, weightSource: "assumed" as const } : { weightOz: null, weightSource: null };
+      })(),
     };
   });
 }

@@ -138,3 +138,68 @@ test("the built-in API refuses any write but saveAsDraftV2", async () => {
   assert.match(src, /if \(proc !== "inventory\.saveAsDraftV2"\) throw/);
   assert.doesNotMatch(src.replace(/\/\/.*$/gm, ""), /post\("inventory\.addItemV2"/);
 });
+
+// ── weight (Oct 9): FIA's weight replaces the template's ─────────────────────
+test("weight goes onto eBay/Mercari package weight, Mercari label, Depop parcel, Whatnot profile", async () => {
+  const N = (id, name, section, extra = {}) => ({ id, name, section, required: false, type: "taxonomy-enum-attribute", members: [], ...extra });
+  const W = (lb, oz) => ({ type: "numeric-attribute-values", id: "pw", values: [{ value: lb, id: "s-lb" }, { value: oz, id: "s-oz" }] });
+  const tax = {
+    eBay: { attributes: [N("pw", "Package weight", "SHIPPING", { type: "numeric-attribute" })] },
+    Mercari: { attributes: [N("pw", "Package weight", "SHIPPING", { type: "numeric-attribute" }), N("ml", "Shipping label", "SHIPPING", { dynamicProviderId: "dp-ml" })] },
+    Depop: { attributes: [N("dp", "Parcel size", "SHIPPING", { dynamicProviderId: "dp-dp" })] },
+    Whatnot: { attributes: [N("wp", "Shipping profile", "SHIPPING", { dynamicProviderId: "dp-wp" })] },
+  };
+  const dyn = {
+    "dp-ml": [{ id: "ml", members: [{ id: "lbl-1", externalId: "ga-8oz", name: "USPS Ground Advantage - $5.75" }, { id: "lbl-2", externalId: "pri", name: "Priority" }] }],
+    "dp-dp": [{ id: "dp", members: ["under_4oz", "under_8oz", "under_12oz", "under_1lb", "under_2lb"].map((x) => ({ id: "d-" + x, externalId: x, name: x })) }],
+    "dp-wp": [{ id: "wp", members: ["Media 1 lb", "Media 4 lbs", "0-1 oz", "1-3 oz", "4-7 oz", "8-11 oz", "12-15 oz", "1 lb", "1-2 lbs"].map((x) => ({ id: "w-" + x, externalId: x, name: x })) }],
+  };
+  const template = {
+    media: { pictures: [], videos: [] },
+    inventoryItem: { title: "T", sourceMarketplace: "Poshmark", category: { id: "c" }, attributeValues: [] },
+    marketplaceListings: [
+      { marketplace: "eBay", category: { id: "e", namePath: [], name: "x" }, attributeValues: [W(0, 12)] },
+      { marketplace: "Mercari", category: { id: "m" }, attributeValues: [W(0, 12), { type: "enum-attribute-values", id: "ml", values: [{ type: "taxonomy-enum-dynamically-loaded-value", id: "old" }] }] },
+      { marketplace: "Depop", category: { id: "d" }, attributeValues: [{ type: "enum-attribute-values", id: "dp", values: [{ type: "taxonomy-enum-dynamically-loaded-value", id: "d-under_12oz" }] }] },
+      { marketplace: "Whatnot", category: { id: "w" }, attributeValues: [{ type: "enum-attribute-values", id: "wp", values: [{ type: "taxonomy-enum-dynamically-loaded-value", id: "w-1 lb" }] }] },
+    ],
+  };
+  const ctx = [];
+  const api = {
+    async get(proc, input) {
+      if (proc === "inventory.getInventoryItem") return template;
+      if (proc === "taxonomy.getMarketplaceTaxonomy") return tax[input.marketplace] || { attributes: [] };
+      if (proc === "taxonomy.loadDynamicProvider") {
+        ctx.push([input.dynamicProviderId, JSON.stringify(input.dynamicProviderContext)]);
+        return dyn[input.dynamicProviderId];
+      }
+      throw new Error("unexpected " + proc);
+    },
+    async post() {
+      throw new Error("dry run must not post");
+    },
+    uuid: () => "00000000-0000-4000-8000-000000000001",
+  };
+  const draft = { templateId: "tpl", title: "Program", description: "d", condition: "Used", price: 12.87, quantity: 1, photos: ["https://x/1.jpg"], weightOz: 20 };
+  const r = await niftyBridgeSend(draft, { dryRun: true, api });
+  const L = Object.fromEntries(r.payload.marketplaceListings.map((l) => [l.marketplace, l.attributeValues]));
+  const get = (mkt, id) => L[mkt].find((v) => v.id === id);
+  assert.deepEqual(get("eBay", "pw").values.map((x) => x.value), [1, 4]);
+  assert.deepEqual(get("Mercari", "pw").values.map((x) => [x.id, x.value]), [["s-lb", 1], ["s-oz", 4]]);
+  assert.equal(get("Mercari", "ml").values[0].id, "lbl-1");
+  // Mercari's label options were asked for WITH the new weight.
+  assert.match(ctx.find((c) => c[0] === "dp-ml")[1], /"value":1.*"value":4/);
+  assert.equal(get("Depop", "dp").values[0].id, "d-under_2lb");
+  assert.equal(get("Whatnot", "wp").values[0].id, "w-1-2 lbs");
+
+  // 12 oz paper: Depop under_1lb? no — under_12oz is < 12, so under_1lb; Whatnot 12-15 oz.
+  const r2 = await niftyBridgeSend({ ...draft, weightOz: 12 }, { dryRun: true, api });
+  const L2 = Object.fromEntries(r2.payload.marketplaceListings.map((l) => [l.marketplace, l.attributeValues]));
+  assert.equal(L2.Depop.find((v) => v.id === "dp").values[0].id, "d-under_1lb");
+  assert.equal(L2.Whatnot.find((v) => v.id === "wp").values[0].id, "w-12-15 oz");
+
+  // No weight: template values kept, with a warning.
+  const r3 = await niftyBridgeSend({ ...draft, weightOz: null }, { dryRun: true, api });
+  assert.ok(r3.warnings.some((w) => /No weight/.test(w)));
+  assert.deepEqual(r3.payload.marketplaceListings[0].attributeValues.find((v) => v.id === "pw").values.map((x) => x.value), [0, 12]);
+});
