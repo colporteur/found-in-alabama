@@ -456,3 +456,11 @@ First step of Phase 3 (push-button listing, own listing writer). Items get from 
   - Sends are queued when one is already running (two Scanrooms, or the Scans page).
   - text/plain JSON is accepted, which file:// Scanroom needs.
   - POSTs from other websites are refused (Origin guard).
+
+## Phase 4a — To-ship queue + pick list (Oct 9, 2026)
+- Migration 0035: `ship_orders`, `ship_order_lines`. Run `npm run db:migrate`.
+- `/admin/ship`: first visit asks for a start date (app_settings `fulfillment`). After that, every sale_event since that day becomes a package (Stripe orders and Hip sales grouped by order; marketplace sales one each until 4b buyer capture).
+- `lib/fulfillment/sku.ts`: the Nifty Pick List sort rules (dated newest first, NA/LT highest first, named in order).
+- `/admin/ship/pick?ids=…`: printable list; Print waits for photos, then records `pick_printed_at`.
+- Synced on page load and after every `/api/cron/sales-sync`. Website/Hip orders become shipped/cancelled from tes_orders; everything else is marked by hand.
+- Writes only FIA tables. Nothing goes to any marketplace.
