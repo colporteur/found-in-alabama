@@ -52,7 +52,7 @@ export default async function AdminLayout({
 
   return (
     <div className="bg-brand-paper min-h-screen">
-      <div className="border-b border-brand-ink/10 bg-white">
+      <div className="border-b border-brand-ink/10 bg-white print:hidden">
         <div className="container-content py-3 flex items-center justify-between gap-4">
           <div className="flex items-center gap-6">
             <Link

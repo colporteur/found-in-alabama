@@ -473,3 +473,8 @@ First step of Phase 3 (push-button listing, own listing writer). Items get from 
 - One sale email = one package (Poshmark/Depop bundles). Poshmark/Depop buyer handles (and Depop ship-to name) come from the stored emails (`lib/fulfillment/buyers.ts`).
 - Same buyer + venue within 7 days → "Same buyer" badge with Combine; "Combine selected" for Mercari/anything by hand.
 - `/admin/ship/invoices?ids=…`: 4×6 Zebra invoices (FIA + TES for marketplaces, single brand for website orders), click-to-edit prices, Print records `invoice_printed_at`.
+
+## Phase 4c — Inventory labels + eBay sales backed by orders (Oct 9, 2026)
+- `/admin/labels`: find live registry items by title words or bin (datalist of live bins), or pick from new listings (drafts); `/admin/labels/print?k=r:<id>,d:<id>` prints DYMO 57×32 mm labels (layout of the Nifty Inventory Label Printer v3.5: shrink-to-fit title, FIA logo, price). Price = eBay listing price, else a live venue price; drafts use the draft price. Title/price click-to-edit. No migration.
+- eBay sale detection (Phase 2): with eBay order access, a sell-out is recorded as `verifying` and only becomes a sale once an eBay order backs it (`verifyEbaySales`, runs before matching in sales-sync). No order after 30 minutes → `ignored`, resolved_by `no-ebay-order`. Also re-checks the last 14 days of eBay sale events (catches GTC renewals of long-sold listings whose mirror quantity was stale, e.g. the six Oct 9 ones Todd cancelled).
+- To-ship queue: with eBay order access, eBay packages come only from eBay orders.
