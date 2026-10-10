@@ -7,6 +7,8 @@ import { notFound } from "next/navigation";
 import { formatSpecifics, loadDraft } from "@/lib/listings/drafts";
 import { DraftEditor } from "./DraftEditor";
 import { WriterPanel } from "./WriterPanel";
+import { ResearchPanel } from "./ResearchPanel";
+import type { Research } from "@/lib/listings/research";
 import { AiNotes } from "./AiNotes";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 import { booksReady, itemCost, listAcquisitions } from "@/lib/books/books";
@@ -105,6 +107,8 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
         stale={stale}
         handMode={d.facts.mode === "hand"}
       />
+
+      <ResearchPanel key={String((d.aiMeta?.research as Research | undefined)?.at ?? "none")} id={d.id} status={d.status} research={(d.aiMeta?.research as Research | null | undefined) ?? null} />
 
       {(d.niftyItemId || d.niftyError) && (
         <div className="bg-white border border-brand-ink/15 rounded-lg p-4 mb-8 text-sm space-y-1">
