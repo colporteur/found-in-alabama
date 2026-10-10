@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DraftSummary } from "@/lib/listings/drafts";
 import { MinPriceControl } from "./MinPriceControl";
+import { ShelfControl } from "./ShelfControl";
 
 const EDITABLE = new Set(["uploading", "ready", "review", "sent_back"]);
 const STATUS_LABEL: Record<string, string> = {
@@ -170,6 +171,9 @@ export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelve
       </div>
       <div className="mb-4">
         <MinPriceControl selected={Array.from(picked)} shown={editableIds} />
+      </div>
+      <div className="mb-4">
+        <ShelfControl selected={Array.from(picked)} shown={editableIds} shelves={shelves} />
       </div>
 
       <div className="overflow-x-auto bg-white border border-brand-ink/10 rounded-lg">
