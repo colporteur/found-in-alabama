@@ -67,7 +67,15 @@ export function DraftEditor({
   }
 
   async function act(action: "discard" | "restore") {
-    if (action === "discard" && !confirm("Discard this draft? The photos stay in storage; you can restore it later.")) return;
+    if (
+      action === "discard" &&
+      !confirm(
+        status === "published"
+          ? "Remove this card from Listings? The live listing and the sale are not touched; you can restore the card later."
+          : "Discard this draft? The photos stay in storage; you can restore it later."
+      )
+    )
+      return;
     setBusy(true);
     try {
       const res = await fetch(`/api/admin/listings/${id}`, {
@@ -199,9 +207,9 @@ export function DraftEditor({
               Restore
             </button>
           ) : (
-            !["approved", "published"].includes(status) && (
+            status !== "approved" && (
               <button type="button" onClick={() => act("discard")} disabled={busy} className="text-sm px-3 py-2 rounded border border-brand-ink/20 text-red-800">
-                Discard
+                {status === "published" ? "Remove from listings" : "Discard"}
               </button>
             )
           )}

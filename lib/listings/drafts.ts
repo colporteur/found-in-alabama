@@ -282,15 +282,19 @@ export async function setDraftStatus(
   const [d] = await rows(sql`SELECT status, registry_item_id FROM listing_drafts WHERE id = ${id}`);
   if (!d) return { ok: false, error: "Draft not found" };
   if (action === "discard") {
-    if (["approved", "published"].includes(String(d.status))) return { ok: false, error: "Already approved" };
-    await db.execute(sql`UPDATE listing_drafts SET status = 'discarded', review_note = ${`discarded by ${who}`}, updated_at = now() WHERE id = ${id}`);
+    if (String(d.status) === "approved") return { ok: false, error: "Already approved — un-approve it first" };
+    // A published draft is only a record of the live listing: removing it
+    // from the queue hides the card and touches nothing on any venue.
+    const note = String(d.status) === "published" ? "removed (published)" : `discarded by ${who}`;
+    await db.execute(sql`UPDATE listing_drafts SET status = 'discarded', review_note = ${note}, updated_at = now() WHERE id = ${id}`);
     if (d.registry_item_id) {
       await db.execute(sql`UPDATE registry_items SET status = 'archived', updated_at = now() WHERE id = ${String(d.registry_item_id)} AND status = 'draft'`);
     }
   } else {
     if (String(d.status) !== "discarded") return { ok: false, error: "Not discarded" };
     await db.execute(sql`
-      UPDATE listing_drafts SET status = CASE WHEN EXISTS (SELECT 1 FROM draft_photos p WHERE p.draft_id = ${id} AND p.uploaded_at IS NULL)
+      UPDATE listing_drafts SET status = CASE WHEN review_note = 'removed (published)' THEN 'published'
+                                              WHEN EXISTS (SELECT 1 FROM draft_photos p WHERE p.draft_id = ${id} AND p.uploaded_at IS NULL)
                                               THEN 'uploading' ELSE 'ready' END,
              review_note = NULL, updated_at = now() WHERE id = ${id}`);
     if (d.registry_item_id) {
