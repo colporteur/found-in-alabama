@@ -10,8 +10,16 @@ export type ToolDef = {
   title: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /** false for the few tools that save something (listing drafts). */
+  readOnly?: boolean;
   run: (args: Record<string, unknown>) => Promise<unknown>;
 };
+
+/** A tool can return MCP content blocks directly (e.g. photos as images). */
+export type RawContent = { __mcpContent: Array<Record<string, unknown>> };
+export function rawContent(blocks: Array<Record<string, unknown>>): RawContent {
+  return { __mcpContent: blocks };
+}
 
 type Rpc = { jsonrpc?: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 type RpcReply = { jsonrpc: "2.0"; id: string | number | null; result?: unknown; error?: { code: number; message: string } };
@@ -23,7 +31,7 @@ export const INSTRUCTIONS = `Read-only access to Found in Alabama (FIA), Todd's 
 - Sales history comes from Nifty's records back to Aug 2025 plus FIA's own sale detection since Sep 2026. Sale prices are the sold price when known, otherwise the listed price at the time.
 - Money after fees, postage and item cost (profit_month) only covers packages in FIA's to-ship queue, which starts Oct 9 2026.
 - Dates are US Central. Buyer info is limited to usernames and city/state on purpose.
-Nothing here can change anything; to act, Todd uses the FIA admin.`;
+Nothing here can change anything; to act, Todd uses the FIA admin. The one exception, when Todd has turned it on for this connection: the listing_* tools let Claude write listing drafts he queued ("Send to Claude"); they go to his Review queue and are never approved, sent to Nifty or published from here.`;
 
 function ok(id: Rpc["id"], result: unknown): RpcReply {
   return { jsonrpc: "2.0", id: id ?? null, result };
@@ -55,7 +63,13 @@ async function handleOne(msg: Rpc, tools: ToolDef[]): Promise<RpcReply | null> {
           title: t.title,
           description: t.description,
           inputSchema: t.inputSchema,
-          annotations: { title: t.title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+          annotations: {
+            title: t.title,
+            readOnlyHint: t.readOnly !== false,
+            destructiveHint: false,
+            idempotentHint: t.readOnly !== false,
+            openWorldHint: false,
+          },
         })),
       });
     case "tools/call": {
@@ -64,6 +78,9 @@ async function handleOne(msg: Rpc, tools: ToolDef[]): Promise<RpcReply | null> {
       const args = p.arguments && typeof p.arguments === "object" ? (p.arguments as Record<string, unknown>) : {};
       try {
         const out = await tool.run(args);
+        if (out && typeof out === "object" && Array.isArray((out as RawContent).__mcpContent)) {
+          return ok(msg.id, { content: (out as RawContent).__mcpContent });
+        }
         return ok(msg.id, { content: [{ type: "text", text: JSON.stringify(out, null, 1) }] });
       } catch (err) {
         // Tool errors go back to the model as results so it can adjust.

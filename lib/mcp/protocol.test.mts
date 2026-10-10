@@ -45,3 +45,14 @@ test("arg helpers clamp and validate", () => {
   assert.throws(() => argEnum({ g: "drop table" }, "g", ["venue"] as const, "venue"));
   assert.throws(() => argDate({ d: "10/1/2026" }, "d"));
 });
+
+test("raw content passes through and write tools aren't marked read-only", async () => {
+  const { rawContent } = await import("./protocol");
+  const t: ToolDef[] = [
+    { name: "pics", title: "P", description: "", inputSchema: {}, readOnly: false, run: async () => rawContent([{ type: "image", data: "AA", mimeType: "image/jpeg" }]) },
+  ];
+  const l = (await handleRpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, t)) as any;
+  assert.equal(l.result.tools[0].annotations.readOnlyHint, false);
+  const r = (await handleRpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "pics" } }, t)) as any;
+  assert.equal(r.result.content[0].type, "image");
+});

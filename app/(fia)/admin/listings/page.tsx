@@ -18,6 +18,7 @@ const STATUS_LABEL: Record<string, string> = {
   in_nifty: "In Nifty (draft)",
   published: "Published",
   sent_back: "Sent back",
+  with_claude: "With Claude",
   discarded: "Discarded",
 };
 

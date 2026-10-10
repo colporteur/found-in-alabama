@@ -295,6 +295,13 @@
       "when": 1791655209396,
       "tag": "0041_inventory_edits",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791663710699,
+      "tag": "0042_mcp_scope",
+      "breakpoints": true
     }
   ]
 }

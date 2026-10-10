@@ -40,7 +40,7 @@ export function WriterPanel({
   const [busy, setBusy] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const canWrite = ["ready", "review", "sent_back"].includes(status) || (status === "generating" && stale);
+  const canWrite = ["ready", "review", "sent_back", "with_claude"].includes(status) || (status === "generating" && stale);
   const written = !!writtenBy;
 
   async function post(url: string, body: unknown, label: string) {
@@ -66,6 +66,16 @@ export function WriterPanel({
       const conf = typeof out.confidence === "number" ? ` · confidence ${Math.round(out.confidence * 100)}%` : "";
       setMsg(`Written by ${out.model} (${out.tier})${conf} · $${Number(out.costUsd ?? 0).toFixed(3)}`);
     }
+    router.refresh();
+  }
+
+  async function claude(action: "send" | "take_back") {
+    const out = await post(
+      "/api/admin/listings/claude",
+      action === "send" ? { action, ids: [id], note: corrections.trim() || undefined } : { action, id },
+      action
+    );
+    if (out && action === "send" && !Number(out.sent)) setMsg("Couldn't queue it (photos still uploading?)");
     router.refresh();
   }
 
@@ -120,6 +130,24 @@ export function WriterPanel({
             {busy === "write" ? "Writing… (20–90 s)" : written ? "Rewrite" : "Write with AI"}
           </button>
         </div>
+      )}
+      {canWrite && status !== "with_claude" && (
+        <p className="text-sm">
+          <button type="button" onClick={() => claude("send")} disabled={!!busy} className="underline text-brand-earth">
+            {busy === "send" ? "Sending…" : "Send to Claude instead"}
+          </button>{" "}
+          <span className="text-xs text-brand-ink/50">
+            — Claude in the Claude app writes it through the FIA connector (the corrections box goes along as instructions).
+          </span>
+        </p>
+      )}
+      {status === "with_claude" && (
+        <p className="text-sm">
+          Waiting for Claude. In the Claude app, with FIA turned on, say <em>&ldquo;write my waiting FIA listings&rdquo;</em>.{" "}
+          <button type="button" onClick={() => claude("take_back")} disabled={!!busy} className="underline">
+            Take it back
+          </button>
+        </p>
       )}
       {canWrite && handMode && !written && (
         <p className="text-xs text-brand-ink/50">
