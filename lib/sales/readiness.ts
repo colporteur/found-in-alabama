@@ -74,9 +74,10 @@ export async function niftyCheckWindow(): Promise<{ since: string; lastCheck: st
   const checks = await niftyChecks();
   const last = checks.find((c) => c.complete) ?? null;
   const [o] = await rows(sql`
-    SELECT count(*)::int AS open, extract(epoch FROM min(planned_at)) * 1000 AS oldest_ms FROM delist_plans
-    WHERE venue NOT IN ('ebay', 'hip') AND outcome IN ('pending', 'unverified', 'still_live')
-      AND planned_at > now() - interval '30 days'`);
+    SELECT count(*)::int AS open, extract(epoch FROM min(COALESCE(e.sold_at, e.detected_at, p.planned_at))) * 1000 AS oldest_ms
+    FROM delist_plans p LEFT JOIN sale_events e ON e.id = p.sale_event_id
+    WHERE p.venue NOT IN ('ebay', 'hip') AND p.outcome IN ('pending', 'unverified', 'still_live')
+      AND p.planned_at > now() - interval '30 days'`);
   const floor = Date.now() - 45 * 86400_000;
   const candidates = [
     o?.oldest_ms != null ? Number(o.oldest_ms) - 86400_000 : null,
@@ -159,7 +160,7 @@ export async function readinessReport(): Promise<Readiness> {
            count(*) FILTER (WHERE p.outcome = 'still_live' AND p.planned_at < now() - interval '24 hours')::int AS still_old,
            count(*) FILTER (WHERE p.outcome IN ('pending', 'unverified')
                               OR (p.outcome = 'still_live' AND p.planned_at >= now() - interval '24 hours'))::int AS open
-    FROM delist_plans p WHERE p.planned_at >= ${from}
+    FROM delist_plans p WHERE p.planned_at >= ${from} AND p.outcome <> 'void'
     GROUP BY 1, 2`);
 
   const legIssues = await rows(sql`

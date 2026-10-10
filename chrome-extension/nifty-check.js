@@ -1,7 +1,9 @@
-// Delist check (Phase 2 readiness): read Nifty's recently SOLD items, newest
-// sale first, with every marketplace's status for each (SOLD on the venue
-// that sold it, DELISTED where Nifty took it down, LISTED where it's still
-// up). popup.js posts them to FIA's capture endpoint, which records the
+// Delist check (Phase 2 readiness): read every Nifty item with a recent sale,
+// newest sale first, with every marketplace's status for each (SOLD on the
+// venue that sold it, DELISTED where Nifty took it down, LISTED where it's
+// still up). Uses Nifty's "all" view, not "sold": an item that sold but still
+// shows LISTED on suspended Etsy (or multi-quantity stock) stays under
+// Nifty's Listed tab. popup.js posts them to FIA's capture endpoint, which records the
 // per-venue status; FIA's outcome checker then scores its shadow delist
 // plans against it and counts any sale FIA never saw.
 //
@@ -29,7 +31,7 @@ async function niftyRecentSold(sinceIso, options) {
     const data = await get({
       query: "",
       page,
-      filter: "sold",
+      filter: "all",
       search: "all_fields",
       sort: "sale_detected_at",
       sortOrder: "desc",
@@ -41,7 +43,8 @@ async function niftyRecentSold(sinceIso, options) {
     const items = (data && data.items) || [];
     for (const c of items) {
       const soldMs = c.soldAt ? Date.parse(c.soldAt) : NaN;
-      if (Number.isFinite(soldMs) && soldMs < since) {
+      // Sorted by sale time: no sale time, or an older one, means done.
+      if (!Number.isFinite(soldMs) || soldMs < since) {
         reachedSince = true;
         break;
       }
@@ -54,10 +57,18 @@ async function niftyRecentSold(sinceIso, options) {
         if (!hero && v.pictureUrl && (v.status === "SOLD" || v.status === "LISTED")) hero = v.pictureUrl;
         if (price == null && v.price != null) price = v.price;
       }
+      // Nifty keeps an item "LISTED" while suspended Etsy still shows it, or
+      // while a delist failed somewhere. A single-unit item that SOLD on a
+      // venue is sold (a listing still up is a delist to fix, not stock);
+      // multi-quantity stock with units left stays listed.
+      const mk = Object.entries(c.marketplaceMetadata || {}).filter(([, v]) => v && typeof v === "object");
+      const anySold = mk.some(([, v]) => v.status === "SOLD");
+      const restDown = mk.every(([k, v]) => k === "Etsy" || v.status === "SOLD" || v.status === "DELISTED");
+      const single = !(Number(c.maxListingQuantity) > 1);
       out.push({
         niftyId: c.id,
         title: c.title,
-        status: c.status ?? null,
+        status: anySold && (restDown || single) ? "SOLD" : c.status ?? null,
         privateNotes: c.privateNotes ?? null,
         soldAt: c.soldAt ?? null,
         skus: Array.isArray(c.skus) ? c.skus : null,
