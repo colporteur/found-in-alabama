@@ -16,7 +16,7 @@ export type InvoiceData = {
   orderId: string | null;
   date: string;
   shipping: number | null;
-  lines: Array<{ id: string; title: string; qty: number; price: number | null; img: string | null }>;
+  lines: Array<{ id: string; title: string; qty: number; price: number | null; img: string | null; sku: string | null }>;
 };
 
 const money = (n: number) => `$${n.toFixed(2)}`;
@@ -96,7 +96,13 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
               ) : null)}
             <div className="inv-line-text">
               <p className="inv-title">{l.title}</p>
-              {l.qty > 1 && <p className="inv-qty">Qty {l.qty}</p>}
+              {(l.qty > 1 || l.sku) && (
+                <p className="inv-qty">
+                  {l.sku && <span className="inv-sku">Bin {l.sku}</span>}
+                  {l.sku && l.qty > 1 && " · "}
+                  {l.qty > 1 && `Qty ${l.qty}`}
+                </p>
+              )}
             </div>
             <span
               className={`inv-line-price ${prices[l.id] == null ? "price-missing" : ""}`}
@@ -229,6 +235,7 @@ const INVOICE_CSS = `
   .inv-line-text { flex: 1; min-width: 0; }
   .inv-title { margin: 0; font-size: 12px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
   .inv-qty { margin: 3px 0 0; font-size: 11px; }
+  .inv-sku { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 700; font-size: 12px; }
   .inv-line-price, .inv-price { padding: 2px; border: 1px dashed transparent; border-radius: 4px; text-align: right; white-space: nowrap; font-weight: 600; }
   .inv-line-price { min-width: 48px; font-size: 12px; }
   .inv-price { min-width: 65px; font-size: 18px; font-weight: 700; }

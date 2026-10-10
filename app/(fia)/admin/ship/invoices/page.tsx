@@ -37,7 +37,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
           })
         : "",
       shipping: website ? o.shippingPaid : null,
-      lines: o.lines.map((l) => ({ id: l.id, title: l.title ?? "(no title)", qty: l.quantity, price: l.price, img: l.imageUrl })),
+      lines: o.lines.map((l) => ({ id: l.id, title: l.title ?? "(no title)", qty: l.quantity, price: l.price, img: l.imageUrl, sku: l.binSku })),
     };
   });
   return <InvoiceSheets invoices={data} />;
