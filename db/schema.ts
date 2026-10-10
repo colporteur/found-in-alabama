@@ -1697,3 +1697,62 @@ export const ebayCategoryAspects = pgTable("ebay_category_aspects", {
   aspects: jsonb("aspects").$type<unknown[]>().notNull(),
   fetchedAt: timestamp("fetched_at").defaultNow().notNull(),
 });
+
+// ── Fulfillment (Phase 4) ───────────────────────────────────────────────────
+// The to-ship queue: one ship_order per package to send, built from
+// sale_events (lib/fulfillment/queue.ts). Website orders and Hip sales group
+// by their order; marketplace sales start as one order each until buyer
+// capture (4b) can combine them. Nothing here is sent to any marketplace.
+export const shipOrders = pgTable(
+  "ship_orders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    venue: text("venue").notNull(),
+    /** stripe:<tes_orders.id> | hip:<hip_sale_id> | sale:<sale_events.id> | ebay:<orderId> */
+    orderKey: text("order_key").notNull(),
+    venueOrderId: text("venue_order_id"),
+    buyerName: text("buyer_name"),
+    buyerUsername: text("buyer_username"),
+    shipTo: jsonb("ship_to").$type<Record<string, unknown>>(),
+    soldAt: timestamp("sold_at"),
+    /** to_pick | packed | shipped | cancelled */
+    status: text("status").default("to_pick").notNull(),
+    pickPrintedAt: timestamp("pick_printed_at"),
+    invoicePrintedAt: timestamp("invoice_printed_at"),
+    packedAt: timestamp("packed_at"),
+    shippedAt: timestamp("shipped_at"),
+    trackingNumber: text("tracking_number"),
+    carrier: text("carrier"),
+    mergedInto: uuid("merged_into"),
+    note: text("note"),
+    updatedBy: text("updated_by"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    keyUq: uniqueIndex("ship_orders_key_uq").on(t.venue, t.orderKey),
+    statusIdx: index("ship_orders_status_idx").on(t.status, t.soldAt),
+  })
+);
+
+export const shipOrderLines = pgTable(
+  "ship_order_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => shipOrders.id, { onDelete: "cascade" }),
+    saleEventId: uuid("sale_event_id").references(() => saleEvents.id, { onDelete: "set null" }),
+    registryItemId: uuid("registry_item_id").references(() => registryItems.id, { onDelete: "set null" }),
+    title: text("title"),
+    binSku: text("bin_sku"),
+    quantity: integer("quantity").default(1).notNull(),
+    price: numeric("price", { precision: 10, scale: 2 }),
+    imageUrl: text("image_url"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    saleUq: uniqueIndex("ship_order_lines_sale_uq").on(t.saleEventId),
+    orderIdx: index("ship_order_lines_order_idx").on(t.orderId),
+  })
+);

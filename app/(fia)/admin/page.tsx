@@ -212,6 +212,11 @@ export default async function AdminDashboard() {
           desc="Items sent from the Scans page or started by hand, on their way to becoming listings."
         />
         <Tool
+          href="/admin/ship"
+          title="To ship"
+          desc="Every venue's sales in one queue: printable pick list by bin, then packed and shipped."
+        />
+        <Tool
           href="/admin/sales"
           title="Sale detection"
           desc="Every sale on every venue, matched to its item, and whether its other listings came down (shadow mode)."

@@ -8,6 +8,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { runSalesSync } from "@/lib/sales/pipeline";
+import { syncShipQueue } from "@/lib/fulfillment/queue";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -26,7 +27,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   const result = await runSalesSync();
-  console.log(`[sales-sync] ${JSON.stringify(result)}`);
+  // Fulfillment (Phase 4a): new sales join the to-ship queue. Never fails the cron.
+  const ship = await syncShipQueue().catch((err) => ({ error: (err as Error).message }));
+  console.log(`[sales-sync] ${JSON.stringify(result)} ship=${JSON.stringify(ship)}`);
   return NextResponse.json(result, {
     status: result.ok ? 200 : 500,
     headers: { "Cache-Control": "private, no-store" },
