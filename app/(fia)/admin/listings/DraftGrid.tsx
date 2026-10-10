@@ -11,8 +11,10 @@ import { useRouter } from "next/navigation";
 import type { DraftSummary } from "@/lib/listings/drafts";
 import { MinPriceControl } from "./MinPriceControl";
 import { ShelfControl } from "./ShelfControl";
+import { ApproveControl } from "./ApproveControl";
 
 const PICKABLE = new Set(["ready", "review", "sent_back", "uploading"]);
+const SELECTABLE = new Set([...Array.from(PICKABLE), "approved"]);
 
 const STATUS_LABEL: Record<string, string> = {
   uploading: "Uploading photos",
@@ -58,24 +60,6 @@ export function DraftGrid({
       else n.add(id);
       return n;
     });
-
-  async function approve() {
-    setMsg(null);
-    const res = await fetch("/api/admin/listings/bulk", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "approve", ids: reviewable.filter((d) => picked.has(d.id)).map((d) => d.id) }),
-    });
-    const out = (await res.json().catch(() => ({}))) as { approved?: string[]; skipped?: Array<{ reason: string }>; error?: string };
-    if (!res.ok) {
-      setMsg(out.error ?? `HTTP ${res.status}`);
-      return;
-    }
-    const skipped = out.skipped ?? [];
-    setMsg(`Approved ${out.approved?.length ?? 0}.${skipped.length ? ` Skipped ${skipped.length}: ${skipped.map((s) => s.reason).join("; ")}` : ""}`);
-    setPicked(new Set());
-    router.refresh();
-  }
 
   async function writeAll() {
     setMsg(null);
@@ -175,17 +159,13 @@ export function DraftGrid({
             <button type="button" onClick={() => setPicked(new Set())} className={`${btn} border border-brand-ink/20`} disabled={!picked.size}>
               Clear
             </button>
-            <button
-              type="button"
-              onClick={approve}
-              disabled={!reviewable.some((d) => picked.has(d.id))}
-              className={`${btn} bg-green-800 text-white hover:bg-green-700`}
-            >
-              Approve selected ({reviewable.filter((d) => picked.has(d.id)).length})
-            </button>
+
           </>
         )}
         {msg && <span className="text-sm text-brand-ink/70">{msg}</span>}
+      </div>
+      <div className="mb-3">
+        <ApproveControl drafts={drafts} picked={picked} onDone={() => setPicked(new Set())} />
       </div>
       <div className="mb-6">
         <MinPriceControl selected={Array.from(picked)} shown={drafts.filter((d) => PICKABLE.has(d.status)).map((d) => d.id)} />
@@ -205,7 +185,7 @@ export function DraftGrid({
                 picked.has(d.id) ? "border-green-800 ring-2 ring-green-800/30" : "border-brand-ink/15"
               }`}
             >
-              {PICKABLE.has(d.status) && (
+              {SELECTABLE.has(d.status) && (
                 <label className="absolute top-2 left-2 z-10 bg-white/90 rounded px-1.5 py-1 flex items-center gap-1 text-xs">
                   <input type="checkbox" checked={picked.has(d.id)} onChange={() => toggle(d.id)} /> pick
                 </label>

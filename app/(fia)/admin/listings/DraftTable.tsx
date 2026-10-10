@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import type { DraftSummary } from "@/lib/listings/drafts";
 import { MinPriceControl } from "./MinPriceControl";
 import { ShelfControl } from "./ShelfControl";
+import { ApproveControl } from "./ApproveControl";
 
 const EDITABLE = new Set(["uploading", "ready", "review", "sent_back"]);
 const STATUS_LABEL: Record<string, string> = {
@@ -86,6 +87,7 @@ export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelve
   const changed = (id: string) => FIELDS.filter((f) => rows[id]?.[f] !== start[id]?.[f]);
   const dirtyIds = drafts.filter((d) => changed(d.id).length > 0).map((d) => d.id);
   const editableIds = drafts.filter((d) => EDITABLE.has(d.status)).map((d) => d.id);
+  const pickableIds = drafts.filter((d) => EDITABLE.has(d.status) || d.status === "approved").map((d) => d.id);
 
   const set = (id: string, f: keyof Row) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setRows((r) => ({ ...r, [id]: { ...r[id], [f]: e.target.value } }));
@@ -169,11 +171,14 @@ export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelve
         {msg && <span className="text-sm text-brand-ink/70">{msg}</span>}
         <span className="text-xs text-brand-ink/50 ml-auto">Grey weight with * = assumed by the writer; type one to set it.</span>
       </div>
-      <div className="mb-4">
-        <MinPriceControl selected={Array.from(picked)} shown={editableIds} />
+      <div className="mb-3">
+        <ApproveControl drafts={drafts} picked={picked} onDone={() => setPicked(new Set())} />
       </div>
       <div className="mb-4">
-        <ShelfControl selected={Array.from(picked)} shown={editableIds} shelves={shelves} />
+        <MinPriceControl selected={Array.from(picked).filter((id) => editableIds.includes(id))} shown={editableIds} />
+      </div>
+      <div className="mb-4">
+        <ShelfControl selected={Array.from(picked).filter((id) => editableIds.includes(id))} shown={editableIds} shelves={shelves} />
       </div>
 
       <div className="overflow-x-auto bg-white border border-brand-ink/10 rounded-lg">
@@ -183,9 +188,9 @@ export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelve
               <th className="p-2">
                 <input
                   type="checkbox"
-                  aria-label="Select all editable"
-                  checked={editableIds.length > 0 && editableIds.every((id) => picked.has(id))}
-                  onChange={(e) => setPicked(e.target.checked ? new Set(editableIds) : new Set())}
+                  aria-label="Select all"
+                  checked={pickableIds.length > 0 && pickableIds.every((id) => picked.has(id))}
+                  onChange={(e) => setPicked(e.target.checked ? new Set(pickableIds) : new Set())}
                 />
               </th>
               <th className="p-2"></th>
@@ -207,7 +212,9 @@ export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelve
               const n = changed(d.id).length;
               return (
                 <tr key={d.id} className="border-t border-brand-ink/5 align-top">
-                  <td className="p-2">{ed && <input type="checkbox" checked={picked.has(d.id)} onChange={() => toggle(d.id)} />}</td>
+                  <td className="p-2">
+                    {(ed || d.status === "approved") && <input type="checkbox" checked={picked.has(d.id)} onChange={() => toggle(d.id)} />}
+                  </td>
                   <td className="p-2 w-14 min-w-[3.5rem]">
                     {/* Fixed size: the site's global img max-width:100% let the
                         table squeeze this column to a sliver. */}
