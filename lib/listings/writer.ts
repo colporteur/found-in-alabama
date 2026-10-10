@@ -268,6 +268,7 @@ function factsText(d: Row): string {
 }
 
 const IDENTIFY_SYSTEM = `You identify vintage and collectible items from photos for "Found in Alabama", an Alabama reseller, so the right expert guide and model can be chosen. Look at every photo (fronts, backs, labels, signatures, postmarks, publisher lines).
+The reseller being in Alabama says NOTHING about where an item is from — most items are from elsewhere. "places" lists only places printed, written or pictured on the item (or stated in the intake facts); never guess a place from a business or family name. Leave "places" empty if none is shown.
 
 Return ONLY a JSON object, no commentary:
 {
@@ -291,6 +292,8 @@ const WRITE_RULES = `You write marketplace listings for "Found in Alabama", an A
 
 NON-NEGOTIABLE RULES (they override the expert guide):
 1. Never invent facts. Places, dates, publishers, makers, provenance and condition must be visible in the photos or stated in the intake facts. When unsure, leave it out or say "appears to be". Todd's notes are true.
+1b. The seller being "Found in Alabama" does not make an item Alabama. Put a city or state in the title, description, specifics or store shelf ONLY if it is printed/written/pictured on the item or given in the intake facts — never from a guess (a "likely" or "possibly" place from the identification step is a guess). If you think you know where a business was, say so in flags, not in the listing.
+1c. In flags, name the real source of a doubt ("the photos", "the identification step"); the title hint is only Todd's few words from intake.
 2. Never mention shipping, packing, handling time, discounts, returns, payment or price in the title or description.
 3. Never include bin or SKU codes (e.g. NA331) anywhere.
 
