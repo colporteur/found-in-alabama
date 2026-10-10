@@ -86,6 +86,17 @@ export const REGISTRY_SYNC_STEPS: Step[] = [
         ('etsy','suspended','Etsy account suspended - links are historical only')
       ON CONFLICT (venue) DO NOTHING`,
   },
+  // A listing draft FIA sent to Nifty already has a registry row (created at
+  // intake, carrying the Nifty item id). When Nifty's capture brings that
+  // item in, link it to the draft's row instead of creating a second one.
+  {
+    name: "link draft rows to their Nifty capture",
+    sql: `
+      UPDATE registry_items r SET nifty_item_ref = i.id, updated_at = now()
+      FROM items i
+      WHERE r.nifty_item_ref IS NULL AND r.nifty_id IS NOT NULL AND r.nifty_id = i.nifty_id
+        AND NOT EXISTS (SELECT 1 FROM registry_items o WHERE o.nifty_item_ref = i.id)`,
+  },
   {
     name: "new active Nifty items",
     sql: `
@@ -98,6 +109,7 @@ export const REGISTRY_SYNC_STEPS: Step[] = [
       FROM items i
       WHERE i.status = 'active'
         AND NOT EXISTS (SELECT 1 FROM registry_items r WHERE r.nifty_item_ref = i.id)
+        AND NOT EXISTS (SELECT 1 FROM registry_items r2 WHERE r2.nifty_id = i.nifty_id)
       ON CONFLICT DO NOTHING`,
   },
   {
@@ -113,6 +125,7 @@ export const REGISTRY_SYNC_STEPS: Step[] = [
       FROM items i
       WHERE i.status = 'sold'
         AND NOT EXISTS (SELECT 1 FROM registry_items r WHERE r.nifty_item_ref = i.id)
+        AND NOT EXISTS (SELECT 1 FROM registry_items r2 WHERE r2.nifty_id = i.nifty_id)
       ON CONFLICT DO NOTHING`,
   },
   // A listing first seen in the eBay mirror (no Nifty record yet) that Nifty
@@ -306,6 +319,16 @@ export async function runRegistrySync(): Promise<RegistrySyncResult> {
     sql`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'registry_items' AND column_name = 'fia_locked') AS ok`
   )) as { rows?: { ok?: boolean }[] };
   const locksReady = !!locks.rows?.[0]?.ok;
+  // Drafts Todd published from Nifty: link their new eBay listings to the
+  // draft's registry row before the eBay-only step would duplicate them.
+  try {
+    const { linkPublishedDrafts } = await import("@/lib/listings/published");
+    const t = Date.now();
+    const r = await linkPublishedDrafts();
+    steps.push({ name: "published listing drafts", rows: r.linked, ms: Date.now() - t });
+  } catch (err) {
+    console.warn("[registry] published drafts step skipped:", err instanceof Error ? err.message : err);
+  }
   for (const step of REGISTRY_SYNC_STEPS) {
     const t = Date.now();
     try {
@@ -385,6 +408,7 @@ export async function syncRegistryFromCapture(
       FROM items i
       WHERE i.nifty_id IN (${sql.join(niftyIds.map((id) => sql`${id}`), sql`, `)})
         AND NOT EXISTS (SELECT 1 FROM registry_items r WHERE r.nifty_item_ref = i.id)
+        AND NOT EXISTS (SELECT 1 FROM registry_items r2 WHERE r2.nifty_id = i.nifty_id)
       ON CONFLICT DO NOTHING`);
 
     // 2. Venue listings with Nifty's own status. eBay and Hip status stay
