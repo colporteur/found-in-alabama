@@ -19,6 +19,7 @@ import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import sharp from "sharp";
 import { gatewayChat, type GatewayContentPart } from "@/lib/gateway";
+import { RESEARCH_SYSTEM, parseResearch, researchPromptText, type Research } from "./research";
 import { computeLlmCost, getRate, logAiCall } from "@/lib/enhance/cost";
 import { listGuides, loadGuide, routeGuides, guideKeywordHits, guideSection, ITEM_SPECIFICS_HEADING, type Guide } from "@/lib/enhance/guides";
 import { categoryAspects } from "@/lib/ebay/taxonomy";
@@ -108,7 +109,7 @@ async function preparePhotos(photos: Photo[]): Promise<{ parts: GatewayContentPa
 
 type CallMeta = {
   draftId: string;
-  step: "identify" | "write" | "specifics";
+  step: "identify" | "write" | "specifics" | "research";
   tier: Tier | null;
   guides: Array<{ id: string; version: string | null }>;
   who: string;
@@ -119,12 +120,13 @@ async function callModel(
   system: Array<{ type: "text"; text: string; cache_control?: { type: "ephemeral" } }>,
   content: GatewayContentPart[],
   maxTokens: number,
-  meta: CallMeta
+  meta: CallMeta,
+  extra?: Record<string, unknown>
 ): Promise<{ text: string; costUsd: number; resolvedModel: string; runId: string | null; durationMs: number }> {
   const started = Date.now();
   const provider = model.split("/")[0] || "gateway";
   try {
-    const r = await gatewayChat({ model, system, content, maxTokens, app: APP });
+    const r = await gatewayChat({ model, system, content, maxTokens, app: APP, ...(extra ? { extra } : {}) });
     const durationMs = Date.now() - started;
     let costUsd = r.usage.costUsd;
     if (costUsd == null) costUsd = computeLlmCost(await getRate(provider, model), r.usage);
@@ -264,10 +266,13 @@ function factsText(d: Row): string {
         .join("\n")
     );
   }
+  const research = researchPromptText(((d.ai_meta ?? {}) as Record<string, unknown>).research as Research | undefined);
+  if (research) lines.push(research);
   return lines.length ? lines.join("\n") : "No intake facts beyond the photos.";
 }
 
 const IDENTIFY_SYSTEM = `You identify vintage and collectible items from photos for "Found in Alabama", an Alabama reseller, so the right expert guide and model can be chosen. Look at every photo (fronts, backs, labels, signatures, postmarks, publisher lines).
+The reseller being in Alabama says NOTHING about where an item is from — most items are from elsewhere. "places" lists only places printed, written or pictured on the item (or stated in the intake facts); never guess a place from a business or family name. Leave "places" empty if none is shown.
 
 Return ONLY a JSON object, no commentary:
 {
@@ -291,6 +296,8 @@ const WRITE_RULES = `You write marketplace listings for "Found in Alabama", an A
 
 NON-NEGOTIABLE RULES (they override the expert guide):
 1. Never invent facts. Places, dates, publishers, makers, provenance and condition must be visible in the photos or stated in the intake facts. When unsure, leave it out or say "appears to be". Todd's notes are true.
+1b. The seller being "Found in Alabama" does not make an item Alabama. Put a city or state in the title, description, specifics or store shelf ONLY if it is printed/written/pictured on the item or given in the intake facts — never from a guess (a "likely" or "possibly" place from the identification step is a guess). If you think you know where a business was, say so in flags, not in the listing.
+1c. In flags, name the real source of a doubt ("the photos", "the identification step"); the title hint is only Todd's few words from intake.
 2. Never mention shipping, packing, handling time, discounts, returns, payment or price in the title or description.
 3. Never include bin or SKU codes (e.g. NA331) anywhere.
 
@@ -575,6 +582,7 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
       shippingReason: ship?.reason ?? null,
       categorySuggestion: cat ? null : out.ebayCategorySuggestion || null,
       corrections: corrections || null,
+      research: prevMeta.research ?? null,
       costUsd: Math.round(totalCost * 10000) / 10000,
       writtenAt: new Date().toISOString(),
     };
@@ -629,4 +637,96 @@ export async function writableDraftIds(limit = 200): Promise<string[]> {
     WHERE status = 'ready' AND COALESCE(facts->>'mode', '') <> 'hand'
     ORDER BY created_at LIMIT ${limit}`);
   return found.map((r) => String(r.id));
+}
+
+
+// ── research (LIST-4): top model + web search + guides, on demand ──────────
+
+const RESEARCH_PHOTOS = 6;
+
+export async function researchDraft(
+  draftId: string,
+  opts: { question?: string | null; who: string }
+): Promise<{ ok: true; research: Research } | { ok: false; status: number; error: string }> {
+  if (!/^[0-9a-f-]{36}$/i.test(draftId)) return { ok: false, status: 404, error: "Draft not found" };
+  const [d] = await rows(sql`SELECT * FROM listing_drafts WHERE id = ${draftId}`);
+  if (!d) return { ok: false, status: 404, error: "Draft not found" };
+  if (["published", "discarded"].includes(String(d.status))) {
+    return { ok: false, status: 409, error: `A ${d.status} draft can't be researched` };
+  }
+  const settings = await writerSettings();
+  const photoRows = await rows(sql`
+    SELECT position, role, url FROM draft_photos WHERE draft_id = ${draftId} AND uploaded_at IS NOT NULL
+    ORDER BY position LIMIT ${RESEARCH_PHOTOS}`);
+  const photos = await preparePhotos(
+    photoRows.map((p) => ({ position: Number(p.position), role: p.role ? String(p.role) : null, url: String(p.url) }))
+  );
+  const meta = (d.ai_meta ?? {}) as Record<string, unknown>;
+  const ident = (meta.identification ?? null) as Identification | null;
+  const routeText = [d.title, ident?.identification, ...(ident?.keywords ?? []), d.title_hint, d.notes].filter(Boolean).join(" ");
+  const guides = await matchGuides(routeText);
+  const guideText = guides.length ? guidePromptText(guides.map((g) => ({ id: g.id, name: g.name, content: g.content }))) : "";
+  const question = (opts.question ?? "").trim().slice(0, 600) || null;
+  // The earlier research is not fed back in: a fresh look each time.
+  const factsNoResearch = factsText({ ...d, ai_meta: { ...meta, research: null } });
+  const userText = [
+    photos.labels.length ? `Photos: ${photos.labels.join(", ")}.` : "No photos could be loaded.",
+    factsNoResearch,
+    d.title ? `Current draft title: ${d.title}` : "",
+    d.description ? `Current draft description: ${String(d.description).slice(0, 1500)}` : "",
+    ident ? `First-look identification (may be wrong): ${ident.identification}` : "",
+    question ? `TODD'S QUESTION — answer this first: ${question}` : "Find what would make this listing more attractive and searchable.",
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+  const system = [
+    ...(guideText ? [{ type: "text" as const, text: guideText, cache_control: { type: "ephemeral" as const } }] : []),
+    { type: "text" as const, text: RESEARCH_SYSTEM },
+  ];
+  const model = settings.models.premium;
+  try {
+    const call = await callModel(
+      model,
+      system,
+      [...photos.parts, { type: "text", text: userText }],
+      4000,
+      { draftId, step: "research", tier: "premium", guides: guides.map((g) => ({ id: g.id, version: g.version ?? g.updated ?? null })), who: opts.who },
+      { plugins: [{ id: "web", max_results: 6 }] }
+    );
+    const parsed = parseResearch(call.text);
+    if (!parsed) {
+      await noteRun(call.runId, null, { raw: call.text.slice(0, 2000) });
+      return { ok: false, status: 502, error: "The research reply couldn't be read; try again." };
+    }
+    const research: Research = {
+      ...parsed,
+      at: new Date().toISOString(),
+      model: call.resolvedModel || model,
+      costUsd: Math.round(call.costUsd * 10000) / 10000,
+      question,
+      titleOk: false,
+    };
+    await noteRun(call.runId, null, research);
+    await db.execute(sql`
+      UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('research', ${JSON.stringify(research)}::jsonb),
+             updated_at = now()
+      WHERE id = ${draftId}`);
+    return { ok: true, research };
+  } catch (err) {
+    return { ok: false, status: 502, error: (err as Error).message.slice(0, 300) };
+  }
+}
+
+/** Todd's picks: which findings the next write uses, and whether LIKELY
+ *  places may go in the title. */
+export async function setResearchPicks(draftId: string, use: number[], titleOk: boolean): Promise<boolean> {
+  const [d] = await rows(sql`SELECT ai_meta FROM listing_drafts WHERE id = ${draftId}`);
+  const r = ((d?.ai_meta ?? {}) as Record<string, unknown>).research as Research | undefined;
+  if (!r) return false;
+  const picked = new Set(use);
+  const next: Research = { ...r, titleOk, findings: r.findings.map((f, i) => ({ ...f, use: picked.has(i) })) };
+  await db.execute(sql`
+    UPDATE listing_drafts SET ai_meta = ai_meta || jsonb_build_object('research', ${JSON.stringify(next)}::jsonb), updated_at = now()
+    WHERE id = ${draftId}`);
+  return true;
 }
