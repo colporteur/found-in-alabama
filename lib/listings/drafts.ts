@@ -64,12 +64,13 @@ export type DraftSummary = {
   quantity: number;
   condition: string | null;
   poshmarkPrice: number | null;
+  storeCategoryIds: string[];
 };
 
 /** Statuses whose content can still be edited by hand. */
 export const EDITABLE_STATUS_LIST = ["uploading", "ready", "review", "sent_back"] as const;
 
-export type Draft = Omit<DraftSummary, "weightOz" | "assumedWeightOz" | "ebayCategoryId" | "ebayCategoryName" | "shippingProfile" | "quantity" | "condition" | "poshmarkPrice"> & {
+export type Draft = Omit<DraftSummary, "weightOz" | "assumedWeightOz" | "ebayCategoryId" | "ebayCategoryName" | "shippingProfile" | "quantity" | "condition" | "poshmarkPrice" | "storeCategoryIds"> & {
   registryItemId: string | null;
   sourceRef: string | null;
   facts: Record<string, unknown>;
@@ -113,7 +114,7 @@ export async function listDrafts(status: string | null, limit = 100): Promise<{
     SELECT d.id, d.status, d.source, d.source_label, d.title, d.title_hint, d.bin_sku, d.price, d.created_at,
            d.written_by, d.generation_error, d.ai_meta->>'confidence' AS confidence, d.ai_meta->>'tier' AS tier,
            d.weight_oz, d.ai_meta->'weight'->>'oz' AS assumed_oz, d.ebay_category_id, d.ebay_category_name,
-           d.shipping_profile, d.quantity, d.condition, d.venue_prices->>'poshmark' AS poshmark_price,
+           d.shipping_profile, d.quantity, d.condition, d.venue_prices->>'poshmark' AS poshmark_price, d.store_category_ids,
            (SELECT count(*) FROM draft_photos p WHERE p.draft_id = d.id) AS photos,
            (SELECT p.url FROM draft_photos p WHERE p.draft_id = d.id AND p.uploaded_at IS NOT NULL
              ORDER BY p.position LIMIT 1) AS cover
@@ -149,6 +150,7 @@ export async function listDrafts(status: string | null, limit = 100): Promise<{
       quantity: Number(d.quantity ?? 1) || 1,
       condition: s(d.condition),
       poshmarkPrice: n(d.poshmark_price),
+      storeCategoryIds: Array.isArray(d.store_category_ids) ? (d.store_category_ids as unknown[]).map(String) : [],
     })),
   };
 }
