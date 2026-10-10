@@ -10,6 +10,7 @@ import { WriterPanel } from "./WriterPanel";
 import { ResearchPanel } from "./ResearchPanel";
 import type { Research } from "@/lib/listings/research";
 import { AiNotes } from "./AiNotes";
+import { UnverifiedPanel } from "./UnverifiedPanel";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 import { booksReady, itemCost, listAcquisitions } from "@/lib/books/books";
 import { HaulCostPanel } from "../../books/BooksControls";
@@ -140,6 +141,13 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
         </div>
       )}
 
+      {Array.isArray(d.aiMeta?.unverified) && (
+        <UnverifiedPanel
+          id={d.id}
+          items={d.aiMeta.unverified as Array<{ words: string; basis?: string; decision?: string | null }>}
+          editable={["review", "sent_back", "ready"].includes(d.status)}
+        />
+      )}
       {d.aiMeta && <AiNotes meta={d.aiMeta} shippingProfile={d.shippingProfile} venuePrices={d.venuePrices} />}
 
       <DraftEditor

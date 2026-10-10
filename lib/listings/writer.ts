@@ -299,6 +299,7 @@ NON-NEGOTIABLE RULES (they override the expert guide):
 1. Never invent facts. Places, dates, publishers, makers, provenance and condition must be visible in the photos or stated in the intake facts. When unsure, leave it out or say "appears to be". Todd's notes are true.
 1b. The seller being "Found in Alabama" does not make an item Alabama. Put a city or state in the title, description, specifics or store shelf ONLY if it is printed/written/pictured on the item or given in the intake facts — never from a guess (a "likely" or "possibly" place from the identification step is a guess). If you think you know where a business was, say so in flags, not in the listing.
 1c. In flags, name the real source of a doubt ("the photos", "the identification step"); the title hint is only Todd's few words from intake.
+1d. Well-known facts that FOLLOW from what is shown may be used even though the item doesn't print them — the county or region of a town named on the item, a named building's architect or opening year, a named publisher's home city, a series' usual era. Use them only when you are confident, and list each one in "unverified" (the exact words as they appear in the listing, and why you believe them). Todd decides whether to keep them. This is NOT a way around 1b: if the item shows no place at all, don't supply one.
 2. Never mention shipping, packing, handling time, discounts, returns, payment or price in the title or description.
 3. Never include bin or SKU codes (e.g. NA331) anywhere.
 
@@ -334,9 +335,11 @@ Return ONLY this JSON object:
   "price_high": 0,
   "price_rationale": "",
   "confidence": 0.0,
-  "flags": ["things Todd should check before approving"]
+  "flags": ["things Todd should check before approving"],
+  "unverified": [{ "words": "exact words used that the item doesn't show", "basis": "why you believe them" }]
 }
-confidence (0–1): how sure you are of the identification and the facts in the listing.`;
+confidence (0–1): how sure you are of the identification and the facts in the listing.
+Words listed in "unverified" stay in the listing; don't also repeat them in flags.`;
 
 export const SPECIFICS_SYSTEM = `You fill in eBay item specifics for one listing, using ONLY the field names in the category's list.
 
@@ -593,6 +596,7 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
         : null,
       confidence: out.confidence,
       flags: [...out.flags, ...specFlags, ...photos.skipped.map((s) => `skipped ${s}`)],
+      unverified: out.unverified.map((u) => ({ ...u, decision: null })),
       aspectsChecked: !!(aspects && aspects.length),
       priceSuggested: out.price,
       priceLow: out.priceLow,

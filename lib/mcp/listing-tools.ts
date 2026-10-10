@@ -122,6 +122,11 @@ function buildTools(who: string): ToolDef[] {
           confidence: { type: "number", description: "0–1" },
           flags: { type: "array", items: { type: "string" }, description: "Things Todd should check before approving" },
           guides_used: { type: "array", items: { type: "string" } },
+          unverified: {
+            type: "array",
+            description: "Confident words you used that the item itself doesn't show (rule 1d). They stay in the listing; Todd keeps or removes each in Review.",
+            items: { type: "object", properties: { words: { type: "string", description: "Exactly as written in the listing" }, basis: { type: "string" } }, required: ["words"] },
+          },
           identification: {
             type: "object",
             description: "What the item is, for the price rules and weight",

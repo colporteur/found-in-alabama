@@ -427,7 +427,51 @@ export type WriteOutput = {
   priceRationale: string;
   confidence: number | null;
   flags: string[];
+  /** Words used that the item itself doesn't show (Todd decides: keep or remove). */
+  unverified: Unverified[];
 };
+
+export type Unverified = {
+  /** The exact words as they appear in the listing. */
+  words: string;
+  /** Why the writer believes them (e.g. "Troy, Indiana is in Perry County"). */
+  basis: string;
+};
+
+function parseUnverified(v: unknown): Unverified[] {
+  const out: Unverified[] = [];
+  for (const raw of Array.isArray(v) ? v : []) {
+    const o = (raw ?? {}) as Record<string, unknown>;
+    const words = (typeof raw === "string" ? raw : String(o.words ?? "")).replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!words || out.some((u) => u.words.toLowerCase() === words.toLowerCase())) continue;
+    out.push({ words, basis: String(o.basis ?? "").trim().slice(0, 300) });
+    if (out.length >= 10) break;
+  }
+  return out;
+}
+
+/** Take some words out of listing text and tidy what's left (no doubled
+ *  spaces, dangling commas, empty brackets). Case-insensitive. */
+export function removeWords(text: string, words: string): string {
+  const w = words.trim();
+  if (!w) return text;
+  const esc = w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  let t = text.replace(new RegExp(esc, "gi"), "");
+  t = t
+    .split("\n")
+    .map((line) =>
+      line
+        .replace(/\(\s*\)|\[\s*\]/g, "")
+        .replace(/\s+([,.;:!?])/g, "$1")
+        .replace(/([,;:])\s*(?=[,;:.])/g, "")
+        .replace(/[ \t]{2,}/g, " ")
+        .replace(/^\s*[,;:]\s*/, "")
+        .replace(/\s*[,;:]\s*$/, "")
+        .trim()
+    )
+    .join("\n");
+  return t.replace(/\n{3,}/g, "\n\n").trim();
+}
 
 export function parseWriteOutput(
   text: string,
@@ -487,6 +531,7 @@ export function parseWriteOutput(
       priceRationale: str(j.price_rationale, 800),
       confidence: clamp01(j.confidence),
       flags: [...strList(j.flags, 8, 200), ...extraFlags],
+      unverified: parseUnverified(j.unverified),
     },
   };
 }

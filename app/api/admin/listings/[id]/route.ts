@@ -1,11 +1,12 @@
 // PATCH /api/admin/listings/:id — edit a draft's listing content by hand.
 // POST  /api/admin/listings/:id  { action: "discard" | "restore" | "approve" | "unapprove" | "send_back", note? }
+//       { action: "unverified", index, decision: "keep" | "remove" } — words the item doesn't show
 // Signed-in admin only.
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { parseSpecifics, setDraftStatus, updateDraft, type DraftEdit } from "@/lib/listings/drafts";
-import { approveDrafts, sendBackDraft, unapproveDraft } from "@/lib/listings/review";
+import { approveDrafts, decideUnverified, sendBackDraft, unapproveDraft } from "@/lib/listings/review";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -65,7 +66,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await auth();
   if (!session?.user) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const b = (await req.json().catch(() => ({}))) as { action?: string; note?: unknown };
+  const b = (await req.json().catch(() => ({}))) as { action?: string; note?: unknown; index?: unknown; decision?: unknown };
   const who = session.user.email ?? "admin";
   let r: { ok: boolean; error?: string };
   switch (b.action) {
@@ -80,6 +81,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }
     case "unapprove":
       r = await unapproveDraft(params.id);
+      break;
+    case "unverified":
+      r = await decideUnverified(params.id, Number(b.index), b.decision === "remove" ? "remove" : "keep");
       break;
     case "send_back":
       r = await sendBackDraft(params.id, typeof b.note === "string" ? b.note : null);

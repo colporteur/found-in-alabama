@@ -189,7 +189,7 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
     `eBay categories this store uses (id — path), best guesses from the intake words; call listing_find_categories for others:\n${candidates.map((c) => `${c.id} — ${c.path}`).join("\n")}`,
     shelves.length ? `The store's own shelves (store_category_ids; id — path, [AL] = Alabama):\n${shelves.map((c) => `${c.id} — ${c.isAlabama ? "[AL] " : ""}${c.path}`).join("\n")}` : "",
     `WRITING RULES (the same ones FIA's own writer follows):\n${WRITE_RULES}`,
-    `HOW TO FINISH: pick the eBay category, call listing_category_specifics with its id to see the real item-specific fields, then call listing_save with the listing fields from the JSON above plus "identification" (kind, card_type, era, places, est_value_usd, notes). FIA applies the price rules (.87 endings, floors, Poshmark floor), title/description cleanup and weight/shipping, and puts the draft in Todd's Review queue. Mention anything uncertain in "flags".`,
+    `HOW TO FINISH: pick the eBay category, call listing_category_specifics with its id to see the real item-specific fields, then call listing_save with the listing fields from the JSON above plus "identification" (kind, card_type, era, places, est_value_usd, notes). Confident words the item doesn't show (rule 1d) stay in the listing and go in "unverified" — Todd keeps or removes each with one click in Review, so don't take them out yourself. FIA applies the price rules (.87 endings, floors, Poshmark floor), title/description cleanup and weight/shipping, and puts the draft in Todd's Review queue. Mention anything uncertain in "flags".`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -279,6 +279,9 @@ export async function reviseClaudeWrite(id: string, changes: ClaudeWrite, who: s
     confidence: meta.confidence ?? null,
     flags: [],
     guides_used: Array.isArray(meta.guides) ? (meta.guides as Array<{ id?: string }>).map((g) => g.id).filter(Boolean) : [],
+    unverified: Array.isArray(meta.unverified)
+      ? (meta.unverified as Array<{ words: string; basis: string; decision?: string | null }>).filter((u) => u.decision !== "removed")
+      : [],
   };
   const merged: ClaudeWrite = { ...current };
   for (const [k, v] of Object.entries(changes)) if (v !== undefined) merged[k] = v;
@@ -363,6 +366,14 @@ export async function saveClaudeWrite(
     guides: guidesUsed.map((g) => ({ id: g, name: g, version: null })),
     confidence: out.confidence,
     flags,
+    // Todd's earlier keep/remove decisions survive a revision for the same words.
+    unverified: out.unverified.map((u) => ({
+      ...u,
+      decision:
+        ((prevMeta.unverified as Array<{ words: string; decision?: string | null }> | undefined) ?? []).find(
+          (p) => p.words.toLowerCase() === u.words.toLowerCase()
+        )?.decision ?? null,
+    })),
     aspectsChecked: !!(aspects && aspects.length),
     priceSuggested: out.price,
     priceLow: out.priceLow,
