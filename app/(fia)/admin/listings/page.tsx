@@ -7,7 +7,7 @@ import Link from "next/link";
 import { draftsReady, listDrafts } from "@/lib/listings/drafts";
 import { DraftGrid } from "./DraftGrid";
 import { DraftTable } from "./DraftTable";
-import { categoryOptions } from "@/lib/listings/writer";
+import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 
 export const dynamic = "force-dynamic";
 
@@ -38,7 +38,11 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
   const status = searchParams.status && STATUS_LABEL[searchParams.status] ? searchParams.status : null;
   const table = searchParams.view === "table";
   const { drafts, counts } = await listDrafts(status, table ? 300 : 100);
-  const categories = table ? (await categoryOptions().catch(() => [])).map((c) => ({ id: c.id, path: c.path })) : [];
+  const shelves = table
+    ? (await buildCategoryOptions().catch(() => []))
+        .map((o) => ({ id: o.id, path: o.path.replace(/&amp;/g, "&") }))
+        .sort((a, b) => a.path.localeCompare(b.path))
+    : [];
   const href = (v: string | null, st: string | null = status) => {
     const p = new URLSearchParams();
     if (st) p.set("status", st);
@@ -89,7 +93,7 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
       </div>
 
       {table ? (
-        <DraftTable key={drafts.map((d) => d.id).join(",")} drafts={drafts} categories={categories} />
+        <DraftTable key={drafts.map((d) => d.id).join(",")} drafts={drafts} shelves={shelves} />
       ) : (
         <DraftGrid drafts={drafts} readyCount={counts.ready ?? 0} />
       )}

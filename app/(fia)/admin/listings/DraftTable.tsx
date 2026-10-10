@@ -1,13 +1,13 @@
 "use client";
 
 // Spreadsheet view of the listings queue: small thumbnails and the fields
-// Todd adjusts most — title, price, Poshmark price, bin, weight, eBay
-// category, shipping profile, quantity — editable in place. Changed cells
+// Todd adjusts most — title (wrapping), price, bin, weight, the two eBay
+// store shelves, shipping profile, quantity — editable in place. Changed cells
 // are highlighted; save a row, or every changed row at once. Only drafts
 // that can still be edited (ready / to review / sent back) take edits.
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DraftSummary } from "@/lib/listings/drafts";
 import { MinPriceControl } from "./MinPriceControl";
@@ -29,41 +29,64 @@ const STATUS_LABEL: Record<string, string> = {
 type Row = {
   title: string;
   price: string;
-  poshmarkPrice: string;
   binSku: string;
   weightOz: string;
-  ebayCategoryId: string;
+  shelf1: string;
+  shelf2: string;
   shippingProfile: string;
   quantity: string;
 };
-const FIELDS: Array<keyof Row> = ["title", "price", "poshmarkPrice", "binSku", "weightOz", "ebayCategoryId", "shippingProfile", "quantity"];
+const FIELDS: Array<keyof Row> = ["title", "price", "binSku", "weightOz", "shelf1", "shelf2", "shippingProfile", "quantity"];
 
 const toRow = (d: DraftSummary): Row => ({
   title: d.title ?? "",
   price: d.price != null ? d.price.toFixed(2) : "",
-  poshmarkPrice: d.poshmarkPrice != null ? String(d.poshmarkPrice) : "",
   binSku: d.binSku ?? "",
   weightOz: d.weightOz != null ? String(d.weightOz) : "",
-  ebayCategoryId: d.ebayCategoryId ?? "",
+  shelf1: d.storeCategoryIds[0] ?? "",
+  shelf2: d.storeCategoryIds[1] ?? "",
   shippingProfile: d.shippingProfile ?? "",
   quantity: String(d.quantity ?? 1),
 });
 
-export function DraftTable({ drafts, categories }: { drafts: DraftSummary[]; categories: Array<{ id: string; path: string }> }) {
+export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelves: Array<{ id: string; path: string }> }) {
   const router = useRouter();
   const start = useMemo(() => Object.fromEntries(drafts.map((d) => [d.id, toRow(d)])), [drafts]);
   const [rows, setRows] = useState<Record<string, Row>>(start);
+  // After a save or a bulk change (router.refresh) the server values change:
+  // take them for every cell that wasn't being edited, keep unsaved edits.
+  const prevStart = useRef(start);
+  useEffect(() => {
+    const old = prevStart.current;
+    prevStart.current = start;
+    if (old === start) return;
+    setRows((cur) => {
+      const next: Record<string, Row> = {};
+      for (const [id, fresh] of Object.entries(start)) {
+        const mine = cur[id];
+        const before = old[id];
+        if (!mine || !before) {
+          next[id] = fresh;
+          continue;
+        }
+        const merged = { ...fresh };
+        for (const f of FIELDS) if (mine[f] !== before[f]) merged[f] = mine[f];
+        next[id] = merged;
+      }
+      return next;
+    });
+  }, [start]);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [saving, setSaving] = useState<Set<string>>(new Set());
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState<string | null>(null);
-  const catPath = useMemo(() => new Map(categories.map((c) => [c.id, c.path])), [categories]);
+  const shelfPath = useMemo(() => new Map(shelves.map((c) => [c.id, c.path])), [shelves]);
 
   const changed = (id: string) => FIELDS.filter((f) => rows[id]?.[f] !== start[id]?.[f]);
   const dirtyIds = drafts.filter((d) => changed(d.id).length > 0).map((d) => d.id);
   const editableIds = drafts.filter((d) => EDITABLE.has(d.status)).map((d) => d.id);
 
-  const set = (id: string, f: keyof Row) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
+  const set = (id: string, f: keyof Row) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setRows((r) => ({ ...r, [id]: { ...r[id], [f]: e.target.value } }));
 
   async function saveRow(id: string): Promise<boolean> {
@@ -72,18 +95,13 @@ export function DraftTable({ drafts, categories }: { drafts: DraftSummary[]; cat
     const r = rows[id];
     const body: Record<string, unknown> = {};
     for (const f of fields) {
-      if (f === "title") body.title = r.title;
+      if (f === "title") body.title = r.title.replace(/\s+/g, " ").trim();
       if (f === "price") body.price = r.price.trim() ? Number(r.price.replace(/[$,]/g, "")) : null;
-      if (f === "poshmarkPrice") body.poshmarkPrice = r.poshmarkPrice.trim() ? Number(r.poshmarkPrice.replace(/[$,]/g, "")) : null;
+      if (f === "shelf1" || f === "shelf2") body.storeCategoryIds = [r.shelf1, r.shelf2].filter(Boolean);
       if (f === "binSku") body.binSku = r.binSku;
       if (f === "weightOz") body.weightOz = r.weightOz.trim() ? Number(r.weightOz) : null;
       if (f === "quantity") body.quantity = Number(r.quantity) || 1;
       if (f === "shippingProfile") body.shippingProfile = r.shippingProfile || null;
-      if (f === "ebayCategoryId") {
-        const cid = r.ebayCategoryId.replace(/\D/g, "");
-        body.ebayCategoryId = cid || null;
-        body.ebayCategoryName = cid ? catPath.get(cid) ?? null : null;
-      }
     }
     setSaving((s) => new Set(s).add(id));
     try {
@@ -152,13 +170,6 @@ export function DraftTable({ drafts, categories }: { drafts: DraftSummary[]; cat
       <div className="mb-4">
         <MinPriceControl selected={Array.from(picked)} shown={editableIds} />
       </div>
-      <datalist id="ebay-cats">
-        {categories.map((c) => (
-          <option key={c.id} value={c.id}>
-            {c.path}
-          </option>
-        ))}
-      </datalist>
 
       <div className="overflow-x-auto bg-white border border-brand-ink/10 rounded-lg">
         <table className="w-full text-sm">
@@ -173,12 +184,11 @@ export function DraftTable({ drafts, categories }: { drafts: DraftSummary[]; cat
                 />
               </th>
               <th className="p-2"></th>
-              <th className="p-2 min-w-[18rem]">Title</th>
+              <th className="p-2 w-[24rem]">Title</th>
               <th className="p-2">Price</th>
-              <th className="p-2">Poshmark</th>
-              <th className="p-2">Bin</th>
+              <th className="p-2">Bin / SKU</th>
               <th className="p-2">Weight oz</th>
-              <th className="p-2 min-w-[14rem]">eBay category</th>
+              <th className="p-2 min-w-[16rem]">Store shelves</th>
               <th className="p-2">Shipping</th>
               <th className="p-2">Qty</th>
               <th className="p-2">Status</th>
@@ -213,7 +223,14 @@ export function DraftTable({ drafts, categories }: { drafts: DraftSummary[]; cat
                   </td>
                   <td className="p-1">
                     {ed ? (
-                      <input value={r.title} onChange={set(d.id, "title")} maxLength={80} placeholder={d.titleHint ?? ""} className={cell + dirty(d.id, "title")} />
+                      <textarea
+                        value={r.title}
+                        onChange={set(d.id, "title")}
+                        maxLength={80}
+                        rows={2}
+                        placeholder={d.titleHint ?? ""}
+                        className={cell + " resize-none leading-snug" + dirty(d.id, "title")}
+                      />
                     ) : (
                       <span className="block px-1.5 py-1">{d.title ?? d.titleHint ?? "Untitled"}</span>
                     )}
@@ -223,16 +240,14 @@ export function DraftTable({ drafts, categories }: { drafts: DraftSummary[]; cat
                       {d.tier && <> · {d.tier}</>}
                     </span>
                   </td>
-                  <td className="p-1 w-24">
-                    <input value={r.price} onChange={set(d.id, "price")} disabled={!ed} inputMode="decimal" className={cell + dirty(d.id, "price")} />
+                  <td className="p-1 min-w-[6rem]">
+                    <input value={r.price} onChange={set(d.id, "price")} disabled={!ed} inputMode="decimal" className={cell + " text-right" + dirty(d.id, "price")} />
+                    {d.poshmarkPrice != null && <span className="block px-1.5 text-[10px] text-brand-ink/40">Poshmark ${d.poshmarkPrice}</span>}
                   </td>
-                  <td className="p-1 w-20">
-                    <input value={r.poshmarkPrice} onChange={set(d.id, "poshmarkPrice")} disabled={!ed} inputMode="decimal" placeholder="same" className={cell + dirty(d.id, "poshmarkPrice")} />
-                  </td>
-                  <td className="p-1 w-28">
+                  <td className="p-1 min-w-[8rem]">
                     <input value={r.binSku} onChange={set(d.id, "binSku")} disabled={!ed} className={cell + " font-mono" + dirty(d.id, "binSku")} />
                   </td>
-                  <td className="p-1 w-20">
+                  <td className="p-1 min-w-[6rem]">
                     <input
                       value={r.weightOz}
                       onChange={set(d.id, "weightOz")}
@@ -243,17 +258,24 @@ export function DraftTable({ drafts, categories }: { drafts: DraftSummary[]; cat
                     />
                   </td>
                   <td className="p-1">
-                    <input
-                      value={r.ebayCategoryId}
-                      onChange={set(d.id, "ebayCategoryId")}
-                      disabled={!ed}
-                      list="ebay-cats"
-                      placeholder="category id"
-                      className={cell + " font-mono" + dirty(d.id, "ebayCategoryId")}
-                    />
-                    <span className="block px-1.5 text-[10px] text-brand-ink/50 line-clamp-2">
-                      {catPath.get(r.ebayCategoryId.replace(/\D/g, "")) ?? (r.ebayCategoryId === (d.ebayCategoryId ?? "") ? d.ebayCategoryName : "not one the store uses")}
-                    </span>
+                    {(["shelf1", "shelf2"] as const).map((f, k) => (
+                      <select
+                        key={f}
+                        value={r[f]}
+                        onChange={set(d.id, f)}
+                        disabled={!ed}
+                        title={shelfPath.get(r[f]) ?? ""}
+                        className={cell + " text-xs" + (k ? " mt-1" : "") + dirty(d.id, f)}
+                      >
+                        <option value="">{k ? "— second shelf —" : "— first shelf —"}</option>
+                        {r[f] && !shelfPath.has(r[f]) && <option value={r[f]}>{r[f]} (not in store list)</option>}
+                        {shelves.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.path}
+                          </option>
+                        ))}
+                      </select>
+                    ))}
                   </td>
                   <td className="p-1 w-32">
                     <select value={r.shippingProfile} onChange={set(d.id, "shippingProfile")} disabled={!ed} className={cell + dirty(d.id, "shippingProfile")}>
