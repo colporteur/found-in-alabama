@@ -12,11 +12,21 @@ import {
   claudeFindGuide,
   claudeGuideById,
   claudeQueue,
+  claudeWritten,
+  reviseClaudeWrite,
   saveClaudeWrite,
 } from "@/lib/listings/claude";
 import { CONDITIONS } from "@/lib/listings/rules";
 
 export function listingTools(who: string): ToolDef[] {
+  const tools = buildTools(who);
+  const save = tools.find((t) => t.name === "listing_save")!;
+  const revise = tools.find((t) => t.name === "listing_revise")!;
+  revise.inputSchema = { ...save.inputSchema, required: ["draft_id"] };
+  return tools;
+}
+
+function buildTools(who: string): ToolDef[] {
   return [
     {
       name: "listing_queue",
@@ -30,7 +40,7 @@ export function listingTools(who: string): ToolDef[] {
       name: "listing_get_draft",
       title: "Get a draft to write",
       description:
-        "Everything needed to write one queued draft: Todd's instructions, intake facts, the matched Expert Guide(s), the eBay supply snapshot and pricing policy, candidate eBay categories, the store's shelves, the writing rules and the expected fields — followed by the photos. Look at every photo (backs, labels, postmarks) before writing. You may use web search to identify places, makers and dates, but only state as fact what the photos or facts show; hedge anything else.",
+        "Everything needed to write one queued draft (or to revise one you wrote that's still in Review — then it also shows the current listing): Todd's instructions, intake facts, the matched Expert Guide(s), the eBay supply snapshot and pricing policy, candidate eBay categories, the store's shelves, the writing rules and the expected fields — followed by the photos. Look at every photo (backs, labels, postmarks) before writing. You may use web search to identify places, makers and dates, but only state as fact what the photos or facts show; hedge anything else.",
       inputSchema: { type: "object", properties: { draft_id: { type: "string" } }, required: ["draft_id"] },
       run: async (a) => rawContent(await claudeDraftPacket(argStr(a, "draft_id", 40) ?? "")),
     },
@@ -64,11 +74,34 @@ export function listingTools(who: string): ToolDef[] {
       run: async (a) => claudeCategorySpecifics(argStr(a, "category_id", 20) ?? ""),
     },
     {
+      name: "listing_written",
+      title: "Drafts Claude wrote (in Review)",
+      description:
+        "Drafts you wrote that are still waiting in Todd's Review queue (not approved yet), newest first, with their flags. You can change any of them with listing_revise until Todd approves it.",
+      inputSchema: { type: "object", properties: { limit: { type: "number", default: 30 } } },
+      run: async (a) => claudeWritten(Math.max(1, Math.min(50, Number(a.limit) || 30))),
+    },
+    {
+      name: "listing_revise",
+      title: "Revise a listing you wrote",
+      readOnly: false,
+      description:
+        "Change a draft you already saved that is still in Review (e.g. trim words from a description, fix a title, change the price or specifics). Send only the fields that change; everything else — including any edits Todd made by hand — stays. The same rules run again (cleanup, .87 prices, specifics fitted to the category). Use listing_get_draft first to see the current text.",
+      inputSchema: { type: "object", required: ["draft_id"], properties: {} as Record<string, unknown> },
+      run: async (a) => {
+        const id = argStr(a, "draft_id", 40) ?? "";
+        const { draft_id: _drop, ...changes } = a;
+        void _drop;
+        if (!Object.keys(changes).length) throw new Error("Send at least one field to change.");
+        return reviseClaudeWrite(id, changes, who);
+      },
+    },
+    {
       name: "listing_save",
       title: "Save the written listing",
       readOnly: false,
       description:
-        "Save the listing you wrote for a queued draft. FIA cleans the title/description, applies the price rules (.87 endings, floors, Poshmark floor), keeps only item specifics that are real fields for the category, sets weight and shipping profile, and moves the draft to Todd's Review queue. Returns what was saved and any flags. Nothing is approved or published.",
+        "Save the listing you wrote for a queued draft (first save only; to change it afterwards use listing_revise). FIA cleans the title/description, applies the price rules (.87 endings, floors, Poshmark floor), keeps only item specifics that are real fields for the category, sets weight and shipping profile, and moves the draft to Todd's Review queue. Returns what was saved and any flags. Nothing is approved or published.",
       inputSchema: {
         type: "object",
         required: ["draft_id", "title", "description", "condition", "price"],
@@ -89,6 +122,11 @@ export function listingTools(who: string): ToolDef[] {
           confidence: { type: "number", description: "0–1" },
           flags: { type: "array", items: { type: "string" }, description: "Things Todd should check before approving" },
           guides_used: { type: "array", items: { type: "string" } },
+          unverified: {
+            type: "array",
+            description: "Confident words you used that the item itself doesn't show (rule 1d). They stay in the listing; Todd keeps or removes each in Review.",
+            items: { type: "object", properties: { words: { type: "string", description: "Exactly as written in the listing" }, basis: { type: "string" } }, required: ["words"] },
+          },
           identification: {
             type: "object",
             description: "What the item is, for the price rules and weight",

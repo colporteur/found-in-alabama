@@ -31,7 +31,7 @@ export const INSTRUCTIONS = `Read-only access to Found in Alabama (FIA), Todd's 
 - Sales history comes from Nifty's records back to Aug 2025 plus FIA's own sale detection since Sep 2026. Sale prices are the sold price when known, otherwise the listed price at the time.
 - Money after fees, postage and item cost (profit_month) only covers packages in FIA's to-ship queue, which starts Oct 9 2026.
 - Dates are US Central. Buyer info is limited to usernames and city/state on purpose.
-Nothing here can change anything; to act, Todd uses the FIA admin. The one exception, when Todd has turned it on for this connection: the listing_* tools let Claude write listing drafts he queued ("Send to Claude"); they go to his Review queue and are never approved, sent to Nifty or published from here.`;
+Nothing here can change anything; to act, Todd uses the FIA admin. The one exception, when Todd has turned it on for this connection: the listing_* tools let Claude write listing drafts he queued ("Send to Claude") and revise its own until he approves them; they go to his Review queue and are never approved, sent to Nifty or published from here.`;
 
 function ok(id: Rpc["id"], result: unknown): RpcReply {
   return { jsonrpc: "2.0", id: id ?? null, result };

@@ -173,3 +173,19 @@ test("store categories: only ids from the offered list, at most two", () => {
   );
   assert.ok(ok.ok && ok.value.storeCategoryIds.join(",") === "54113704012,54147286012");
 });
+
+test("unverified words are parsed and can be removed cleanly", async () => {
+  const { parseWriteOutput, removeWords } = await import("./rules");
+  const r = parseWriteOutput(JSON.stringify({
+    title: "St. Paul Church Troy Indiana Perry County Postcard Early 1900s Antique",
+    description: "Antique postcard of St. Paul church in Troy, Indiana, Perry County. Light corner wear.",
+    condition: "Used", price: 7,
+    unverified: [{ words: "Perry County", basis: "Troy, Indiana is in Perry County" }, "perry county", { words: "" }],
+  }));
+  assert.ok(r.ok);
+  if (!r.ok) return;
+  assert.deepEqual(r.value.unverified, [{ words: "Perry County", basis: "Troy, Indiana is in Perry County" }]);
+  assert.equal(removeWords(r.value.description, "Perry County"), "Antique postcard of St. Paul church in Troy, Indiana. Light corner wear.");
+  assert.equal(removeWords("Church (Ontario County) Phelps NY", "ontario county"), "Church Phelps NY");
+  assert.equal(removeWords("A, Magic Valley, B", "Magic Valley"), "A, B");
+});

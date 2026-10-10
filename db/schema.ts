@@ -1656,6 +1656,10 @@ export const draftPhotos = pgTable(
     contentType: text("content_type").notNull(),
     /** Set once the object is confirmed in storage. */
     uploadedAt: timestamp("uploaded_at"),
+    /** Rotation Todd applied on the draft page (0/90/180/270, clockwise).
+     *  url then points at a rotated copy; original_url keeps the first one. */
+    rotation: integer("rotation").default(0).notNull(),
+    originalUrl: text("original_url"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => ({

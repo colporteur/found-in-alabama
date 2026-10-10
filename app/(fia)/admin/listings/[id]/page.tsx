@@ -10,6 +10,9 @@ import { WriterPanel } from "./WriterPanel";
 import { ResearchPanel } from "./ResearchPanel";
 import type { Research } from "@/lib/listings/research";
 import { AiNotes } from "./AiNotes";
+import { UnverifiedPanel } from "./UnverifiedPanel";
+import { PhotoStrip } from "./PhotoStrip";
+import { ROTATABLE } from "@/lib/listings/photos";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 import { booksReady, itemCost, listAcquisitions } from "@/lib/books/books";
 import { HaulCostPanel } from "../../books/BooksControls";
@@ -50,25 +53,7 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
         {d.createdBy && <> by {d.createdBy.replace(/^apikey:/, "")}</>}
       </p>
 
-      <div className="flex gap-3 overflow-x-auto pb-3 mb-8">
-        {d.photoList.map((p) => (
-          <figure key={p.position} className="shrink-0 w-48">
-            <div className="w-48 h-48 bg-brand-ink/5 rounded border border-brand-ink/10 flex items-center justify-center overflow-hidden">
-              {p.uploaded ? (
-                <a href={p.url} target="_blank" rel="noreferrer">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={p.url} alt="" className="object-contain max-w-full max-h-48" />
-                </a>
-              ) : (
-                <span className="text-xs text-brand-ink/40">not uploaded yet</span>
-              )}
-            </div>
-            <figcaption className="text-xs text-brand-ink/60 mt-1 truncate">
-              {p.position}. {p.role ?? ""} {p.name ?? ""}
-            </figcaption>
-          </figure>
-        ))}
-      </div>
+      <PhotoStrip id={d.id} photos={d.photoList} canRotate={ROTATABLE.includes(d.status)} />
 
       <div className="flex flex-wrap items-start gap-4 mb-8">
         {books?.cost && d.registryItemId && (
@@ -140,6 +125,13 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
         </div>
       )}
 
+      {Array.isArray(d.aiMeta?.unverified) && (
+        <UnverifiedPanel
+          id={d.id}
+          items={d.aiMeta.unverified as Array<{ words: string; basis?: string; decision?: string | null }>}
+          editable={["review", "sent_back", "ready"].includes(d.status)}
+        />
+      )}
       {d.aiMeta && <AiNotes meta={d.aiMeta} shippingProfile={d.shippingProfile} venuePrices={d.venuePrices} />}
 
       <DraftEditor

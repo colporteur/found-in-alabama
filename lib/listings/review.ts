@@ -66,3 +66,50 @@ export async function sendBackDraft(id: string, note: string | null): Promise<{ 
     WHERE id = ${id} AND status IN ('review', 'approved', 'ready') RETURNING id`);
   return done.length ? { ok: true } : { ok: false, error: "This draft can't be sent back right now" };
 }
+
+/** Todd's call on a word the writer used that the item doesn't show:
+ *  "keep" just records it; "remove" takes the words out of the title,
+ *  description and item specifics. */
+export async function decideUnverified(
+  id: string,
+  index: number,
+  decision: "keep" | "remove"
+): Promise<{ ok: boolean; error?: string; title?: string }> {
+  const { removeWords } = await import("./rules");
+  const [d] = await rows(sql`SELECT * FROM listing_drafts WHERE id = ${id}`);
+  if (!d) return { ok: false, error: "Draft not found" };
+  if (!["review", "sent_back", "ready", "with_claude"].includes(String(d.status)))
+    return { ok: false, error: `A draft that is "${String(d.status).replace("_", " ")}" can't be changed here` };
+  const meta = (d.ai_meta ?? {}) as Record<string, unknown>;
+  const list = Array.isArray(meta.unverified) ? ([...meta.unverified] as Array<Record<string, unknown>>) : [];
+  const u = list[index];
+  if (!u || typeof u.words !== "string") return { ok: false, error: "No such item" };
+  list[index] = { ...u, decision: decision === "remove" ? "removed" : "kept" };
+  const newMeta = { ...meta, unverified: list };
+  if (decision === "keep") {
+    await db.execute(sql`UPDATE listing_drafts SET ai_meta = ${JSON.stringify(newMeta)}::jsonb, updated_at = now() WHERE id = ${id}`);
+    return { ok: true };
+  }
+  const w = u.words as string;
+  const title = d.title ? removeWords(String(d.title), w) : null;
+  const description = d.description ? removeWords(String(d.description), w) : null;
+  const specs: Record<string, string | string[]> = {};
+  for (const [k, v] of Object.entries((d.item_specifics ?? {}) as Record<string, string | string[]>)) {
+    const vals = (Array.isArray(v) ? v : [v]).map((x) => removeWords(String(x), w)).filter(Boolean);
+    if (vals.length) specs[k] = Array.isArray(v) ? vals : vals[0];
+  }
+  await db.execute(sql`
+    UPDATE listing_drafts SET title = ${title}, description = ${description},
+      item_specifics = ${Object.keys(specs).length ? JSON.stringify(specs) : null}::jsonb,
+      ai_meta = ${JSON.stringify(newMeta)}::jsonb,
+      written_by = CASE WHEN written_by IS NULL OR written_by = 'hand' THEN 'hand'
+                        WHEN written_by LIKE 'claude%' THEN 'claude+hand' ELSE 'ai+hand' END,
+      updated_at = now()
+    WHERE id = ${id}`);
+  if (d.registry_item_id && title) {
+    await db.execute(sql`
+      UPDATE registry_items SET title = ${title}, title_normalized = lower(regexp_replace(trim(${title}), '\\s+', ' ', 'g')), updated_at = now()
+      WHERE id = ${String(d.registry_item_id)} AND status = 'draft'`);
+  }
+  return { ok: true, title: title ?? undefined };
+}

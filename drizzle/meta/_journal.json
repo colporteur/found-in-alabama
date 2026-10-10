@@ -302,6 +302,13 @@
       "when": 1791663710699,
       "tag": "0042_mcp_scope",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791667574049,
+      "tag": "0043_photo_rotation",
+      "breakpoints": true
     }
   ]
 }
