@@ -1715,8 +1715,12 @@ export const shipOrders = pgTable(
     buyerUsername: text("buyer_username"),
     shipTo: jsonb("ship_to").$type<Record<string, unknown>>(),
     soldAt: timestamp("sold_at"),
-    /** to_pick | packed | shipped | cancelled */
+    /** to_pick | packed | shipped | cancelled | merged (lines moved to merged_into) */
     status: text("status").default("to_pick").notNull(),
+    /** From the venue's order when known (eBay Fulfillment API). */
+    orderTotal: numeric("order_total", { precision: 10, scale: 2 }),
+    shippingPaid: numeric("shipping_paid", { precision: 10, scale: 2 }),
+    venueFees: numeric("venue_fees", { precision: 10, scale: 2 }),
     pickPrintedAt: timestamp("pick_printed_at"),
     invoicePrintedAt: timestamp("invoice_printed_at"),
     packedAt: timestamp("packed_at"),
@@ -1744,6 +1748,9 @@ export const shipOrderLines = pgTable(
       .references(() => shipOrders.id, { onDelete: "cascade" }),
     saleEventId: uuid("sale_event_id").references(() => saleEvents.id, { onDelete: "set null" }),
     registryItemId: uuid("registry_item_id").references(() => registryItems.id, { onDelete: "set null" }),
+    /** eBay legacy item id / venue line id, for lines that came from a venue order. */
+    ebayItemId: text("ebay_item_id"),
+    venueLineId: text("venue_line_id"),
     title: text("title"),
     binSku: text("bin_sku"),
     quantity: integer("quantity").default(1).notNull(),

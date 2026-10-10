@@ -12,6 +12,7 @@ import {
   type ShipTab,
 } from "@/lib/fulfillment/queue";
 import { ShipTable, StartForm, SyncButton } from "./ShipControls";
+import { FULFILLMENT_SCOPE, hasGrantedScope } from "@/lib/ebay/oauth";
 
 export const dynamic = "force-dynamic";
 
@@ -49,7 +50,11 @@ export default async function ShipPage({ searchParams }: { searchParams: { tab?:
     );
   }
 
-  await syncShipQueue().catch((err) => console.error("[ship] sync failed", err));
+  const sync = await syncShipQueue().catch((err) => {
+    console.error("[ship] sync failed", err);
+    return null;
+  });
+  const ebayAccess = await hasGrantedScope(FULFILLMENT_SCOPE).catch(() => false);
   const tab: ShipTab = SHIP_TABS.includes(searchParams.tab as ShipTab) ? (searchParams.tab as ShipTab) : "to_pick";
   const { orders, counts } = await loadShipQueue(tab);
 
@@ -66,6 +71,20 @@ export default async function ShipPage({ searchParams }: { searchParams: { tab?:
         </div>
         <SyncButton />
       </div>
+
+      {!ebayAccess && (
+        <div className="mb-6 rounded border border-amber-300 bg-amber-50 p-4 text-sm">
+          <strong>Connect eBay order access</strong> so eBay packages show the buyer and ship-to, group eBay&apos;s
+          combined orders, and mark themselves shipped. It&apos;s read-only. Open{" "}
+          <Link href="/admin/ebay/sales/connect" className="underline">eBay connection</Link> and click Connect
+          (or Reconnect), then approve on eBay.
+        </div>
+      )}
+      {sync?.ebayError && (
+        <div className="mb-6 rounded border border-red-300 bg-red-50 p-3 text-sm">
+          Couldn&apos;t read eBay orders: {sync.ebayError}
+        </div>
+      )}
 
       <div className="flex flex-wrap gap-2 text-sm mb-6">
         {SHIP_TABS.map((t) => (

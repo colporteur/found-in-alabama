@@ -1,7 +1,7 @@
 "use client";
 
 // Client controls for /admin/ship: start date, sync, the package table with
-// selection and pick / packed / shipped actions.
+// selection and pick / invoice / combine / packed / shipped actions.
 
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -28,6 +28,9 @@ async function post(body: Record<string, unknown>) {
   if (!res.ok) throw new Error(out.error ?? `HTTP ${res.status}`);
   return out;
 }
+
+/** Venues that don't print their own packing slip get an FIA/TES invoice. */
+export const INVOICE_VENUES = new Set(["mercari", "poshmark", "depop", "tes", "fia"]);
 
 const chicagoToday = () => new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" });
 
@@ -111,12 +114,13 @@ export function ShipTable({ orders, tab, startDate }: { orders: ShipOrder[]; tab
       return n;
     });
 
-  async function act(action: string) {
-    if (!ids.length) return;
+  async function act(action: string, only?: string[]) {
+    const use = only ?? ids;
+    if (!use.length) return;
     setBusy(true);
     setMsg(null);
     try {
-      const r = await post({ action, ids });
+      const r = await post({ action, ids: use });
       setMsg(`${r.updated ?? 0} updated.`);
       setSel(new Set());
       router.refresh();
@@ -131,6 +135,13 @@ export function ShipTable({ orders, tab, startDate }: { orders: ShipOrder[]; tab
     if (!ids.length) return;
     window.open(`/admin/ship/pick?ids=${ids.join(",")}`, "_blank");
   }
+
+  function openInvoices() {
+    if (!ids.length) return;
+    window.open(`/admin/ship/invoices?ids=${ids.join(",")}`, "_blank");
+  }
+
+  const needInvoice = orders.filter((o) => INVOICE_VENUES.has(o.venue) && !o.invoicePrintedAt).map((o) => o.id);
 
   const btn = "text-sm px-3 py-1.5 rounded border border-brand-ink/20 hover:border-brand-ink/50 disabled:opacity-40";
   const primary = "text-sm px-3 py-1.5 rounded bg-brand-ink text-white hover:bg-brand-ink/80 disabled:opacity-40";
@@ -156,6 +167,15 @@ export function ShipTable({ orders, tab, startDate }: { orders: ShipOrder[]; tab
             </button>
             <button type="button" className={primary} disabled={!ids.length} onClick={openPickList}>
               Print pick list
+            </button>
+            <button type="button" className={btn} onClick={() => setSel(new Set(needInvoice))}>
+              Need an invoice ({needInvoice.length})
+            </button>
+            <button type="button" className={primary} disabled={!ids.length} onClick={openInvoices}>
+              Print invoices
+            </button>
+            <button type="button" className={btn} disabled={busy || ids.length < 2} onClick={() => act("combine")}>
+              Combine selected
             </button>
             <button type="button" className={btn} disabled={busy || !ids.length} onClick={() => act("packed")}>
               Mark packed
@@ -195,7 +215,7 @@ export function ShipTable({ orders, tab, startDate }: { orders: ShipOrder[]; tab
           </thead>
           <tbody>
             {orders.map((o) => {
-              const total = o.lines.reduce((a, l) => a + (l.price ?? 0) * l.quantity, 0);
+              const total = o.orderTotal ?? o.lines.reduce((a, l) => a + (l.price ?? 0) * l.quantity, 0);
               const img = o.lines.find((l) => l.imageUrl)?.imageUrl;
               return (
                 <tr key={o.id} className="border-b align-top hover:bg-brand-ink/5 cursor-pointer" onClick={() => toggle(o.id)}>
@@ -222,7 +242,35 @@ export function ShipTable({ orders, tab, startDate }: { orders: ShipOrder[]; tab
                         )}
                       </div>
                     ))}
-                    {o.buyerName && <div className="text-xs text-brand-ink/50">{o.buyerName}</div>}
+                    {(o.buyerUsername || o.buyerName) && (
+                      <div className="text-xs text-brand-ink/50">
+                        {o.buyerUsername && o.venue !== "tes" && o.venue !== "fia" ? `@${o.buyerUsername}` : ""}
+                        {o.buyerUsername && o.buyerName ? " · " : ""}
+                        {o.buyerName ?? ""}
+                        {o.lines.length > 1 && <span className="ml-2">{o.lines.length} items, one package</span>}
+                      </div>
+                    )}
+                    {o.sameBuyer.length > 0 && (
+                      <div className="text-xs mt-1">
+                        <span className="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">
+                          Same buyer as {o.sameBuyer.length} other package{o.sameBuyer.length === 1 ? "" : "s"}
+                        </span>
+                        <button
+                          type="button"
+                          className="ml-2 underline text-amber-800 disabled:opacity-40"
+                          disabled={busy}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            act("combine", [o.id, ...o.sameBuyer]);
+                          }}
+                        >
+                          Combine
+                        </button>
+                      </div>
+                    )}
+                    {o.invoicePrintedAt && tab === "to_pick" && (
+                      <div className="text-xs text-brand-ink/50">invoice printed {when(o.invoicePrintedAt)}</div>
+                    )}
                     {o.pickPrintedAt && tab === "to_pick" && (
                       <div className="text-xs text-brand-ink/50">on a pick list {when(o.pickPrintedAt)}</div>
                     )}
