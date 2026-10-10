@@ -13,6 +13,6 @@ export const dynamic = "force-dynamic";
 export async function GET(req: NextRequest) {
   const who = await listingCaller(req);
   if (!who) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  const limit = Math.min(50, Math.max(1, Number(req.nextUrl.searchParams.get("limit")) || 25));
+  const limit = Math.min(300, Math.max(1, Number(req.nextUrl.searchParams.get("limit")) || 300));
   return NextResponse.json({ ok: true, items: await niftyQueue(limit) });
 }
