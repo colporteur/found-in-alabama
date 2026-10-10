@@ -189,6 +189,19 @@ export async function syncShipQueue(): Promise<SyncResult> {
           END
       AND (t.shipped_at IS NOT NULL OR t.status IN ('refunded', 'canceled', 'cancelled'))`);
 
+  // eBay-order lines the registry didn't know at first: tie them up now
+  // (bin, photo, and the item's cost basis for the books).
+  await exec(sql`
+    UPDATE ship_order_lines l
+    SET registry_item_id = r.id, bin_sku = COALESCE(l.bin_sku, r.bin_sku),
+        image_url = COALESCE(l.image_url, it.hero_image)
+    FROM registry_items r
+    LEFT JOIN items it ON it.nifty_id = r.nifty_id
+    WHERE l.registry_item_id IS NULL AND l.ebay_item_id IS NOT NULL
+      AND r.id = COALESCE(
+        (SELECT r1.id FROM registry_items r1 WHERE r1.primary_ebay_item_id = l.ebay_item_id LIMIT 1),
+        (SELECT v.registry_item_id FROM venue_listings v WHERE v.venue = 'ebay' AND v.venue_listing_id = l.ebay_item_id LIMIT 1))`);
+
   const buyers = await captureEmailBuyers();
 
   return { ready: true, orders, lines, refreshed, dropped, shipped, ebayOrders, ebayError, buyers };
@@ -277,7 +290,9 @@ async function upsertEbayOrder(o: EbayOrder): Promise<void> {
              COALESCE(r.bin_sku, ${l.sku}), ${l.quantity}, ${unit}::numeric,
              COALESCE(it.hero_image, el.primary_image_url)
       FROM (SELECT 1) one
-      LEFT JOIN registry_items r ON r.primary_ebay_item_id = ${l.legacyItemId}
+      LEFT JOIN registry_items r ON r.id = COALESCE(
+        (SELECT r1.id FROM registry_items r1 WHERE r1.primary_ebay_item_id = ${l.legacyItemId} LIMIT 1),
+        (SELECT v.registry_item_id FROM venue_listings v WHERE v.venue = 'ebay' AND v.venue_listing_id = ${l.legacyItemId} LIMIT 1))
       LEFT JOIN items it ON it.nifty_id = r.nifty_id
       LEFT JOIN ebay_listings el ON el.item_id = ${l.legacyItemId}
       LIMIT 1`);

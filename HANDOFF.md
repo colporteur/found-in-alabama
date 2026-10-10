@@ -478,3 +478,10 @@ First step of Phase 3 (push-button listing, own listing writer). Items get from 
 - `/admin/labels`: find live registry items by title words or bin (datalist of live bins), or pick from new listings (drafts); `/admin/labels/print?k=r:<id>,d:<id>` prints DYMO 57×32 mm labels (layout of the Nifty Inventory Label Printer v3.5: shrink-to-fit title, FIA logo, price). Price = eBay listing price, else a live venue price; drafts use the draft price. Title/price click-to-edit. No migration.
 - eBay sale detection (Phase 2): with eBay order access, a sell-out is recorded as `verifying` and only becomes a sale once an eBay order backs it (`verifyEbaySales`, runs before matching in sales-sync). No order after 30 minutes → `ignored`, resolved_by `no-ebay-order`. Also re-checks the last 14 days of eBay sale events (catches GTC renewals of long-sold listings whose mirror quantity was stale, e.g. the six Oct 9 ones Todd cancelled).
 - To-ship queue: with eBay order access, eBay packages come only from eBay orders.
+
+## Phase 4e — Books (Oct 9, 2026)
+- Migration 0038: `acquisitions` (hauls: name, date, kind, total cost, notes), `registry_items.acquisition_id / unit_cost`, `ship_orders.shipping_cost`.
+- Cost basis = item's own cost, else its haul's total split evenly, else unknown (flagged). Optional everywhere — Todd's older inventory is co-mingled.
+- `/admin/books?month=` profit per package from ship_orders (so the books start on the to-ship queue's start date): revenue (items + buyer-paid shipping), fees (eBay's own from the order; estimates elsewhere, `lib/books/fees.ts`, rates editable at `/admin/books/settings`), postage ($0 for buyer-paid-label venues, typed in otherwise), item cost, profit. CSV at `/api/admin/books/csv?month=` (no buyer names).
+- `/admin/books/hauls`: add/edit hauls, items tied, sold, sales so far. Listing draft page: Haul & cost panel + "Print inventory label".
+- eBay-order lines now also find their registry item through venue_listings.

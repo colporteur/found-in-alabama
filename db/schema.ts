@@ -10,6 +10,8 @@ import {
   boolean,
   numeric,
   uniqueIndex,
+  date,
+  type AnyPgColumn,
 } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import type { AdapterAccountType } from "next-auth/adapters";
@@ -1338,6 +1340,10 @@ export const registryItems = pgTable(
     niftyId: text("nifty_id"),
     primaryEbayItemId: text("primary_ebay_item_id"),
     haulPostSlug: text("haul_post_slug"),
+    /** Books (Phase 4e): the haul it came from (optional) and/or its own cost.
+     *  Cost basis = unit_cost, else the haul's total split evenly. */
+    acquisitionId: uuid("acquisition_id").references((): AnyPgColumn => acquisitions.id, { onDelete: "set null" }),
+    unitCost: numeric("unit_cost", { precision: 10, scale: 2 }),
     soldAt: timestamp("sold_at"),
     soldOnVenue: text("sold_on_venue"),
     /** ebay_backfill | nifty_backfill | intake | manual */
@@ -1355,6 +1361,7 @@ export const registryItems = pgTable(
     statusIdx: index("registry_items_status_idx").on(t.status),
     binIdx: index("registry_items_bin_idx").on(t.binSku),
     titleNormIdx: index("registry_items_title_norm_idx").on(t.titleNormalized),
+    acqIdx: index("registry_items_acquisition_idx").on(t.acquisitionId),
   })
 );
 
@@ -1727,6 +1734,8 @@ export const shipOrders = pgTable(
     shippedAt: timestamp("shipped_at"),
     trackingNumber: text("tracking_number"),
     carrier: text("carrier"),
+    /** What the postage cost Todd (books). Null = not entered. */
+    shippingCost: numeric("shipping_cost", { precision: 10, scale: 2 }),
     mergedInto: uuid("merged_into"),
     note: text("note"),
     updatedBy: text("updated_by"),
@@ -1763,3 +1772,18 @@ export const shipOrderLines = pgTable(
     orderIdx: index("ship_order_lines_order_idx").on(t.orderId),
   })
 );
+
+// ── Books (Phase 4e) ────────────────────────────────────────────────────────
+// A haul / estate sale / auction lot: what was paid for a group of items.
+// Items point at it from registry_items.acquisition_id (optional).
+export const acquisitions = pgTable("acquisitions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  acquiredOn: date("acquired_on"),
+  /** estate_sale | auction | thrift | yard_sale | online | other */
+  kind: text("kind"),
+  totalCost: numeric("total_cost", { precision: 10, scale: 2 }),
+  notes: text("notes"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
