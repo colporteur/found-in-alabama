@@ -6,6 +6,8 @@
 import Link from "next/link";
 import { draftsReady, listDrafts } from "@/lib/listings/drafts";
 import { DraftGrid } from "./DraftGrid";
+import { DraftTable } from "./DraftTable";
+import { categoryOptions } from "@/lib/listings/writer";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +24,7 @@ const STATUS_LABEL: Record<string, string> = {
   discarded: "Discarded",
 };
 
-export default async function ListingsPage({ searchParams }: { searchParams: { status?: string } }) {
+export default async function ListingsPage({ searchParams }: { searchParams: { status?: string; view?: string } }) {
   if (!(await draftsReady())) {
     return (
       <section className="container-content py-12 max-w-3xl">
@@ -34,7 +36,16 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
     );
   }
   const status = searchParams.status && STATUS_LABEL[searchParams.status] ? searchParams.status : null;
-  const { drafts, counts } = await listDrafts(status);
+  const table = searchParams.view === "table";
+  const { drafts, counts } = await listDrafts(status, table ? 300 : 100);
+  const categories = table ? (await categoryOptions().catch(() => [])).map((c) => ({ id: c.id, path: c.path })) : [];
+  const href = (v: string | null, st: string | null = status) => {
+    const p = new URLSearchParams();
+    if (st) p.set("status", st);
+    if (v) p.set("view", v);
+    const q = p.toString();
+    return `/admin/listings${q ? `?${q}` : ""}`;
+  };
   const active = Object.entries(counts).filter(([k]) => k !== "discarded").reduce((a, [, v]) => a + v, 0);
 
   return (
@@ -60,16 +71,28 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
         </div>
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-6 text-sm">
-        <FilterChip href="/admin/listings" label={`All (${active})`} on={!status} />
+      <div className="flex flex-wrap items-center gap-2 mb-6 text-sm">
+        <FilterChip href={href(table ? "table" : null, null)} label={`All (${active})`} on={!status} />
         {Object.keys(STATUS_LABEL).map((k) =>
           counts[k] ? (
-            <FilterChip key={k} href={`/admin/listings?status=${k}`} label={`${STATUS_LABEL[k]} (${counts[k]})`} on={status === k} />
+            <FilterChip key={k} href={href(table ? "table" : null, k)} label={`${STATUS_LABEL[k]} (${counts[k]})`} on={status === k} />
           ) : null
         )}
+        <span className="ml-auto flex gap-3">
+          <Link href={href(null)} className={!table ? "font-semibold underline" : "text-brand-ink/60"}>
+            Cards
+          </Link>
+          <Link href={href("table")} className={table ? "font-semibold underline" : "text-brand-ink/60"}>
+            Table
+          </Link>
+        </span>
       </div>
 
-      <DraftGrid drafts={drafts} readyCount={counts.ready ?? 0} />
+      {table ? (
+        <DraftTable key={drafts.map((d) => d.id).join(",")} drafts={drafts} categories={categories} />
+      ) : (
+        <DraftGrid drafts={drafts} readyCount={counts.ready ?? 0} />
+      )}
     </section>
   );
 }

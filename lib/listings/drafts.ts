@@ -54,9 +54,22 @@ export type DraftSummary = {
   tier: string | null;
   writtenBy: string | null;
   generationError: string | null;
+  /** Table view fields. */
+  weightOz: number | null;
+  /** The writer's assumed weight when none was entered (postcard 1 oz…). */
+  assumedWeightOz: number | null;
+  ebayCategoryId: string | null;
+  ebayCategoryName: string | null;
+  shippingProfile: string | null;
+  quantity: number;
+  condition: string | null;
+  poshmarkPrice: number | null;
 };
 
-export type Draft = DraftSummary & {
+/** Statuses whose content can still be edited by hand. */
+export const EDITABLE_STATUS_LIST = ["uploading", "ready", "review", "sent_back"] as const;
+
+export type Draft = Omit<DraftSummary, "weightOz" | "assumedWeightOz" | "ebayCategoryId" | "ebayCategoryName" | "shippingProfile" | "quantity" | "condition" | "poshmarkPrice"> & {
   registryItemId: string | null;
   sourceRef: string | null;
   facts: Record<string, unknown>;
@@ -99,6 +112,8 @@ export async function listDrafts(status: string | null, limit = 100): Promise<{
   const found = await rows(sql`
     SELECT d.id, d.status, d.source, d.source_label, d.title, d.title_hint, d.bin_sku, d.price, d.created_at,
            d.written_by, d.generation_error, d.ai_meta->>'confidence' AS confidence, d.ai_meta->>'tier' AS tier,
+           d.weight_oz, d.ai_meta->'weight'->>'oz' AS assumed_oz, d.ebay_category_id, d.ebay_category_name,
+           d.shipping_profile, d.quantity, d.condition, d.venue_prices->>'poshmark' AS poshmark_price,
            (SELECT count(*) FROM draft_photos p WHERE p.draft_id = d.id) AS photos,
            (SELECT p.url FROM draft_photos p WHERE p.draft_id = d.id AND p.uploaded_at IS NOT NULL
              ORDER BY p.position LIMIT 1) AS cover
@@ -126,6 +141,14 @@ export async function listDrafts(status: string | null, limit = 100): Promise<{
       tier: s(d.tier),
       writtenBy: s(d.written_by),
       generationError: s(d.generation_error),
+      weightOz: n(d.weight_oz),
+      assumedWeightOz: n(d.assumed_oz),
+      ebayCategoryId: s(d.ebay_category_id),
+      ebayCategoryName: s(d.ebay_category_name),
+      shippingProfile: s(d.shipping_profile),
+      quantity: Number(d.quantity ?? 1) || 1,
+      condition: s(d.condition),
+      poshmarkPrice: n(d.poshmark_price),
     })),
   };
 }
@@ -232,7 +255,7 @@ export function formatSpecifics(spec: Record<string, string | string[]> | null):
     .join("\n");
 }
 
-const EDITABLE_STATUSES = new Set(["uploading", "ready", "review", "sent_back"]);
+const EDITABLE_STATUSES = new Set<string>(EDITABLE_STATUS_LIST);
 
 export async function updateDraft(id: string, edit: DraftEdit): Promise<{ ok: boolean; error?: string }> {
   const [d] = await rows(sql`SELECT status, registry_item_id FROM listing_drafts WHERE id = ${id}`);
@@ -322,4 +345,40 @@ export async function nextReviewId(currentId: string): Promise<{ id: string | nu
          ORDER BY (d.created_at <= cur.created_at), d.created_at LIMIT 1) AS next_id,
       (SELECT count(*)::int FROM listing_drafts d WHERE d.status = 'review' AND d.id <> ${currentId}) AS left`);
   return { id: r?.next_id ? String(r.next_id) : null, left: Number(r?.left ?? 0) };
+}
+
+/** The lowest .87 price at or above `min` (5 → 5.87, 5.87 → 5.87, 6 → 6.87). */
+export function up87(min: number): number {
+  const base = Math.floor(min) + 0.87;
+  return Math.round((base >= min - 1e-9 ? base : base + 1) * 100) / 100;
+}
+
+/** Bulk "minimum price": every chosen editable draft priced below the
+ *  minimum (or with no price) goes up to it. Poshmark's own price is kept
+ *  only while it's still needed (eBay price under the Poshmark floor). */
+export async function raiseMinPrice(
+  ids: string[],
+  min: number,
+  opts: { round87: boolean; poshmarkFloor: number }
+): Promise<{ raised: number; alreadyAbove: number; skipped: number; price: number }> {
+  const clean = Array.from(new Set(ids.filter((id) => /^[0-9a-f-]{36}$/i.test(id)))).slice(0, 500);
+  if (!(min > 0) || min > 100000) throw new Error("Give a minimum price above $0");
+  const price = opts.round87 ? up87(min) : Math.round(min * 100) / 100;
+  if (!clean.length) return { raised: 0, alreadyAbove: 0, skipped: 0, price };
+  const list = sql.join(clean.map((id) => sql`${id}::uuid`), sql`, `);
+  const editable = sql.join(EDITABLE_STATUS_LIST.map((st) => sql`${st}`), sql`, `);
+  const raised = await rows(sql`
+    UPDATE listing_drafts SET price = ${price},
+      venue_prices = CASE WHEN ${price}::numeric >= ${opts.poshmarkFloor}::numeric
+                          THEN NULLIF(COALESCE(venue_prices, '{}'::jsonb) - 'poshmark', '{}'::jsonb)
+                          ELSE venue_prices END,
+      written_by = CASE WHEN written_by IS NULL OR written_by = 'hand' THEN 'hand'
+                        WHEN written_by LIKE 'claude%' THEN 'claude+hand' ELSE 'ai+hand' END,
+      updated_at = now()
+    WHERE id IN (${list}) AND status IN (${editable}) AND (price IS NULL OR price < ${price})
+    RETURNING id`);
+  const [c] = await rows(sql`
+    SELECT count(*) FILTER (WHERE status IN (${editable}))::int AS editable FROM listing_drafts WHERE id IN (${list})`);
+  const editableCount = Number(c?.editable ?? 0);
+  return { raised: raised.length, alreadyAbove: editableCount - raised.length, skipped: clean.length - editableCount, price };
 }

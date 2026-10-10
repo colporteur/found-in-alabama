@@ -189,3 +189,12 @@ test("unverified words are parsed and can be removed cleanly", async () => {
   assert.equal(removeWords("Church (Ontario County) Phelps NY", "ontario county"), "Church Phelps NY");
   assert.equal(removeWords("A, Magic Valley, B", "Magic Valley"), "A, B");
 });
+
+test("up87 rounds a minimum up to the next .87", async () => {
+  const { up87 } = await import("./drafts");
+  assert.equal(up87(5), 5.87);
+  assert.equal(up87(5.87), 5.87);
+  assert.equal(up87(5.9), 6.87);
+  assert.equal(up87(9.99), 10.87);
+  assert.equal(up87(10), 10.87);
+});
