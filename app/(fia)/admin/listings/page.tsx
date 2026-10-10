@@ -38,11 +38,9 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
   const status = searchParams.status && STATUS_LABEL[searchParams.status] ? searchParams.status : null;
   const table = searchParams.view === "table";
   const { drafts, counts } = await listDrafts(status, table ? 300 : 100);
-  const shelves = table
-    ? (await buildCategoryOptions().catch(() => []))
-        .map((o) => ({ id: o.id, path: o.path.replace(/&amp;/g, "&") }))
-        .sort((a, b) => a.path.localeCompare(b.path))
-    : [];
+  const shelves = (await buildCategoryOptions().catch(() => []))
+    .map((o) => ({ id: o.id, path: o.path.replace(/&amp;/g, "&") }))
+    .sort((a, b) => a.path.localeCompare(b.path));
   const href = (v: string | null, st: string | null = status) => {
     const p = new URLSearchParams();
     if (st) p.set("status", st);
@@ -95,7 +93,7 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
       {table ? (
         <DraftTable key={drafts.map((d) => d.id).join(",")} drafts={drafts} shelves={shelves} />
       ) : (
-        <DraftGrid drafts={drafts} readyCount={counts.ready ?? 0} />
+        <DraftGrid drafts={drafts} readyCount={counts.ready ?? 0} shelves={shelves} />
       )}
     </section>
   );
