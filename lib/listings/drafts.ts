@@ -33,6 +33,8 @@ export type DraftPhoto = {
   url: string;
   uploaded: boolean;
   name: string | null;
+  /** Clockwise degrees Todd turned it on the draft page. */
+  rotation: number;
 };
 
 export type DraftSummary = {
@@ -133,13 +135,15 @@ export async function loadDraft(id: string): Promise<Draft | null> {
   const [d] = await rows(sql`SELECT * FROM listing_drafts WHERE id = ${id}`);
   if (!d) return null;
   const photos = await rows(sql`
-    SELECT position, role, url, uploaded_at, original_name FROM draft_photos WHERE draft_id = ${id} ORDER BY position`);
+    SELECT position, role, url, uploaded_at, original_name, COALESCE((to_jsonb(draft_photos)->>'rotation')::int, 0) AS rotation
+    FROM draft_photos WHERE draft_id = ${id} ORDER BY position`);
   const photoList = photos.map((p) => ({
     position: Number(p.position),
     role: s(p.role),
     url: String(p.url),
     uploaded: p.uploaded_at != null,
     name: s(p.original_name),
+    rotation: Number(p.rotation ?? 0),
   }));
   return {
     id: String(d.id),
