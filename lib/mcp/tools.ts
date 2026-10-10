@@ -8,6 +8,7 @@ import { sql, type SQL } from "drizzle-orm";
 import { argDate, argEnum, argNum, argStr, type ToolDef } from "./protocol";
 import { monthReport } from "@/lib/books/books";
 import { staleReport } from "@/lib/stale/report";
+import { readinessReport } from "@/lib/sales/readiness";
 
 type Row = Record<string, unknown>;
 async function rows(q: SQL): Promise<Row[]> {
@@ -611,6 +612,40 @@ const hauls: ToolDef = {
   },
 };
 
+
+const delistReadiness: ToolDef = {
+  name: "delist_readiness",
+  title: "Delist readiness (leaving Nifty)",
+  description:
+    "Per venue, how close FIA is to the Phase 7 test for leaving Nifty there: clean days in a row (of 30) where FIA saw every sale and every delist it planned was confirmed; problem days (missed or unmatched sales, delists still listed a day later) with the items involved; days not checked yet; and when the last Nifty sales check ran.",
+  inputSchema: { type: "object", properties: { venue: { type: "string", enum: ["mercari", "poshmark", "depop", "whatnot", "ebay", "hip"] } } },
+  run: async (a) => {
+    const r = await readinessReport();
+    const only = argStr(a, "venue", 20);
+    return {
+      today: r.today,
+      lastNiftySalesCheck: r.lastCheck,
+      venues: r.venues
+        .filter((v) => !only || v.venue === only)
+        .map((v) => ({
+          venue: v.venue,
+          clockStart: v.start,
+          ready: v.ready,
+          cleanDaysInARow: v.streak,
+          cleanDays: v.clean,
+          problemDays: v.problems,
+          uncheckedDays: v.unchecked,
+          totals: v.totals,
+          verifiedBy: v.verifiedBy,
+          listings: v.listings,
+          problemDaysDetail: v.days.filter((d) => d.state === "problem").map((d) => ({ day: d.day, why: d.why })),
+          issues: v.issues.slice(0, 30),
+        })),
+      adminUrl: "https://www.foundinalabama.com/admin/sales/readiness",
+    };
+  },
+};
+
 export const TOOLS: ToolDef[] = [
   overview,
   salesReport,
@@ -624,4 +659,5 @@ export const TOOLS: ToolDef[] = [
   buyers,
   listingPipeline,
   hauls,
+  delistReadiness,
 ];

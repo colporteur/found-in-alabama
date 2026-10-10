@@ -43,6 +43,7 @@ async function init() {
     renderReadyToSync({ tab, endpoint, lastSync });
   }
   renderNiftySend(tab);
+  renderNiftyCheck(tab);
 }
 
 // ─── View renderers ──────────────────────────────────────────────────────────
@@ -229,6 +230,80 @@ async function doSendToNifty(tab, items) {
     await sleep(NIFTY_SEND_PAUSE_MS);
   }
   btn.textContent = `Done: ${sent} in Nifty${failed ? `, ${failed} failed` : ""}`;
+}
+
+// ─── Check sales & delists (Phase 2 readiness) ──────────────────────────────
+//
+// Reads Nifty's recently sold items (read-only, nifty-check.js) and sends
+// them to FIA, which scores its shadow delist plans against what Nifty did
+// on each venue and spots any sale FIA missed. Nothing in Nifty changes.
+
+async function renderNiftyCheck(tab) {
+  const main = $("#main");
+  if (!main) return;
+  main.insertAdjacentHTML("beforeend", `<div id="nifty-check"></div>`);
+  const box = $("#nifty-check");
+  const hr = `<hr style="margin:14px 0;border:none;border-top:1px solid rgba(0,0,0,.1)">`;
+  let info;
+  try {
+    info = await fiaFetch("/api/admin/sales/nifty-check");
+  } catch (err) {
+    box.innerHTML = `${hr}<h2>Sales &amp; delists</h2><div class="alert error">${escapeHtml(err.message)}</div>`;
+    return;
+  }
+  box.innerHTML = `${hr}
+    <h2>Sales &amp; delists</h2>
+    <p class="muted">Reads Nifty's sales since ${escapeHtml(formatTime(info.since))} (read-only) so FIA can check its delist plans${
+      info.openLegs ? ` — <strong>${info.openLegs}</strong> waiting` : ""
+    }.${info.lastCheck ? ` Last check: ${escapeHtml(formatTime(info.lastCheck))}.` : ""}</p>
+    <div class="row" style="margin-top:8px"><button class="primary" id="nifty-check-btn">Check sales &amp; delists</button></div>
+    <div id="nifty-check-log" class="muted" style="margin-top:8px;font-size:12px"></div>`;
+  $("#nifty-check-btn").addEventListener("click", () => doNiftyCheck(tab, info.since));
+}
+
+async function doNiftyCheck(tab, since) {
+  const btn = $("#nifty-check-btn");
+  const log = $("#nifty-check-log");
+  btn.disabled = true;
+  btn.textContent = "Reading Nifty…";
+  log.textContent = "";
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", files: ["nifty-check.js"] });
+    const [res] = await chrome.scripting.executeScript({
+      target: { tabId: tab.id },
+      world: "MAIN",
+      func: async (s) => {
+        try {
+          return await window.niftyRecentSold(s, {});
+        } catch (e) {
+          return { error: String((e && e.message) || e) };
+        }
+      },
+      args: [since],
+    });
+    const r = res?.result || { error: "No result from the page" };
+    if (r.error) throw new Error(r.error);
+    btn.textContent = `Sending ${r.items.length} sales to FIA…`;
+    for (let i = 0; i < r.items.length; i += 100) {
+      await fiaFetch("/api/admin/items/capture", {
+        method: "POST",
+        body: JSON.stringify({ filterMode: "sold", items: r.items.slice(i, i + 100) }),
+      });
+    }
+    const done = await fiaFetch("/api/admin/sales/nifty-check", {
+      method: "POST",
+      body: JSON.stringify({ since, items: r.items.length, pages: r.pages, complete: r.complete }),
+    });
+    const o = done.outcomes || {};
+    log.innerHTML = `Checked ${r.items.length} Nifty sales. Delists confirmed: ${(o.niftyDone ?? 0) + (o.ebayDone ?? 0) + (o.hipDone ?? 0)}, still up: ${o.stillLive ?? 0}.` +
+      (r.complete ? "" : ` <span style="color:#92400e">Stopped after ${r.pages} pages before reaching ${escapeHtml(formatTime(since))}; run it again.</span>`) +
+      ` See foundinalabama.com/admin/sales/readiness.`;
+    btn.textContent = "Done";
+  } catch (err) {
+    log.innerHTML = `<span style="color:#7f1d1d">${escapeHtml(err.message)}</span>`;
+    btn.textContent = "Check sales & delists";
+    btn.disabled = false;
+  }
 }
 
 function renderError(msg) {

@@ -81,7 +81,8 @@ export default async function SalesPage() {
           <h1 className="font-marker text-4xl md:text-5xl">Sale detection</h1>
           <p className="text-sm text-brand-ink/60 mt-2">
             Watching every venue and scoring Nifty&apos;s delisting. Nothing here delists anything.
-            {r.lastRunAt && <> Last change {when(r.lastRunAt)}.</>}
+            {r.lastRunAt && <> Last change {when(r.lastRunAt)}.</>}{" "}
+            <Link href="/admin/sales/readiness" className="underline">Readiness by venue →</Link>
           </p>
         </div>
         <RunSalesSyncButton />
