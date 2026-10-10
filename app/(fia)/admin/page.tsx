@@ -227,6 +227,11 @@ export default async function AdminDashboard() {
           desc="Profit per sale by month — fees, postage, item cost — hauls, and a CSV for tax time."
         />
         <Tool
+          href="/admin/stale"
+          title="Shake-up"
+          desc="Every 180 days a live item comes due for one fresh action: new title + specifics, markdown, new description, or a lot."
+        />
+        <Tool
           href="/admin/sales"
           title="Sale detection"
           desc="Every sale on every venue, matched to its item, and whether its other listings came down (shadow mode)."

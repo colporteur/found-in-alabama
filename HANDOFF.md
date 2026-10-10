@@ -485,3 +485,9 @@ First step of Phase 3 (push-button listing, own listing writer). Items get from 
 - `/admin/books?month=` profit per package from ship_orders (so the books start on the to-ship queue's start date): revenue (items + buyer-paid shipping), fees (eBay's own from the order; estimates elsewhere, `lib/books/fees.ts`, rates editable at `/admin/books/settings`), postage ($0 for buyer-paid-label venues, typed in otherwise), item cost, profit. CSV at `/api/admin/books/csv?month=` (no buyer names).
 - `/admin/books/hauls`: add/edit hauls, items tied, sold, sales so far. Listing draft page: Haul & cost panel + "Print inventory label".
 - eBay-order lines now also find their registry item through venue_listings.
+
+## Phase 5a — Shake-up report (Oct 9, 2026)
+- Migration 0039: `stale_actions` (what the shake-up did to an eBay item, when).
+- `lib/stale/rules.ts` (tested): every `cycleDays` (180) since the last shake-up (max of stale_actions and ebay_listings.last_substantive_at; else the earliest known date) an item is due for one action, rotating rewrite → markdown → describe → markdown; items ≤ $7.87 after 2 rounds → bundle. Settings in app_settings `staleRhythm`.
+- `/admin/stale`: due counts, per-action lists (oldest first, pick N), runs through Expert Enhance (`createBatch`: title_remix + item_specifics, description_remix with `family:<Guide family>`, price_adjust percent with floor + round87). "Leave as is this round" records a skip (resets the clock, no round). Bundles: bins with ≥ 5 candidates → lot listing draft (registry draft item, singles' eBay photos, item list in notes; nothing ends on eBay).
+- On prod data (Oct 9): 11,609 live eBay items, 304 due now, 41 due within 30 days.

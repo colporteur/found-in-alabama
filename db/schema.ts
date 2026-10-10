@@ -1787,3 +1787,24 @@ export const acquisitions = pgTable("acquisitions", {
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
+
+// ── Shake-up (Phase 5a) ─────────────────────────────────────────────────────
+// What the stale-inventory report did to an item and when, so the 180-day
+// rhythm knows each item's last shake-up and which round comes next.
+export const staleActions = pgTable(
+  "stale_actions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ebayItemId: text("ebay_item_id").notNull(),
+    registryItemId: uuid("registry_item_id"),
+    /** rewrite | describe | markdown | bundle | skip */
+    action: text("action").notNull(),
+    batchId: uuid("batch_id"),
+    note: text("note"),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    itemIdx: index("stale_actions_item_idx").on(t.ebayItemId, t.createdAt),
+  })
+);
