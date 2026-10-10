@@ -9,7 +9,10 @@
 //      Mercari / Depop / Whatnot shipping, Poshmark size, venue categories
 //   2. fills in our content: title, description, condition, prices, SKU,
 //      private notes, photos, eBay category, eBay item specifics, eBay store
-//      categories
+//      categories, and the SHIPPING WEIGHT (FIA's, when it has one): eBay and
+//      Mercari package weight, Mercari's shipping label (first option for
+//      that weight, as the First-Shipping Picker did), Depop's parcel size
+//      and Whatnot's shipping profile
 //   3. calls inventory.saveAsDraftV2 (the draft editor's "Save draft") — the
 //      item lands in Nifty's Drafts — then re-reads it to confirm no
 //      marketplace shows it as listed. Nothing is published.
@@ -85,6 +88,103 @@ async function niftyBridgeSend(draft, options) {
       return a.required || KEEP_SECTIONS.has(a.section);
     });
   }
+
+  // ── weight (FIA's weightOz) ─────────────────────────────────────────────
+  const weightOz = Number(draft.weightOz) > 0 ? Number(draft.weightOz) : null;
+  const lbOz = (t) => {
+    const x = Math.ceil(t * 10) / 10;
+    const lb = Math.floor(x / 16);
+    return [lb, Math.round((x - lb * 16) * 10) / 10];
+  };
+  async function dynMembers(marketplace, attr, values) {
+    if (!attr.dynamicProviderId) return attr.members || [];
+    const dyn = await api.get("taxonomy.loadDynamicProvider", {
+      marketplace,
+      dynamicProviderId: attr.dynamicProviderId,
+      dynamicProviderContext: { attributeValues: values },
+      areAllDependenciesSatisfied: true,
+    });
+    const d = (dyn || []).find((x) => x.id === attr.id);
+    return (d && d.members) || [];
+  }
+  const memberValue = (attr, mm) =>
+    attr.dynamicProviderId
+      ? { type: "taxonomy-enum-dynamically-loaded-value", id: mm.id, externalId: mm.externalId }
+      : { type: "taxonomy-enum-member", id: mm.id, externalId: mm.externalId, name: mm.name };
+  /** Upper bound (oz) of a size bucket name: "under_12oz", "8-11 oz", "1 lb", "1-2 lbs", "Media 4 lbs". */
+  function bucketMaxOz(label) {
+    const t = String(label || "").toLowerCase().replace(/_/g, " ");
+    let m = t.match(/under\s*(\d+(?:\.\d+)?)\s*(oz|lbs?)/);
+    if (m) return Number(m[1]) * (m[2] === "oz" ? 1 : 16) - 0.001;
+    m = t.match(/(\d+(?:\.\d+)?)\s*-\s*(\d+(?:\.\d+)?)\s*(oz|lbs?)/);
+    if (m) return m[3] === "oz" ? Number(m[2]) + 0.99 : Number(m[2]) * 16;
+    m = t.match(/(\d+(?:\.\d+)?)\s*(oz|lbs?)/);
+    if (m) return Number(m[1]) * (m[2] === "oz" ? 1 : 16);
+    return null;
+  }
+  function pickBucket(members, oz, wantMedia) {
+    const ok = members
+      .map((mm) => ({ mm, max: bucketMaxOz(mm.name || mm.externalId), media: /media/i.test(mm.name || "") }))
+      .filter((x) => x.max != null && x.media === !!wantMedia && x.max >= oz)
+      .sort((a, b) => a.max - b.max);
+    return ok.length ? ok[0].mm : null;
+  }
+  /** Put FIA's weight on one marketplace listing's SHIPPING values. */
+  async function applyWeight(marketplace, values, tax) {
+    if (!weightOz) return values;
+    const byName = Object.fromEntries(tax.attributes.map((a) => [norm(a.name), a]));
+    const [lb, oz] = lbOz(weightOz);
+    const wAttr = byName["package weight"];
+    if (wAttr) {
+      const cur = values.find((v) => v.id === wAttr.id);
+      if (cur && Array.isArray(cur.values) && cur.values.length >= 2) {
+        const next = { ...cur, values: cur.values.map((x, i) => ({ ...x, value: i === 0 ? lb : i === 1 ? oz : x.value })) };
+        values = values.map((v) => (v.id === wAttr.id ? next : v));
+      } else {
+        warnings.push(`${marketplace}: couldn't set the package weight (template has none); set ${lb} lb ${oz} oz in Nifty`);
+      }
+    }
+    if (marketplace === "Mercari") {
+      const label = byName["shipping label"];
+      if (label) {
+        try {
+          const members = await dynMembers("Mercari", label, values);
+          // The first option, as the First-Shipping Picker did — but a Media
+          // Mail template (books) keeps a Media Mail label when one is offered.
+          const cur = values.find((v) => v.id === label.id);
+          const curId = cur && cur.values && cur.values[0] && cur.values[0].id;
+          const curName = ((members.find((mm) => mm.id === curId) || {}).name) || "";
+          const wasMedia = /media/i.test(curName) || /media/i.test(String(draft.shippingProfile || ""));
+          const pick = (wasMedia && members.find((mm) => /media/i.test(mm.name || ""))) || members[0];
+          if (pick) {
+            values = values.filter((v) => v.id !== label.id);
+            values.push({ type: "enum-attribute-values", id: label.id, values: [memberValue(label, pick)] });
+          } else warnings.push("Mercari: no shipping label offered for this weight; pick one in Nifty");
+        } catch (e) {
+          warnings.push("Mercari: couldn't load shipping labels (" + String(e.message || e).slice(0, 80) + "); pick one in Nifty");
+        }
+      }
+    }
+    for (const [mkt, name] of [["Depop", "parcel size"], ["Whatnot", "shipping profile"]]) {
+      if (marketplace !== mkt || !byName[name]) continue;
+      const attr = byName[name];
+      try {
+        const members = await dynMembers(mkt, attr, values);
+        const cur = values.find((v) => v.id === attr.id);
+        const curId = cur && cur.values && cur.values[0] && cur.values[0].id;
+        const curName = ((members.find((mm) => mm.id === curId) || {}).name) || "";
+        const pick = pickBucket(members, weightOz, /media/i.test(curName)) || pickBucket(members, weightOz, false);
+        if (pick) {
+          values = values.filter((v) => v.id !== attr.id);
+          values.push({ type: "enum-attribute-values", id: attr.id, values: [memberValue(attr, pick)] });
+        } else warnings.push(`${mkt}: no ${name} fits ${weightOz} oz; check it in Nifty`);
+      } catch (e) {
+        warnings.push(`${mkt}: couldn't load ${name} options (${String(e.message || e).slice(0, 80)})`);
+      }
+    }
+    return values;
+  }
+  if (!weightOz) warnings.push("No weight on this draft: Nifty keeps the template's package weight. Weigh it if it isn't flat paper.");
 
   // ── 1. template ──────────────────────────────────────────────────────────
   if (!draft || !draft.templateId) throw new Error("No Nifty template item for this draft");
@@ -174,6 +274,7 @@ async function niftyBridgeSend(draft, options) {
     if (draft.venuePrices && draft.venuePrices[m.marketplace.toLowerCase()] != null) {
       price = Number(draft.venuePrices[m.marketplace.toLowerCase()]);
     }
+    values = await applyWeight(m.marketplace, values, tax);
     listings.push({
       marketplace: m.marketplace,
       attributeValues: values,

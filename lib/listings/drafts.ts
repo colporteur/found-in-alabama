@@ -303,3 +303,16 @@ export async function setDraftStatus(
   }
   return { ok: true };
 }
+
+/** The next draft waiting for review after this one (oldest first, wrapping
+ *  around), for "next to review" on the draft page. */
+export async function nextReviewId(currentId: string): Promise<{ id: string | null; left: number }> {
+  if (!/^[0-9a-f-]{36}$/i.test(currentId)) return { id: null, left: 0 };
+  const [r] = await rows(sql`
+    WITH cur AS (SELECT created_at FROM listing_drafts WHERE id = ${currentId})
+    SELECT
+      (SELECT d.id FROM listing_drafts d, cur WHERE d.status = 'review' AND d.id <> ${currentId}
+         ORDER BY (d.created_at <= cur.created_at), d.created_at LIMIT 1) AS next_id,
+      (SELECT count(*)::int FROM listing_drafts d WHERE d.status = 'review' AND d.id <> ${currentId}) AS left`);
+  return { id: r?.next_id ? String(r.next_id) : null, left: Number(r?.left ?? 0) };
+}

@@ -19,6 +19,7 @@ import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import sharp from "sharp";
 import { gatewayChat, type GatewayContentPart } from "@/lib/gateway";
+import { planWeight } from "./weight";
 import { RESEARCH_SYSTEM, parseResearch, researchPromptText, type Research } from "./research";
 import { computeLlmCost, getRate, logAiCall } from "@/lib/enhance/cost";
 import { listGuides, loadGuide, routeGuides, guideKeywordHits, guideSection, ITEM_SPECIFICS_HEADING, type Guide } from "@/lib/enhance/guides";
@@ -556,9 +557,28 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
       }
     }
 
-    const ship = priced
-      ? suggestShipping({ price: priced.price, categoryPath: cat?.path ?? out.ebayCategorySuggestion, kind: ident?.kind ?? "other", weightOz: d.weight_oz != null ? Number(d.weight_oz) : null })
+    // Weight: Todd's (intake / typed) wins; otherwise the rules assume one
+    // (postcard 1 oz, booklet 1 lb media, paper 4/8/12 oz by size).
+    const weight = planWeight({
+      givenOz: d.weight_oz != null ? Number(d.weight_oz) : null,
+      kind: ident?.kind ?? null,
+      title: out.title,
+      identification: ident?.identification ?? null,
+      sizeInches: ((d.facts ?? {}) as Record<string, unknown>).size_inches as string | null ?? null,
+      source: String(d.source ?? ""),
+    });
+    const suggested = priced
+      ? suggestShipping({ price: priced.price, categoryPath: cat?.path ?? out.ebayCategorySuggestion, kind: ident?.kind ?? "other", weightOz: weight.oz })
       : null;
+    // A media-mail booklet or a 1 oz postcard decides the profile outright;
+    // otherwise the usual rules (price, category, weight > 3.5 oz).
+    const ship =
+      weight.source === "assumed" && weight.profile === "media"
+        ? { profile: "media" as const, reason: weight.reason }
+        : weight.source === "assumed" && weight.profile === "envelope" && suggested?.profile !== "calculated"
+          ? { profile: "envelope" as const, reason: weight.reason }
+          : suggested;
+    if (weight.source === "none") specFlags.push("No weight: not paper, so nothing was assumed — weigh it (Nifty would keep its template's weight).");
 
     const aiMeta = {
       tier: best.tier,
@@ -583,6 +603,7 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
       categorySuggestion: cat ? null : out.ebayCategorySuggestion || null,
       corrections: corrections || null,
       research: prevMeta.research ?? null,
+      weight,
       costUsd: Math.round(totalCost * 10000) / 10000,
       writtenAt: new Date().toISOString(),
     };

@@ -4,7 +4,7 @@
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { formatSpecifics, loadDraft } from "@/lib/listings/drafts";
+import { formatSpecifics, loadDraft, nextReviewId } from "@/lib/listings/drafts";
 import { DraftEditor } from "./DraftEditor";
 import { WriterPanel } from "./WriterPanel";
 import { ResearchPanel } from "./ResearchPanel";
@@ -26,6 +26,7 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
   const books = d.registryItemId && (await booksReady().catch(() => false))
     ? { cost: await itemCost(d.registryItemId), hauls: await listAcquisitions(100) }
     : null;
+  const next = await nextReviewId(d.id).catch(() => ({ id: null, left: 0 }));
   const stale =
     d.status === "generating" &&
     (!d.generationStartedAt || Date.now() - new Date(d.generationStartedAt).getTime() > 10 * 60 * 1000);
@@ -37,6 +38,11 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
           Listings
         </Link>{" "}
         · {d.status.replace("_", " ")}
+        {next.id && (
+          <Link href={`/admin/listings/${next.id}`} className="ml-4 normal-case tracking-normal underline">
+            Next to review → ({next.left} waiting)
+          </Link>
+        )}
       </p>
       <h1 className="font-marker text-3xl md:text-4xl mb-2">{d.title ?? d.titleHint ?? "Untitled item"}</h1>
       <p className="text-sm text-brand-ink/60 mb-6">
@@ -106,6 +112,7 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
         generationError={d.generationError}
         stale={stale}
         handMode={d.facts.mode === "hand"}
+        nextId={next.id}
       />
 
       <ResearchPanel key={String((d.aiMeta?.research as Research | undefined)?.at ?? "none")} id={d.id} status={d.status} research={(d.aiMeta?.research as Research | null | undefined) ?? null} />
@@ -138,6 +145,10 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
       <DraftEditor
         key={d.updatedAt}
         storeOptions={storeOptions}
+        assumedWeight={(() => {
+          const w = d.aiMeta?.weight as { oz?: number | null; reason?: string; source?: string } | undefined;
+          return w && w.source !== "given" ? { oz: w.oz ?? null, reason: String(w.reason ?? "") } : null;
+        })()}
         id={d.id}
         status={d.status}
         initial={{

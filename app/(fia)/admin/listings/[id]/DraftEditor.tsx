@@ -33,11 +33,14 @@ export function DraftEditor({
   status,
   initial,
   storeOptions,
+  assumedWeight = null,
 }: {
   id: string;
   status: string;
   initial: Fields;
   storeOptions: Array<{ id: string; path: string }>;
+  /** What the writer assumed when no weight was given (sent to Nifty unless you type one). */
+  assumedWeight?: { oz: number | null; reason: string } | null;
 }) {
   const router = useRouter();
   const [f, setF] = useState<Fields>(initial);
@@ -139,7 +142,19 @@ export function DraftEditor({
           </div>
           <div>
             <label className={label}>Weight (oz)</label>
-            <input className={input} inputMode="decimal" value={f.weightOz} onChange={set("weightOz")} disabled={!editable} />
+            <input
+              className={input}
+              inputMode="decimal"
+              value={f.weightOz}
+              onChange={set("weightOz")}
+              disabled={!editable}
+              placeholder={assumedWeight?.oz ? `assumed ${assumedWeight.oz}` : "weigh it"}
+            />
+            {!f.weightOz && assumedWeight && (
+              <p className="text-xs text-brand-ink/50 mt-1">
+                {assumedWeight.oz ? `Sent to Nifty as ${assumedWeight.oz} oz (${assumedWeight.reason}). Type a weight to override.` : `No weight assumed (${assumedWeight.reason}).`}
+              </p>
+            )}
           </div>
         </div>
         <div>

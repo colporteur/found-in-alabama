@@ -21,6 +21,7 @@ export function WriterPanel({
   generationError,
   stale,
   handMode,
+  nextId = null,
 }: {
   id: string;
   status: string;
@@ -29,6 +30,8 @@ export function WriterPanel({
   generationError: string | null;
   stale: boolean;
   handMode: boolean;
+  /** The next draft waiting for review — approving or sending back jumps there. */
+  nextId?: string | null;
 }) {
   const router = useRouter();
   const [tier, setTier] = useState("auto");
@@ -68,7 +71,9 @@ export function WriterPanel({
 
   async function act(action: string, extra: Record<string, unknown> = {}) {
     const out = await post(`/api/admin/listings/${id}`, { action, ...extra }, action);
-    if (out) router.refresh();
+    if (!out) return;
+    if ((action === "approve" || action === "send_back") && nextId) router.push(`/admin/listings/${nextId}`);
+    else router.refresh();
   }
 
   const btn = "text-sm px-4 py-2 rounded font-medium disabled:opacity-50";
@@ -125,7 +130,7 @@ export function WriterPanel({
       <div className="flex flex-wrap items-center gap-3">
         {["review", "sent_back"].includes(status) && written && (
           <button type="button" onClick={() => act("approve")} disabled={!!busy} className={`${btn} bg-green-800 text-white hover:bg-green-700`}>
-            {busy === "approve" ? "Approving…" : "Approve"}
+            {busy === "approve" ? "Approving…" : nextId ? "Approve → next" : "Approve"}
           </button>
         )}
         {status === "approved" && (
