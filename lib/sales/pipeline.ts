@@ -558,6 +558,9 @@ export async function planMatched(limit = 500): Promise<{
         LEFT JOIN ebay_listings e ON v.venue = 'ebay' AND e.item_id = v.venue_listing_id
         WHERE v.registry_item_id = ${item}
           AND v.venue <> ${venue} AND v.venue <> 'etsy'
+          -- Multi-quantity stock stays listed everywhere else; only eBay's
+          -- count should drop (a decrement leg).
+          AND (NOT ${multiQty}::boolean OR v.venue = 'ebay')
           AND (v.status IN ('live', 'unknown')
                OR (v.venue = 'ebay' AND COALESCE(e.quantity, 0) > 0)
                OR (v.venue = 'ebay' AND e.last_synced_at >= ${at}::timestamptz))
@@ -649,6 +652,19 @@ export async function checkOutcomes(): Promise<Record<string, number>> {
   const win = sql`p.planned_at > now() - make_interval(days => ${OUTCOME_WINDOW_DAYS})`;
   const open = sql`p.outcome IN ('pending', 'still_live', 'unverified', 'failed_nifty')`;
   const out: Record<string, number> = {};
+
+  // Legs that should never have been planned: the sale turned out not to be
+  // one (ignored — e.g. eBay's sold-out GTC renewals — or a duplicate), or it
+  // was one unit of multi-quantity stock, which stays listed off eBay.
+  out.void = await exec(sql`
+    UPDATE delist_plans p
+    SET outcome = 'void', checked_at = now(),
+        evidence = COALESCE(p.evidence, '{}'::jsonb) || jsonb_build_object('void_reason',
+          CASE WHEN e.status IN ('ignored', 'duplicate') THEN 'sale ' || e.status ELSE 'multi-quantity' END)
+    FROM sale_events e
+    WHERE e.id = p.sale_event_id AND p.outcome <> 'void'
+      AND (e.status IN ('ignored', 'duplicate')
+           OR (e.note LIKE 'Multi-quantity item%' AND p.venue NOT IN ('ebay', 'hip') AND p.outcome <> 'done'))`);
 
   // eBay: the mirror (15-minute events) shows the listing sold out / ended.
   out.ebayDone = await exec(sql`

@@ -137,7 +137,7 @@ export async function loadSalesReport(days = 30, feedSize = 50): Promise<SalesRe
            percentile_cont(0.5) WITHIN GROUP (ORDER BY extract(epoch FROM p.outcome_at - COALESCE(e.sold_at, e.detected_at)) / 60)
              FILTER (WHERE p.outcome = 'done') AS median_done_min
     FROM delist_plans p JOIN sale_events e ON e.id = p.sale_event_id
-    WHERE p.planned_at > ${since}
+    WHERE p.planned_at > ${since} AND p.outcome <> 'void'
     GROUP BY p.venue ORDER BY count(*) DESC`);
 
   const [ages] = await rows(sql`

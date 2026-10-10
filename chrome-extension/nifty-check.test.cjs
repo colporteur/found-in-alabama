@@ -23,7 +23,7 @@ test("pages newest-first until the cutoff, read-only", async () => {
     pauseMs: 0,
     get: async (input) => {
       calls.push(input);
-      assert.equal(input.filter, "sold");
+      assert.equal(input.filter, "all");
       assert.equal(input.sort, "sale_detected_at");
       return { items: pages[input.page] || [] };
     },
@@ -40,4 +40,21 @@ test("stops at an empty page", async () => {
   assert.equal(r.items.length, 0);
   assert.equal(r.pages, 1);
   assert.equal(r.complete, false);
+});
+
+test("sold on one venue + down everywhere but Etsy counts as sold; multi-qty stays listed", async () => {
+  const mk = (st) => ({ Depop: { externalId: "d", status: "SOLD" }, Mercari: { externalId: "m", status: st }, Etsy: { externalId: "e", status: "LISTED" } });
+  const r = await niftyRecentSold("2026-10-01T00:00:00Z", {
+    pauseMs: 0,
+    get: async (input) => input.page ? { items: [] } : {
+      items: [
+        { id: "x", title: "X", status: "LISTED", soldAt: "2026-10-09T00:00:00Z", marketplaceMetadata: mk("DELISTED") },
+        { id: "y", title: "Y", status: "LISTED", soldAt: "2026-10-08T00:00:00Z", maxListingQuantity: 4, marketplaceMetadata: mk("LISTED") },
+        { id: "w", title: "W", status: "LISTED", soldAt: "2026-10-08T00:00:00Z", maxListingQuantity: 1, marketplaceMetadata: mk("LISTED") },
+        { id: "z", title: "Z", status: "LISTED", soldAt: null, marketplaceMetadata: mk("LISTED") },
+      ],
+    },
+  });
+  assert.deepEqual(r.items.map((i) => [i.niftyId, i.status]), [["x", "SOLD"], ["y", "LISTED"], ["w", "SOLD"]]);
+  assert.equal(r.complete, true);
 });
