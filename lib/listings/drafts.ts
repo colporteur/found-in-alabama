@@ -22,6 +22,8 @@ export const DRAFT_STATUSES = [
   "in_nifty",
   "published",
   "sent_back",
+  /** Queued for Claude in the Claude app to write through the FIA connector. */
+  "with_claude",
   "discarded",
 ] as const;
 
@@ -258,7 +260,8 @@ export async function updateDraft(id: string, edit: DraftEdit): Promise<{ ok: bo
     );
   }
   if (sets.length === 0) return { ok: true };
-  sets.push(sql`written_by = CASE WHEN written_by IS NULL OR written_by = 'hand' THEN 'hand' ELSE 'ai+hand' END`);
+  sets.push(sql`written_by = CASE WHEN written_by IS NULL OR written_by = 'hand' THEN 'hand'
+                                 WHEN written_by LIKE 'claude%' THEN 'claude+hand' ELSE 'ai+hand' END`);
   sets.push(sql`updated_at = now()`);
   await db.execute(sql`UPDATE listing_drafts SET ${sql.join(sets, sql`, `)} WHERE id = ${id}`);
   // Keep the registry item's title / bin in step with the draft.

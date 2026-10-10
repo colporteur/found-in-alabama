@@ -26,6 +26,19 @@ export async function mcpReady(): Promise<boolean> {
   return !!r?.ok;
 }
 
+let scopeCol: boolean | null = null;
+/** Migration 0042 adds mcp_tokens.scope; until it runs every grant is read-only. */
+async function hasScope(): Promise<boolean> {
+  if (scopeCol) return true;
+  const [r] = await rows(sql`
+    SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'mcp_tokens' AND column_name = 'scope') AS ok`);
+  scopeCol = !!r?.ok;
+  return scopeCol;
+}
+
+export const LISTINGS_SCOPE = "listings";
+export const hasListings = (scope: string | null | undefined) => (scope ?? "").split(/\s+/).includes(LISTINGS_SCOPE);
+
 export class OAuthError extends Error {
   constructor(public code: string, message: string, public status = 400) {
     super(message);
@@ -69,18 +82,33 @@ async function insertToken(p: {
   codeChallenge?: string | null;
   redirectUri?: string | null;
   who?: string | null;
+  scope?: string | null;
 }): Promise<string> {
   const prefix = p.kind === "code" ? "fiacode_" : p.kind === "access" ? "fiaat_" : "fiart_";
   const token = randomToken(prefix);
-  await db.execute(sql`
-    INSERT INTO mcp_tokens (client_id, kind, token_hash, grant_id, code_challenge, redirect_uri, expires_at, created_by)
-    VALUES (${p.clientId}, ${p.kind}, ${sha256hex(token)}, ${p.grantId}::uuid, ${p.codeChallenge ?? null},
-            ${p.redirectUri ?? null}, now() + make_interval(secs => ${p.ttlS}), ${p.who ?? null})`);
+  if (await hasScope()) {
+    await db.execute(sql`
+      INSERT INTO mcp_tokens (client_id, kind, token_hash, grant_id, code_challenge, redirect_uri, expires_at, created_by, scope)
+      VALUES (${p.clientId}, ${p.kind}, ${sha256hex(token)}, ${p.grantId}::uuid, ${p.codeChallenge ?? null},
+              ${p.redirectUri ?? null}, now() + make_interval(secs => ${p.ttlS}), ${p.who ?? null}, ${p.scope || "read"})`);
+  } else {
+    await db.execute(sql`
+      INSERT INTO mcp_tokens (client_id, kind, token_hash, grant_id, code_challenge, redirect_uri, expires_at, created_by)
+      VALUES (${p.clientId}, ${p.kind}, ${sha256hex(token)}, ${p.grantId}::uuid, ${p.codeChallenge ?? null},
+              ${p.redirectUri ?? null}, now() + make_interval(secs => ${p.ttlS}), ${p.who ?? null})`);
+  }
   return token;
 }
 
+/** The grant's current scope (all its tokens share one). */
+async function grantScope(grantId: string): Promise<string> {
+  if (!(await hasScope())) return "read";
+  const [r] = await rows(sql`SELECT max(scope) AS scope FROM mcp_tokens WHERE grant_id = ${grantId}::uuid`);
+  return String(r?.scope ?? "read");
+}
+
 /** Todd clicked Allow: a one-time code for the client's callback. */
-export async function createAuthCode(p: { clientId: string; redirectUri: string; codeChallenge: string; who: string }): Promise<string> {
+export async function createAuthCode(p: { clientId: string; redirectUri: string; codeChallenge: string; who: string; listings?: boolean }): Promise<string> {
   const client = await loadClient(p.clientId);
   if (!client) throw new OAuthError("invalid_client", "Unknown client — remove the connector in Claude and add it again.");
   if (!client.redirectUris.includes(p.redirectUri) || !redirectAllowed(p.redirectUri))
@@ -94,13 +122,15 @@ export async function createAuthCode(p: { clientId: string; redirectUri: string;
     codeChallenge: p.codeChallenge,
     redirectUri: p.redirectUri,
     who: p.who,
+    scope: p.listings ? `read ${LISTINGS_SCOPE}` : "read",
   });
 }
 
 async function issuePair(clientId: string, grantId: string) {
-  const access = await insertToken({ clientId, kind: "access", grantId, ttlS: ACCESS_TTL_S });
-  const refresh = await insertToken({ clientId, kind: "refresh", grantId, ttlS: REFRESH_TTL_S });
-  return { access_token: access, token_type: "Bearer", expires_in: ACCESS_TTL_S, refresh_token: refresh, scope: "read" };
+  const scope = await grantScope(grantId);
+  const access = await insertToken({ clientId, kind: "access", grantId, ttlS: ACCESS_TTL_S, scope });
+  const refresh = await insertToken({ clientId, kind: "refresh", grantId, ttlS: REFRESH_TTL_S, scope });
+  return { access_token: access, token_type: "Bearer", expires_in: ACCESS_TTL_S, refresh_token: refresh, scope };
 }
 
 /** Marks a token used (once) and returns its row, or null. */
@@ -143,13 +173,25 @@ export async function revokeToken(token: string): Promise<void> {
 }
 
 /** The bearer check for /api/mcp. */
-export async function verifyAccessToken(token: string): Promise<{ clientId: string; grantId: string } | null> {
+export async function verifyAccessToken(token: string): Promise<{ clientId: string; grantId: string; scope: string; who: string } | null> {
   if (!token.startsWith("fiaat_")) return null;
   const [r] = await rows(sql`
     UPDATE mcp_tokens SET last_used_at = now()
     WHERE token_hash = ${sha256hex(token)} AND kind = 'access' AND revoked_at IS NULL AND expires_at > now()
     RETURNING client_id, grant_id`);
-  return r ? { clientId: String(r.client_id), grantId: String(r.grant_id) } : null;
+  if (!r) return null;
+  const grantId = String(r.grant_id);
+  // Scope is read live from the grant, so turning listing writing on or off
+  // on /admin/connect takes effect on the next call.
+  const scope = await grantScope(grantId);
+  const [c] = await rows(sql`SELECT c.name FROM mcp_clients c WHERE c.id = ${String(r.client_id)}`);
+  return { clientId: String(r.client_id), grantId, scope, who: `connector:${(c?.name as string | null) ?? "Claude"}` };
+}
+
+/** Turn listing-draft writing on or off for one connection. */
+export async function setGrantListings(grantId: string, on: boolean): Promise<void> {
+  if (!(await hasScope())) throw new Error("Run npm run db:migrate first (migration 0042).");
+  await db.execute(sql`UPDATE mcp_tokens SET scope = ${on ? `read ${LISTINGS_SCOPE}` : "read"} WHERE grant_id = ${grantId}::uuid`);
 }
 
 // ─── /admin/connect ──────────────────────────────────────────────────────────
@@ -161,6 +203,7 @@ export type Connection = {
   approvedAt: string;
   lastUsedAt: string | null;
   active: boolean;
+  listings: boolean;
 };
 
 export async function listConnections(): Promise<Connection[]> {
@@ -169,7 +212,8 @@ export async function listConnections(): Promise<Connection[]> {
            max(t.created_by) AS approved_by,
            min(t.created_at) AS approved_at,
            max(t.last_used_at) AS last_used_at,
-           bool_or(t.kind = 'refresh' AND t.used_at IS NULL AND t.revoked_at IS NULL AND t.expires_at > now()) AS active
+           bool_or(t.kind = 'refresh' AND t.used_at IS NULL AND t.revoked_at IS NULL AND t.expires_at > now()) AS active,
+           ${(await hasScope()) ? sql`max(t.scope)` : sql`'read'`} AS scope
     FROM mcp_tokens t LEFT JOIN mcp_clients c ON c.id = t.client_id
     GROUP BY t.grant_id, c.name
     HAVING bool_or(t.kind <> 'code')
@@ -183,6 +227,7 @@ export async function listConnections(): Promise<Connection[]> {
     approvedAt: iso(r.approved_at) ?? "",
     lastUsedAt: iso(r.last_used_at),
     active: !!r.active,
+    listings: hasListings(r.scope as string | null),
   }));
 }
 

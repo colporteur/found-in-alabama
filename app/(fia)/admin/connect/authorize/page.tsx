@@ -30,7 +30,7 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Re
     return shell(<p className="text-red-700">This connection request isn&apos;t recognized. Remove the connector in Claude and add it again.</p>);
 
   const params = p;
-  async function allow() {
+  async function allow(form: FormData) {
     "use server";
     const session = await auth();
     if (!session?.user) throw new Error("Not signed in");
@@ -39,6 +39,7 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Re
       redirectUri: params.redirectUri,
       codeChallenge: params.codeChallenge,
       who: session.user.email ?? "admin",
+      listings: form.get("listings") === "on",
     });
     redirect(back(params.redirectUri, { code, state: params.state }));
   }
@@ -60,12 +61,19 @@ export default async function AuthorizePage({ searchParams }: { searchParams: Re
         <li>listing drafts and AI spend</li>
       </ul>
       <p className="text-sm text-brand-ink/70 mb-6">
-        It can&apos;t change, list, publish or buy anything. You can cut it off any time on{" "}
+        It can&apos;t change, list, publish or buy anything (except the optional listing-draft writing below). You can cut it off any time on{" "}
         <a href="/admin/connect" className="underline">Connections</a>. The approval goes back to <code>{host}</code>.
       </p>
       <div className="flex gap-3">
-        <form action={allow}>
-          <button className="px-5 py-2 rounded bg-brand-ink text-white font-medium">Allow read-only access</button>
+        <form action={allow} className="space-y-4">
+          <label className="flex items-start gap-2 text-sm max-w-md">
+            <input type="checkbox" name="listings" className="mt-1" />
+            <span>
+              Also let it <strong>write listing drafts I send to Claude</strong> (from the Listings page). They land in my Review
+              queue; it still can&apos;t approve, send to Nifty or publish.
+            </span>
+          </label>
+          <button className="px-5 py-2 rounded bg-brand-ink text-white font-medium">Allow</button>
         </form>
         <form action={deny}>
           <button className="px-5 py-2 rounded border border-brand-ink/30">Cancel</button>

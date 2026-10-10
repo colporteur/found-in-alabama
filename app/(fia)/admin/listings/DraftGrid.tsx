@@ -19,6 +19,7 @@ const STATUS_LABEL: Record<string, string> = {
   in_nifty: "In Nifty (draft)",
   published: "Published",
   sent_back: "Sent back",
+  with_claude: "With Claude",
   discarded: "Discarded",
 };
 
@@ -109,6 +110,22 @@ export function DraftGrid({ drafts, readyCount }: { drafts: DraftSummary[]; read
     router.refresh();
   }
 
+  async function sendReadyToClaude() {
+    setMsg(null);
+    const res = await fetch("/api/admin/listings/claude", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action: "send_ready" }),
+    });
+    const out = (await res.json().catch(() => ({}))) as { sent?: number; skipped?: number; error?: string };
+    if (!res.ok) {
+      setMsg(out.error ?? `HTTP ${res.status}`);
+      return;
+    }
+    setMsg(`Sent ${out.sent ?? 0} to Claude. In the Claude app, with FIA on, say "write my waiting FIA listings".`);
+    router.refresh();
+  }
+
   const btn = "text-sm px-3 py-2 rounded font-medium disabled:opacity-50";
 
   return (
@@ -117,6 +134,11 @@ export function DraftGrid({ drafts, readyCount }: { drafts: DraftSummary[]; read
         {readyCount > 0 && !run && (
           <button type="button" onClick={writeAll} className={`${btn} bg-brand-earth text-white hover:bg-brand-earth/80`}>
             Write all ready ({readyCount})
+          </button>
+        )}
+        {readyCount > 0 && !run && (
+          <button type="button" onClick={sendReadyToClaude} className={`${btn} border border-brand-earth text-brand-earth hover:bg-brand-earth/10`}>
+            Send all ready to Claude
           </button>
         )}
         {run && (

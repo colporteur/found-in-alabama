@@ -4,7 +4,8 @@
 
 import { revalidatePath } from "next/cache";
 import { auth } from "@/auth";
-import { listConnections, mcpReady, revokeGrant } from "@/lib/mcp/oauth";
+import { listConnections, mcpReady, revokeGrant, setGrantListings } from "@/lib/mcp/oauth";
+import { listingTools } from "@/lib/mcp/listing-tools";
 import { TOOLS } from "@/lib/mcp/tools";
 
 export const dynamic = "force-dynamic";
@@ -15,6 +16,15 @@ const fmt = (v: string | null) =>
 export default async function ConnectPage() {
   const ready = await mcpReady();
   const list = ready ? await listConnections() : [];
+
+  async function toggleListings(form: FormData) {
+    "use server";
+    const session = await auth();
+    if (!session?.user) throw new Error("Not signed in");
+    const id = String(form.get("grantId") ?? "");
+    if (/^[0-9a-f-]{36}$/i.test(id)) await setGrantListings(id, form.get("on") === "1");
+    revalidatePath("/admin/connect");
+  }
 
   async function disconnect(form: FormData) {
     "use server";
@@ -58,6 +68,7 @@ export default async function ConnectPage() {
               <th className="py-1">App</th>
               <th>Approved</th>
               <th>Last used</th>
+              <th>Writes listing drafts</th>
               <th></th>
             </tr>
           </thead>
@@ -67,6 +78,15 @@ export default async function ConnectPage() {
                 <td className="py-2">{c.clientName ?? "(unnamed)"}</td>
                 <td>{fmt(c.approvedAt)}</td>
                 <td>{fmt(c.lastUsedAt)}</td>
+                <td>
+                  {c.active && (
+                    <form action={toggleListings} className="inline">
+                      <input type="hidden" name="grantId" value={c.grantId} />
+                      <input type="hidden" name="on" value={c.listings ? "0" : "1"} />
+                      <button className="underline">{c.listings ? "On — turn off" : "Off — turn on"}</button>
+                    </form>
+                  )}
+                </td>
                 <td className="text-right">
                   {c.active ? (
                     <form action={disconnect}>
@@ -82,6 +102,21 @@ export default async function ConnectPage() {
           </tbody>
         </table>
       )}
+
+      <h2 className="text-xs uppercase tracking-wider text-brand-earth mb-2">Write with Claude</h2>
+      <p className="text-sm text-brand-ink/70 mb-2 max-w-prose">
+        With listing-draft writing turned on for a connection, Claude can write the drafts you send it from the Listings page
+        (&ldquo;Send to Claude&rdquo;). In a chat with FIA turned on, say <em>&ldquo;write my waiting FIA listings&rdquo;</em>. Each one lands
+        in Review with the same price, title and shipping rules as the automatic writer; approving and sending to Nifty stay with you.
+        After turning it on, start a new chat so Claude sees the new tools.
+      </p>
+      <ul className="text-sm space-y-1 mb-8">
+        {listingTools("").map((t) => (
+          <li key={t.name}>
+            <strong>{t.title}</strong> — <span className="text-brand-ink/70">{t.description.split(". ")[0]}.</span>
+          </li>
+        ))}
+      </ul>
 
       <h2 className="text-xs uppercase tracking-wider text-brand-earth mb-2">What it can look up</h2>
       <ul className="text-sm space-y-2">

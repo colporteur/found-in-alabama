@@ -1843,6 +1843,9 @@ export const mcpTokens = pgTable(
     revokedAt: timestamp("revoked_at"),
     lastUsedAt: timestamp("last_used_at"),
     createdBy: text("created_by"),
+    /** "read", or "read listings" when Todd let this connection write the
+     *  listing drafts he sends to Claude. Same value on every token of a grant. */
+    scope: text("scope").default("read").notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
   (t) => ({

@@ -81,7 +81,7 @@ type Photo = { position: number; role: string | null; url: string };
 /** Fetch each photo from storage and downsize it (long edge 1568px, the
  *  size vision models actually use) so large scans never exceed a model's
  *  image limit and tokens stay low. */
-async function preparePhotos(photos: Photo[]): Promise<{ parts: GatewayContentPart[]; labels: string[]; skipped: string[] }> {
+export async function preparePhotos(photos: Photo[], longEdge = 1568): Promise<{ parts: GatewayContentPart[]; labels: string[]; skipped: string[] }> {
   const parts: GatewayContentPart[] = [];
   const labels: string[] = [];
   const skipped: string[] = [];
@@ -93,7 +93,7 @@ async function preparePhotos(photos: Photo[]): Promise<{ parts: GatewayContentPa
         const buf = Buffer.from(await res.arrayBuffer());
         const out = await sharp(buf, { failOn: "none" })
           .rotate()
-          .resize({ width: 1568, height: 1568, fit: "inside", withoutEnlargement: true })
+          .resize({ width: longEdge, height: longEdge, fit: "inside", withoutEnlargement: true })
           .jpeg({ quality: 82 })
           .toBuffer();
         parts[i] = { type: "image_url", image_url: { url: `data:image/jpeg;base64,${out.toString("base64")}` } };
@@ -170,7 +170,7 @@ async function noteRun(runId: string | null, confidence: number | null, output: 
 // ── context: guides, supply, categories ─────────────────────────────────────
 
 /** Up to two guides that actually match (most specific first). */
-async function matchGuides(text: string): Promise<Guide[]> {
+export async function matchGuides(text: string): Promise<Guide[]> {
   const pool = (await listGuides()).filter((g) => g.stage !== "buy");
   if (pool.length === 0) return [];
   const t = text.toLowerCase();
@@ -195,7 +195,7 @@ async function matchGuides(text: string): Promise<Guide[]> {
 type SupplyItem = { title: string; total: number; cls: string; condition?: string };
 type SupplyWithItems = SupplySnapshot & { items?: SupplyItem[] };
 
-async function supplySnapshot(title: string): Promise<SupplyWithItems | null> {
+export async function supplySnapshot(title: string): Promise<SupplyWithItems | null> {
   const { q, category } = buildSupplyQuery(title);
   if (!q || q.split(" ").length < 2) return null;
   try {
@@ -209,7 +209,7 @@ async function supplySnapshot(title: string): Promise<SupplyWithItems | null> {
 let catCache: { at: number; options: CategoryOption[] } | null = null;
 
 /** The eBay categories Todd already lists in (from the listing mirror). */
-async function categoryOptions(): Promise<CategoryOption[]> {
+export async function categoryOptions(): Promise<CategoryOption[]> {
   if (catCache && Date.now() - catCache.at < 3_600_000) return catCache.options;
   const found = await rows(sql`
     SELECT site_category_id AS id, max(site_category_name) AS name, count(*) AS c
@@ -227,7 +227,7 @@ const BAND_POLICY: Record<string, string> = {
   adjacent: "ADJACENT (only similar items listed): use the similar-item median as the anchor, adding a premium only for concrete differences (town, subject, era, condition) you can name.",
 };
 
-function supplyText(s: SupplyWithItems | null): string {
+export function supplyText(s: SupplyWithItems | null): string {
   if (!s || !s.counted) return "Supply snapshot: unavailable — price from the guide.";
   const st = (x: SupplySnapshot["same_stats"]) => (x ? `n=${x.n}, min $${x.min}, median $${x.median}, max $${x.max}` : "none");
   const items = (s.items ?? []).slice(0, 10).map((i) => `- [${i.cls}] $${i.total} (incl. shipping) — ${i.title}`);
@@ -243,7 +243,7 @@ function supplyText(s: SupplyWithItems | null): string {
 
 // ── prompts ─────────────────────────────────────────────────────────────────
 
-function factsText(d: Row): string {
+export function factsText(d: Row): string {
   const f = (d.facts ?? {}) as Record<string, unknown>;
   const lines: string[] = [];
   if (d.title_hint) lines.push(`Title hint from intake: ${d.title_hint}`);
@@ -272,7 +272,7 @@ function factsText(d: Row): string {
   return lines.length ? lines.join("\n") : "No intake facts beyond the photos.";
 }
 
-const IDENTIFY_SYSTEM = `You identify vintage and collectible items from photos for "Found in Alabama", an Alabama reseller, so the right expert guide and model can be chosen. Look at every photo (fronts, backs, labels, signatures, postmarks, publisher lines).
+export const IDENTIFY_SYSTEM = `You identify vintage and collectible items from photos for "Found in Alabama", an Alabama reseller, so the right expert guide and model can be chosen. Look at every photo (fronts, backs, labels, signatures, postmarks, publisher lines).
 The reseller being in Alabama says NOTHING about where an item is from — most items are from elsewhere. "places" lists only places printed, written or pictured on the item (or stated in the intake facts); never guess a place from a business or family name. Leave "places" empty if none is shown.
 
 Return ONLY a JSON object, no commentary:
@@ -293,7 +293,7 @@ card_type applies to postcards: rppc = real photo postcard; early = before ~1915
 difficulty: simple = a common item that is easy to describe (most postcards, ordinary paper); hard = artwork, autographs, rare or valuable pieces, or anything you can't pin down.
 est_value_usd: a typical eBay sold price for this kind of item.`;
 
-const WRITE_RULES = `You write marketplace listings for "Found in Alabama", an Alabama reseller of vintage paper, postcards, photographs, books and collectibles. The listing goes to eBay first and is crosslisted to Mercari, Poshmark, Depop and Whatnot.
+export const WRITE_RULES = `You write marketplace listings for "Found in Alabama", an Alabama reseller of vintage paper, postcards, photographs, books and collectibles. The listing goes to eBay first and is crosslisted to Mercari, Poshmark, Depop and Whatnot.
 
 NON-NEGOTIABLE RULES (they override the expert guide):
 1. Never invent facts. Places, dates, publishers, makers, provenance and condition must be visible in the photos or stated in the intake facts. When unsure, leave it out or say "appears to be". Todd's notes are true.
@@ -338,7 +338,7 @@ Return ONLY this JSON object:
 }
 confidence (0–1): how sure you are of the identification and the facts in the listing.`;
 
-const SPECIFICS_SYSTEM = `You fill in eBay item specifics for one listing, using ONLY the field names in the category's list.
+export const SPECIFICS_SYSTEM = `You fill in eBay item specifics for one listing, using ONLY the field names in the category's list.
 
 Rules:
 - Use facts from the title, description, identification and intake facts. Never invent brands, makers, publishers, dates or places. Leave a field out rather than guess.
@@ -363,7 +363,7 @@ export type GenerateResult =
   | { ok: true; draftId: string; status: "review"; tier: Tier; model: string; confidence: number | null; costUsd: number }
   | { ok: false; status: number; error: string };
 
-const WRITABLE = ["ready", "review", "sent_back", "generating"];
+const WRITABLE = ["ready", "review", "sent_back", "generating", "with_claude"];
 
 export async function generateDraft(draftId: string, opts: GenerateOptions): Promise<GenerateResult> {
   if (!/^[0-9a-f-]{36}$/i.test(draftId)) return { ok: false, status: 404, error: "Draft not found" };
