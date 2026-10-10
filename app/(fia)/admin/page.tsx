@@ -227,6 +227,11 @@ export default async function AdminDashboard() {
           desc="Profit per sale by month — fees, postage, item cost — hauls, and a CSV for tax time."
         />
         <Tool
+          href="/admin/connect"
+          title="Ask the business"
+          desc="Connect Claude (read-only) so you can ask questions about sales, inventory, bins, hauls and the books from any chat."
+        />
+        <Tool
           href="/admin/stale"
           title="Shake-up"
           desc="Every 180 days a live item comes due for one fresh action: new title + specifics, markdown, new description, or a lot."
