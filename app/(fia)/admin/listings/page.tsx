@@ -53,7 +53,7 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
   const active = Object.entries(counts).filter(([k]) => k !== "discarded").reduce((a, [, v]) => a + v, 0);
 
   return (
-    <section className="container-content py-12">
+    <section className={table ? "w-full px-4 md:px-6 py-12" : "container-content py-12"}>
       <p className="text-xs uppercase tracking-wider text-brand-earth mb-3">Inventory</p>
       <div className="flex flex-wrap items-end justify-between gap-4 mb-6">
         <div>

@@ -166,6 +166,7 @@ export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelve
           </button>
         )}
         {msg && <span className="text-sm text-brand-ink/70">{msg}</span>}
+        <span className="text-xs text-brand-ink/50 ml-auto">Grey weight with * = assumed by the writer; type one to set it.</span>
       </div>
       <div className="mb-4">
         <MinPriceControl selected={Array.from(picked)} shown={editableIds} />
@@ -184,10 +185,10 @@ export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelve
                 />
               </th>
               <th className="p-2"></th>
-              <th className="p-2 w-[24rem]">Title</th>
+              <th className="p-2 min-w-[24rem]">Title</th>
               <th className="p-2">Price</th>
               <th className="p-2">Bin / SKU</th>
-              <th className="p-2">Weight oz</th>
+              <th className="p-2" title="* = assumed by the writer">Weight oz*</th>
               <th className="p-2 min-w-[16rem]">Store shelves</th>
               <th className="p-2">Shipping</th>
               <th className="p-2">Qty</th>
@@ -247,13 +248,14 @@ export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelve
                   <td className="p-1 min-w-[8rem]">
                     <input value={r.binSku} onChange={set(d.id, "binSku")} disabled={!ed} className={cell + " font-mono" + dirty(d.id, "binSku")} />
                   </td>
-                  <td className="p-1 min-w-[6rem]">
+                  <td className="p-1 min-w-[5rem]">
                     <input
                       value={r.weightOz}
                       onChange={set(d.id, "weightOz")}
                       disabled={!ed}
                       inputMode="decimal"
-                      placeholder={d.assumedWeightOz != null ? `${d.assumedWeightOz} (assumed)` : ""}
+                      placeholder={d.assumedWeightOz != null ? `${d.assumedWeightOz}*` : ""}
+                      title={d.assumedWeightOz != null && !r.weightOz ? "* assumed by the writer — type a weight to set it" : undefined}
                       className={cell + dirty(d.id, "weightOz")}
                     />
                   </td>
