@@ -112,13 +112,25 @@ export type McpContent =
   | { type: "text"; text: string }
   | { type: "image"; data: string; mimeType: string };
 
-async function loadQueued(id: string): Promise<Row> {
-  if (!UUID.test(id)) throw new Error("draft_id must be an id from listing_queue");
+/** Claude may work on a draft Todd queued, or revise one it wrote that is
+ *  still waiting in Review (not approved, not sent anywhere). */
+const REVISABLE = ["review", "sent_back"];
+const claudeWrote = (d: Row) => /^claude/.test(String(d.written_by ?? ""));
+
+async function loadQueued(id: string, allowRevise = false): Promise<Row> {
+  if (!UUID.test(id)) throw new Error("draft_id must be an id from listing_queue or listing_written");
   const [d] = await rows(sql`SELECT * FROM listing_drafts WHERE id = ${id}`);
   if (!d) throw new Error("No such draft");
-  if (String(d.status) !== CLAUDE_STATUS)
-    throw new Error(`This draft is "${String(d.status).replace("_", " ")}", not waiting for Claude. Todd queues drafts from FIA's Listings page.`);
-  return d;
+  const st = String(d.status);
+  if (st === CLAUDE_STATUS) return d;
+  if (allowRevise && REVISABLE.includes(st) && claudeWrote(d)) return d;
+  if (!allowRevise && REVISABLE.includes(st) && claudeWrote(d))
+    throw new Error("You already saved this one; change it with listing_revise (send only the fields that change).");
+  if (allowRevise && REVISABLE.includes(st))
+    throw new Error("FIA's automatic writer (or Todd) wrote this one, so Claude can't change it. Todd can send it to Claude from its page.");
+  throw new Error(
+    `This draft is "${st.replace("_", " ")}". Claude can write drafts waiting for Claude, and revise its own drafts until Todd approves them.`
+  );
 }
 
 function routeText(d: Row, extra?: string | null): string {
@@ -129,7 +141,7 @@ function routeText(d: Row, extra?: string | null): string {
 /** Everything Claude needs to write one draft: rules, facts, guides,
  *  pricing context, the store's categories and shelves, and the photos. */
 export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
-  const d = await loadQueued(id);
+  const d = await loadQueued(id, true);
   const settings = await writerSettings();
   const photoRows = await rows(sql`
     SELECT position, role, url FROM draft_photos WHERE draft_id = ${id} AND uploaded_at IS NOT NULL
@@ -153,8 +165,20 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
     150
   );
   const instructions = (d.review_note as string | null)?.trim();
+  const current =
+    String(d.status) !== CLAUDE_STATUS && d.title
+      ? [
+          `CURRENT LISTING (you wrote it; it's in Todd's Review queue${String(d.written_by).includes("hand") ? ", and Todd has edited it by hand — keep his edits" : ""}). Change only what needs changing with listing_revise:`,
+          `title: ${d.title}`,
+          `price: ${d.price ?? "—"} · condition: ${d.condition ?? "—"}${d.condition_note ? ` (${d.condition_note})` : ""}`,
+          `eBay category: ${d.ebay_category_id ?? "—"} ${d.ebay_category_name ?? ""} · shelves: ${JSON.stringify(d.store_category_ids ?? [])}`,
+          `item specifics: ${JSON.stringify(d.item_specifics ?? {})}`,
+          `description:\n${d.description ?? ""}`,
+        ].join("\n")
+      : "";
   const text = [
     `DRAFT ${id}${d.bin_sku ? ` · bin ${d.bin_sku} (never put the bin in the listing)` : ""} · from ${d.source_label ?? d.source}`,
+    current,
     instructions ? `TODD'S INSTRUCTIONS FOR THIS ONE (true; they override everything): ${instructions}` : "",
     `INTAKE FACTS:\n${factsText(d)}`,
     `Photos below: ${photos.labels.join(", ")}.${photos.skipped.length ? ` (Couldn't load: ${photos.skipped.join("; ")})` : ""}`,
@@ -214,8 +238,62 @@ export async function claudeCategorySpecifics(categoryId: string) {
 
 export type ClaudeWrite = Record<string, unknown>;
 
-export async function saveClaudeWrite(id: string, input: ClaudeWrite, who: string) {
-  const d = await loadQueued(id);
+/** Drafts Claude wrote that are still waiting for Todd's review. */
+export async function claudeWritten(limit = 50) {
+  const list = await rows(sql`
+    SELECT id, title, price, status, written_by, updated_at, ai_meta->'flags' AS flags
+    FROM listing_drafts WHERE status IN ('review', 'sent_back') AND written_by LIKE 'claude%'
+    ORDER BY updated_at DESC LIMIT ${limit}`);
+  return {
+    drafts: list.map((r) => ({
+      id: String(r.id),
+      title: (r.title as string | null) ?? null,
+      price: r.price == null ? null : Number(r.price),
+      status: String(r.status),
+      editedByTodd: String(r.written_by).includes("hand"),
+      flags: Array.isArray(r.flags) ? r.flags : [],
+      updated: iso(r.updated_at),
+    })),
+  };
+}
+
+/** Revise a draft Claude wrote (still in Review): only the fields given
+ *  change; everything else, including Todd's hand edits, stays. */
+export async function reviseClaudeWrite(id: string, changes: ClaudeWrite, who: string) {
+  const d = await loadQueued(id, true);
+  if (String(d.status) === CLAUDE_STATUS) throw new Error("This draft hasn't been written yet — use listing_save for it.");
+  const meta = (d.ai_meta ?? {}) as Record<string, unknown>;
+  const current: ClaudeWrite = {
+    title: d.title,
+    description: d.description,
+    condition: d.condition,
+    condition_note: d.condition_note ?? "",
+    ebay_category_id: d.ebay_category_id ?? "",
+    ebay_category_suggestion: meta.categorySuggestion ?? "",
+    store_category_ids: Array.isArray(d.store_category_ids) ? d.store_category_ids : [],
+    item_specifics: d.item_specifics ?? {},
+    price: d.price == null ? null : Number(d.price),
+    price_low: meta.priceLow ?? null,
+    price_high: meta.priceHigh ?? null,
+    price_rationale: meta.priceRationale ?? "",
+    confidence: meta.confidence ?? null,
+    flags: [],
+    guides_used: Array.isArray(meta.guides) ? (meta.guides as Array<{ id?: string }>).map((g) => g.id).filter(Boolean) : [],
+  };
+  const merged: ClaudeWrite = { ...current };
+  for (const [k, v] of Object.entries(changes)) if (v !== undefined) merged[k] = v;
+  const r = await saveClaudeWrite(id, merged, who, { revise: true, keepIdent: (meta.identification as Identification | null) ?? null });
+  return { ...r, changed: Object.keys(changes).filter((k) => changes[k] !== undefined) };
+}
+
+export async function saveClaudeWrite(
+  id: string,
+  input: ClaudeWrite,
+  who: string,
+  opts: { revise?: boolean; keepIdent?: Identification | null } = {}
+) {
+  const d = await loadQueued(id, !!opts.revise);
+  if (!opts.revise && String(d.status) !== CLAUDE_STATUS) throw new Error("Already written — use listing_revise to change it.");
   const settings = await writerSettings();
   const cats = await categoryOptions();
   const store = await buildCategoryOptions().catch(() => []);
@@ -229,7 +307,9 @@ export async function saveClaudeWrite(id: string, input: ClaudeWrite, who: strin
   });
   if (!parsed.ok) throw new Error(`${parsed.error.replace("The model's reply", "The listing")}. Send title, description, condition (${CONDITIONS.join(" / ")}), price and the rest as fields.`);
   const out = parsed.value;
-  const ident: Identification | null = input.identification ? parseIdentification(JSON.stringify(input.identification)) : null;
+  const ident: Identification | null = input.identification
+    ? parseIdentification(JSON.stringify(input.identification))
+    : opts.keepIdent ?? null;
 
   const cat = cats.find((c) => c.id === out.ebayCategoryId) ?? null;
   const isPostcard = ident?.kind === "postcard" || /postcard/i.test(cat?.path ?? "");
@@ -273,6 +353,7 @@ export async function saveClaudeWrite(id: string, input: ClaudeWrite, who: strin
   const guidesUsed = Array.isArray(input.guides_used) ? (input.guides_used as unknown[]).map(String).slice(0, 5) : [];
   const aiMeta = {
     ...prevMeta,
+    revisedAt: opts.revise ? new Date().toISOString() : (prevMeta.revisedAt ?? null),
     tier: "claude",
     tierReason: "written by Claude in the Claude app (FIA connector)",
     model: "claude-app",
@@ -313,12 +394,12 @@ export async function saveClaudeWrite(id: string, input: ClaudeWrite, who: strin
       shipping_profile = ${ship?.profile ?? null},
       store_category_ids = ${out.storeCategoryIds.length ? JSON.stringify(out.storeCategoryIds) : null}::jsonb,
       ai_meta = ${JSON.stringify(aiMeta)}::jsonb,
-      written_by = 'claude',
-      review_note = NULL,
-      status = 'review',
+      written_by = CASE WHEN written_by LIKE '%hand%' THEN 'claude+hand' ELSE 'claude' END,
+      review_note = CASE WHEN status IN (${CLAUDE_STATUS}, 'sent_back') THEN NULL ELSE review_note END,
+      status = CASE WHEN status IN (${CLAUDE_STATUS}, 'sent_back') THEN 'review' ELSE status END,
       generation_error = NULL,
       updated_at = now()
-    WHERE id = ${id} AND status = ${CLAUDE_STATUS}
+    WHERE id = ${id} AND status = ${String(d.status)}
     RETURNING id`);
   if (!saved.length) throw new Error("The draft changed while you were writing it (Todd may have taken it back); nothing was saved.");
   if (d.registry_item_id) {
