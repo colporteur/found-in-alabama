@@ -222,6 +222,11 @@ export default async function AdminDashboard() {
           desc="DYMO 57 × 32 mm labels (title, logo, price) for live items by title or bin, or new listings at intake."
         />
         <Tool
+          href="/admin/books"
+          title="Books"
+          desc="Profit per sale by month — fees, postage, item cost — hauls, and a CSV for tax time."
+        />
+        <Tool
           href="/admin/sales"
           title="Sale detection"
           desc="Every sale on every venue, matched to its item, and whether its other listings came down (shadow mode)."

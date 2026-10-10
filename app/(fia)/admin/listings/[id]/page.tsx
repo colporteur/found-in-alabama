@@ -9,6 +9,8 @@ import { DraftEditor } from "./DraftEditor";
 import { WriterPanel } from "./WriterPanel";
 import { AiNotes } from "./AiNotes";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
+import { booksReady, itemCost, listAcquisitions } from "@/lib/books/books";
+import { HaulCostPanel } from "../../books/BooksControls";
 
 export const dynamic = "force-dynamic";
 
@@ -19,6 +21,9 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
   const storeOptions = (await buildCategoryOptions().catch(() => []))
     .map((o) => ({ id: o.id, path: o.path.replace(/&amp;/g, "&") }))
     .sort((a, b) => a.path.localeCompare(b.path));
+  const books = d.registryItemId && (await booksReady().catch(() => false))
+    ? { cost: await itemCost(d.registryItemId), hauls: await listAcquisitions(100) }
+    : null;
   const stale =
     d.status === "generating" &&
     (!d.generationStartedAt || Date.now() - new Date(d.generationStartedAt).getTime() > 10 * 60 * 1000);
@@ -55,6 +60,26 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
             </figcaption>
           </figure>
         ))}
+      </div>
+
+      <div className="flex flex-wrap items-start gap-4 mb-8">
+        {books?.cost && d.registryItemId && (
+          <HaulCostPanel
+            registryItemId={d.registryItemId}
+            hauls={books.hauls.map((h) => ({ id: h.id, name: h.name, acquiredOn: h.acquiredOn }))}
+            acquisitionId={books.cost.acquisitionId}
+            unitCost={books.cost.unitCost}
+            splitCost={books.cost.splitCost}
+          />
+        )}
+        <a
+          href={`/admin/labels/print?k=d:${d.id}`}
+          target="_blank"
+          rel="noreferrer"
+          className="text-sm px-3 py-2 rounded border border-brand-ink/20 hover:border-brand-ink/50"
+        >
+          Print inventory label
+        </a>
       </div>
 
       {facts.length > 0 && (

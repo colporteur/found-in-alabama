@@ -267,6 +267,13 @@
       "when": 1791592971204,
       "tag": "0037_ship_invoices",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1791595435968,
+      "tag": "0038_books",
+      "breakpoints": true
     }
   ]
 }
