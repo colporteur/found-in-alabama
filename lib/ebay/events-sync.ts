@@ -173,23 +173,25 @@ export async function syncListingEventsDelta(): Promise<EventsSyncResult> {
   let zeroed = 0;
   let skippedUnknown = 0;
   const zeroedIds: string[] = [];
+  /** Mirror quantity BEFORE this run's update, to tell a fresh sell-out from
+   *  an old sold-out listing that eBay merely touched (out-of-stock GTC
+   *  listings renew every 30 days and show up here with QuantitySold > 0). */
+  const prevQuantity = new Map<string, number | null>();
 
   if (deltas.length > 0) {
     // Which of these live in the mirror? (New listings are skipped — the
     // daily sweep inserts them with full category/image data.)
-    const known = new Set(
-      (
-        await db
-          .select({ itemId: ebayListings.itemId })
-          .from(ebayListings)
-          .where(
-            inArray(
-              ebayListings.itemId,
-              deltas.map((d) => d.itemId)
-            )
-          )
-      ).map((r) => r.itemId)
-    );
+    const mirror = await db
+      .select({ itemId: ebayListings.itemId, quantity: ebayListings.quantity })
+      .from(ebayListings)
+      .where(
+        inArray(
+          ebayListings.itemId,
+          deltas.map((d) => d.itemId)
+        )
+      );
+    const known = new Set(mirror.map((r) => r.itemId));
+    for (const r of mirror) prevQuantity.set(r.itemId, r.quantity);
 
     for (const d of deltas) {
       if (!known.has(d.itemId)) {
@@ -218,8 +220,14 @@ export async function syncListingEventsDelta(): Promise<EventsSyncResult> {
   // units sold) is a sale signal for the sale-detection pipeline. Recorded
   // even for listings not yet in the mirror. A manual end (nothing sold) is
   // not a sale. Best-effort; never fails this sync.
+  // Only a TRANSITION to 0 counts: if the mirror already had the listing at
+  // 0, it sold earlier (an old sale re-surfacing on a renewal or edit).
   const saleSignals: EbaySaleSignal[] = deltas
     .filter((d) => d.quantity === 0 && d.quantitySold > 0)
+    .filter((d) => {
+      const prev = prevQuantity.get(d.itemId);
+      return prev == null || prev > 0;
+    })
     .map((d) => ({ itemId: d.itemId, title: d.title, price: d.price, quantitySold: d.quantitySold }));
   const sales = await recordEbaySales(saleSignals);
 
