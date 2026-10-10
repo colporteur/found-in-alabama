@@ -464,3 +464,12 @@ First step of Phase 3 (push-button listing, own listing writer). Items get from 
 - `/admin/ship/pick?ids=…`: printable list; Print waits for photos, then records `pick_printed_at`.
 - Synced on page load and after every `/api/cron/sales-sync`. Website/Hip orders become shipped/cancelled from tes_orders; everything else is marked by hand.
 - Writes only FIA tables. Nothing goes to any marketplace.
+
+## Phase 4b — Invoices, buyers, combined orders (Oct 9, 2026)
+- Migration 0037: `ship_orders.order_total / shipping_paid / venue_fees`, `ship_order_lines.ebay_item_id / venue_line_id`.
+- eBay orders (`lib/ebay/orders.ts`, Fulfillment API, read-only): needs scope `sell.fulfillment.readonly` — Todd re-connects at /admin/ebay/sales/connect once. Until then the queue works as in 4a and shows a banner.
+  - Token refresh now asks only for the scopes already granted (`oauth.ts`), so adding a scope can't break the existing Sell API calls before the re-connect.
+  - eBay's combined orders become one package (lines moved from the per-sale packages, which become `merged`); buyer, ship-to, totals, fees; FULFILLED → shipped, CANCELED → cancelled.
+- One sale email = one package (Poshmark/Depop bundles). Poshmark/Depop buyer handles (and Depop ship-to name) come from the stored emails (`lib/fulfillment/buyers.ts`).
+- Same buyer + venue within 7 days → "Same buyer" badge with Combine; "Combine selected" for Mercari/anything by hand.
+- `/admin/ship/invoices?ids=…`: 4×6 Zebra invoices (FIA + TES for marketplaces, single brand for website orders), click-to-edit prices, Print records `invoice_printed_at`.

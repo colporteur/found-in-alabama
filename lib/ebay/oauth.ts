@@ -30,7 +30,22 @@ export const REQUIRED_SCOPES = [
   "https://api.ebay.com/oauth/api_scope/sell.inventory.readonly",
   "https://api.ebay.com/oauth/api_scope/sell.account.readonly",
   "https://api.ebay.com/oauth/api_scope/sell.analytics.readonly",
+  // Phase 4b: read orders (buyer, ship-to, fulfillment status). Read-only.
+  "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly",
 ];
+
+export const FULFILLMENT_SCOPE = "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly";
+
+/** Whether the stored eBay connection was granted `scope` (a scope added
+ *  to REQUIRED_SCOPES only takes effect after a re-connect). */
+export async function hasGrantedScope(scope: string): Promise<boolean> {
+  const [row] = await db
+    .select({ scope: ebayOAuthTokens.scope })
+    .from(ebayOAuthTokens)
+    .where(eq(ebayOAuthTokens.id, SINGLETON_ID))
+    .limit(1);
+  return !!row?.scope && row.scope.split(/\s+/).includes(scope);
+}
 
 const SINGLETON_ID = "singleton";
 
@@ -212,7 +227,9 @@ export async function getValidAccessToken(
   const body = new URLSearchParams({
     grant_type: "refresh_token",
     refresh_token: row.refreshToken,
-    scope: REQUIRED_SCOPES.join(" "),
+    // Ask only for what was granted: requesting a scope added since the
+    // last consent fails the refresh (and every Sell API call with it).
+    scope: row.scope?.trim() || REQUIRED_SCOPES.join(" "),
   });
   const tokens = await postToken(body);
 
