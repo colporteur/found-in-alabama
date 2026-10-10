@@ -199,7 +199,7 @@ export default async function AdminDashboard() {
         <Tool
           href="/admin/inventory"
           title="Inventory browser"
-          desc="Nifty-captured items across all six marketplaces."
+          desc="Search and filter every item — active, sold, delisted — by venue, bin, price and age; open one to edit its title, bin, status, notes and cost."
         />
         <Tool
           href="/admin/registry"

@@ -1346,6 +1346,11 @@ export const registryItems = pgTable(
     unitCost: numeric("unit_cost", { precision: 10, scale: 2 }),
     soldAt: timestamp("sold_at"),
     soldOnVenue: text("sold_on_venue"),
+    /** Inventory browser: Todd's own notes on the item (FIA only). */
+    notes: text("notes"),
+    /** Fields Todd edited in FIA (title, bin_sku, status) — the Nifty sync
+     *  leaves these alone so his edit isn't overwritten an hour later. */
+    fiaLocked: text("fia_locked").array().default(sql`'{}'::text[]`).notNull(),
     /** ebay_backfill | nifty_backfill | intake | manual */
     createdFrom: text("created_from").notNull(),
     createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -1842,5 +1847,28 @@ export const mcpTokens = pgTable(
   },
   (t) => ({
     grantIdx: index("mcp_tokens_grant_idx").on(t.grantId),
+  })
+);
+
+// ── Inventory browser ───────────────────────────────────────────────────────
+// Every edit Todd makes to an item in FIA. Today edits stay in FIA; when FIA
+// takes over from Nifty, a pusher sends unpushed edits to the venues the
+// item is live on (pushed_at / push_result).
+export const registryItemEdits = pgTable(
+  "registry_item_edits",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    registryItemId: uuid("registry_item_id").notNull(),
+    /** title | bin_sku | status | notes | unit_cost | acquisition_id */
+    field: text("field").notNull(),
+    oldValue: text("old_value"),
+    newValue: text("new_value"),
+    editedBy: text("edited_by"),
+    editedAt: timestamp("edited_at").defaultNow().notNull(),
+    pushedAt: timestamp("pushed_at"),
+    pushResult: jsonb("push_result"),
+  },
+  (t) => ({
+    itemIdx: index("registry_item_edits_item_idx").on(t.registryItemId, t.editedAt),
   })
 );

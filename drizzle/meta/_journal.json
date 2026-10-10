@@ -288,6 +288,13 @@
       "when": 1791647315358,
       "tag": "0040_mcp_oauth",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791655209396,
+      "tag": "0041_inventory_edits",
+      "breakpoints": true
     }
   ]
 }
