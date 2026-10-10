@@ -128,7 +128,7 @@ export type NiftyQueueItem = {
 };
 
 /** Approved drafts not yet in Nifty, oldest first. */
-export async function niftyQueue(limit = 25): Promise<NiftyQueueItem[]> {
+export async function niftyQueue(limit = 300): Promise<NiftyQueueItem[]> {
   const templates = await niftyTemplates();
   const found = await rows(sql`
     SELECT d.*, (SELECT json_agg(p.url ORDER BY p.position) FROM draft_photos p
