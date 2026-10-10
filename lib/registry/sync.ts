@@ -53,8 +53,11 @@ type Step = { name: string; sql: string };
 //   {{LEG_PLANNED}}      — listing v is a planned delist leg whose real
 //                          status the outcome checker is waiting to see
 // Before the SALES-1 migration both expand to FALSE (Phase 1 behaviour).
-export function expandSaleGuards(text: string, salesReady: boolean): string {
+export function expandSaleGuards(text: string, salesReady: boolean, locksReady = false): string {
   return text
+    // Inventory browser: a field Todd edited in FIA (registry_items.fia_locked)
+    // is left alone by the Nifty sync. FALSE until migration 0041 has run.
+    .replace(/\{\{LOCKED:([a-z_]+)\}\}/g, (_, field) => (locksReady ? `('${field}' = ANY(r.fia_locked))` : "FALSE"))
     .replace(/\{\{SALE_AFTER:([a-z_.]+)\}\}/g, (_, col) =>
       salesReady
         ? `EXISTS (SELECT 1 FROM sale_events s WHERE s.registry_item_id = r.id AND s.status = 'matched' AND s.detected_at > ${col})`
@@ -145,17 +148,19 @@ export const REGISTRY_SYNC_STEPS: Step[] = [
     name: "Nifty status, title, bin, haul",
     sql: `
       UPDATE registry_items r SET
-        status = CASE WHEN i.status = 'sold' THEN 'sold' ELSE 'live' END,
-        sold_at = CASE WHEN i.status = 'sold' THEN i.sold_at ELSE NULL END,
-        sold_on_venue = CASE WHEN i.status = 'sold' THEN i.sold_on_marketplace ELSE NULL END,
-        title = i.title, title_normalized = i.title_normalized,
-        bin_sku = i.sku, haul_post_slug = i.haul_post_slug, updated_at = now()
+        status = CASE WHEN {{LOCKED:status}} THEN r.status WHEN i.status = 'sold' THEN 'sold' ELSE 'live' END,
+        sold_at = CASE WHEN {{LOCKED:status}} THEN r.sold_at WHEN i.status = 'sold' THEN i.sold_at ELSE NULL END,
+        sold_on_venue = CASE WHEN {{LOCKED:status}} THEN r.sold_on_venue WHEN i.status = 'sold' THEN i.sold_on_marketplace ELSE NULL END,
+        title = CASE WHEN {{LOCKED:title}} THEN r.title ELSE i.title END,
+        title_normalized = CASE WHEN {{LOCKED:title}} THEN r.title_normalized ELSE i.title_normalized END,
+        bin_sku = CASE WHEN {{LOCKED:bin_sku}} THEN r.bin_sku ELSE i.sku END,
+        haul_post_slug = i.haul_post_slug, updated_at = now()
       FROM items i
       WHERE r.nifty_item_ref = i.id AND r.status IN ('live', 'sold')
         AND NOT (i.status <> 'sold' AND r.status = 'sold' AND {{SALE_AFTER:i.updated_at}})
-        AND (r.status IS DISTINCT FROM CASE WHEN i.status = 'sold' THEN 'sold' ELSE 'live' END
-             OR r.title IS DISTINCT FROM i.title
-             OR r.bin_sku IS DISTINCT FROM i.sku
+        AND ((NOT {{LOCKED:status}} AND r.status IS DISTINCT FROM CASE WHEN i.status = 'sold' THEN 'sold' ELSE 'live' END)
+             OR (NOT {{LOCKED:title}} AND r.title IS DISTINCT FROM i.title)
+             OR (NOT {{LOCKED:bin_sku}} AND r.bin_sku IS DISTINCT FROM i.sku)
              OR r.haul_post_slug IS DISTINCT FROM i.haul_post_slug)`,
   },
   {
@@ -175,7 +180,7 @@ export const REGISTRY_SYNC_STEPS: Step[] = [
       SET status = CASE WHEN e.quantity > 0 THEN 'live' ELSE 'sold' END, updated_at = now()
       FROM ebay_listings e
       WHERE r.created_from = 'ebay_backfill' AND e.item_id = r.primary_ebay_item_id
-        AND r.status IN ('live', 'sold')
+        AND r.status IN ('live', 'sold') AND NOT {{LOCKED:status}}
         AND NOT (e.quantity > 0 AND r.status = 'sold' AND {{SALE_AFTER:e.last_synced_at}})
         AND r.status IS DISTINCT FROM CASE WHEN e.quantity > 0 THEN 'live' ELSE 'sold' END`,
   },
@@ -297,10 +302,14 @@ export async function runRegistrySync(): Promise<RegistrySyncResult> {
     sql`SELECT to_regclass('public.sale_events') IS NOT NULL AS ok`
   )) as { rows?: { ok?: boolean }[] };
   const salesReady = !!ready.rows?.[0]?.ok;
+  const locks = (await db.execute(
+    sql`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'registry_items' AND column_name = 'fia_locked') AS ok`
+  )) as { rows?: { ok?: boolean }[] };
+  const locksReady = !!locks.rows?.[0]?.ok;
   for (const step of REGISTRY_SYNC_STEPS) {
     const t = Date.now();
     try {
-      const res = (await db.execute(sql.raw(expandSaleGuards(step.sql, salesReady)))) as {
+      const res = (await db.execute(sql.raw(expandSaleGuards(step.sql, salesReady, locksReady)))) as {
         rowCount?: number | null;
       };
       steps.push({ name: step.name, rows: res.rowCount ?? null, ms: Date.now() - t });
