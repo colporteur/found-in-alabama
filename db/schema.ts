@@ -1808,3 +1808,39 @@ export const staleActions = pgTable(
     itemIdx: index("stale_actions_item_idx").on(t.ebayItemId, t.createdAt),
   })
 );
+
+// ── Ask the business (Phase 5b) ─────────────────────────────────────────────
+// OAuth for the read-only FIA connector in the Claude app. Clients register
+// themselves (Dynamic Client Registration); Todd approves each connection on
+// /admin/connect while signed in. Only SHA-256 hashes of codes and tokens
+// are stored.
+export const mcpClients = pgTable("mcp_clients", {
+  id: text("id").primaryKey(),
+  name: text("name"),
+  redirectUris: jsonb("redirect_uris").notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const mcpTokens = pgTable(
+  "mcp_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: text("client_id").notNull(),
+    /** code | access | refresh */
+    kind: text("kind").notNull(),
+    tokenHash: text("token_hash").notNull().unique(),
+    /** One approval = one grant; every code/access/refresh token of it shares this. */
+    grantId: uuid("grant_id").notNull(),
+    codeChallenge: text("code_challenge"),
+    redirectUri: text("redirect_uri"),
+    expiresAt: timestamp("expires_at").notNull(),
+    usedAt: timestamp("used_at"),
+    revokedAt: timestamp("revoked_at"),
+    lastUsedAt: timestamp("last_used_at"),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    grantIdx: index("mcp_tokens_grant_idx").on(t.grantId),
+  })
+);
