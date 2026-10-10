@@ -193,13 +193,21 @@ export function DraftTable({ drafts, categories }: { drafts: DraftSummary[]; cat
               return (
                 <tr key={d.id} className="border-t border-brand-ink/5 align-top">
                   <td className="p-2">{ed && <input type="checkbox" checked={picked.has(d.id)} onChange={() => toggle(d.id)} />}</td>
-                  <td className="p-2 w-12">
-                    <Link href={`/admin/listings/${d.id}`}>
+                  <td className="p-2 w-14 min-w-[3.5rem]">
+                    {/* Fixed size: the site's global img max-width:100% let the
+                        table squeeze this column to a sliver. */}
+                    <Link href={`/admin/listings/${d.id}`} className="block w-12 h-12" title="Open the draft">
                       {d.cover ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={d.cover} alt="" loading="lazy" className="w-10 h-10 object-cover rounded" />
+                        <img
+                          src={d.cover}
+                          alt=""
+                          loading="lazy"
+                          style={{ width: 48, height: 48, maxWidth: "none" }}
+                          className="block object-cover rounded border border-brand-ink/10"
+                        />
                       ) : (
-                        <span className="block w-10 h-10 rounded bg-brand-ink/5" />
+                        <span className="block w-12 h-12 rounded bg-brand-ink/5" />
                       )}
                     </Link>
                   </td>
