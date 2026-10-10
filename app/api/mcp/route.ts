@@ -38,7 +38,11 @@ export async function POST(req: Request) {
 }
 
 // No server-initiated stream and no sessions in this stateless server.
-export function GET() {
+// Without a token, answer 401 so a client probing with GET still finds
+// the sign-in metadata.
+export async function GET(req: Request) {
+  const m = (req.headers.get("authorization") ?? "").match(/^Bearer\s+(.+)$/i);
+  if (!m || !(await verifyAccessToken(m[1].trim()).catch(() => null))) return unauthorized(req, "Sign in required");
   return new Response("Method Not Allowed", { status: 405, headers: { ...CORS, Allow: "POST" } });
 }
 export const DELETE = GET;
