@@ -12,6 +12,7 @@ import type { Research } from "@/lib/listings/research";
 import { AiNotes } from "./AiNotes";
 import { UnverifiedPanel } from "./UnverifiedPanel";
 import { PhotoStrip } from "./PhotoStrip";
+import { MarkListed } from "./MarkListed";
 import { ROTATABLE } from "@/lib/listings/photos";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 import { booksReady, itemCost, listAcquisitions } from "@/lib/books/books";
@@ -115,6 +116,21 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
             </p>
           )}
           {d.niftyError && <p className="text-red-800">Last send failed: {d.niftyError}</p>}
+          {d.status === "published" && (
+            <p>
+              Published
+              {typeof d.aiMeta?.ebayItemId === "string" && (
+                <>
+                  {" "}— eBay{" "}
+                  <a className="underline" href={`https://www.ebay.com/itm/${d.aiMeta.ebayItemId}`} target="_blank" rel="noreferrer">
+                    {d.aiMeta.ebayItemId}
+                  </a>
+                </>
+              )}
+              .
+            </p>
+          )}
+          {d.status === "in_nifty" && <MarkListed id={d.id} />}
           {d.niftyWarnings.length > 0 && (
             <ul className="text-xs list-disc pl-4 text-brand-ink/70">
               {d.niftyWarnings.map((w, k) => (

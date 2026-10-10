@@ -751,6 +751,7 @@ export async function runSalesSync(): Promise<SalesSyncResult> {
   await run("plan", () => planMatched());
   await run("niftyAlerts", linkNiftyAlerts);
   await run("outcomes", checkOutcomes);
+  await run("publishedDrafts", async () => (await import("@/lib/listings/published")).linkPublishedDrafts());
   return {
     ok: errors.length === 0,
     ready: true,
