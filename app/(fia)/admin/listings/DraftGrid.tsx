@@ -9,6 +9,9 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DraftSummary } from "@/lib/listings/drafts";
+import { MinPriceControl } from "./MinPriceControl";
+
+const PICKABLE = new Set(["ready", "review", "sent_back", "uploading"]);
 
 const STATUS_LABEL: Record<string, string> = {
   uploading: "Uploading photos",
@@ -52,7 +55,7 @@ export function DraftGrid({ drafts, readyCount }: { drafts: DraftSummary[]; read
     const res = await fetch("/api/admin/listings/bulk", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "approve", ids: Array.from(picked) }),
+      body: JSON.stringify({ action: "approve", ids: reviewable.filter((d) => picked.has(d.id)).map((d) => d.id) }),
     });
     const out = (await res.json().catch(() => ({}))) as { approved?: string[]; skipped?: Array<{ reason: string }>; error?: string };
     if (!res.ok) {
@@ -163,12 +166,20 @@ export function DraftGrid({ drafts, readyCount }: { drafts: DraftSummary[]; read
             <button type="button" onClick={() => setPicked(new Set())} className={`${btn} border border-brand-ink/20`} disabled={!picked.size}>
               Clear
             </button>
-            <button type="button" onClick={approve} disabled={!picked.size} className={`${btn} bg-green-800 text-white hover:bg-green-700`}>
-              Approve selected ({picked.size})
+            <button
+              type="button"
+              onClick={approve}
+              disabled={!reviewable.some((d) => picked.has(d.id))}
+              className={`${btn} bg-green-800 text-white hover:bg-green-700`}
+            >
+              Approve selected ({reviewable.filter((d) => picked.has(d.id)).length})
             </button>
           </>
         )}
         {msg && <span className="text-sm text-brand-ink/70">{msg}</span>}
+      </div>
+      <div className="mb-6">
+        <MinPriceControl selected={Array.from(picked)} shown={drafts.filter((d) => PICKABLE.has(d.status)).map((d) => d.id)} />
       </div>
 
       {drafts.length === 0 ? (
@@ -182,7 +193,7 @@ export function DraftGrid({ drafts, readyCount }: { drafts: DraftSummary[]; read
                 picked.has(d.id) ? "border-green-800 ring-2 ring-green-800/30" : "border-brand-ink/15"
               }`}
             >
-              {d.status === "review" && (
+              {PICKABLE.has(d.status) && (
                 <label className="absolute top-2 left-2 z-10 bg-white/90 rounded px-1.5 py-1 flex items-center gap-1 text-xs">
                   <input type="checkbox" checked={picked.has(d.id)} onChange={() => toggle(d.id)} /> pick
                 </label>
