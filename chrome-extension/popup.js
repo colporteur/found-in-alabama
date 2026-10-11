@@ -268,6 +268,100 @@ async function renderNiftyCheck(tab) {
     <div class="row" style="margin-top:8px"><button class="primary" id="nifty-check-btn">Check sales &amp; delists</button></div>
     <div id="nifty-check-log" class="muted" style="margin-top:8px;font-size:12px"></div>`;
   $("#nifty-check-btn").addEventListener("click", () => doNiftyCheck(tab, info.since));
+  renderListedSweep(tab, box);
+}
+
+// ─── Full inventory check (readiness test 1, "listings known") ──────────────
+//
+// Reads EVERY item in Nifty's Listed view (read-only, nifty-listed.js), 4
+// pages (100 items) at a time, and sends each chunk to FIA's capture
+// endpoint, so FIA knows where each item is live on Mercari, Poshmark, Depop
+// and Whatnot. About 12,000 items ≈ 5–8 minutes. Nothing in Nifty changes.
+
+const SWEEP_PAGES_PER_CALL = 4;
+
+async function renderListedSweep(tab, box) {
+  let last = null;
+  try {
+    last = (await fiaFetch("/api/admin/items/listed-sweep")).last;
+  } catch {
+    /* older FIA without the endpoint: still offer the button */
+  }
+  box.insertAdjacentHTML(
+    "beforeend",
+    `<p class="muted" style="margin-top:12px">Full inventory check: reads every Listed item (read-only) so FIA knows what is live on each venue. Takes several minutes; keep this popup open.${
+      last ? ` Last run: ${escapeHtml(formatTime(last.finishedAt))}, ${last.seen} items${last.complete ? "" : " (stopped early)"}.` : " Never run."
+    }</p>
+    <div class="row" style="margin-top:6px"><button id="sweep-btn">Full inventory check</button> <a id="sweep-stop" style="display:none;margin-left:8px">Stop</a></div>
+    <div id="sweep-log" class="muted" style="margin-top:6px;font-size:12px"></div>`
+  );
+  $("#sweep-btn").addEventListener("click", () => doListedSweep(tab));
+}
+
+async function doListedSweep(tab) {
+  const btn = $("#sweep-btn");
+  const stop = $("#sweep-stop");
+  const log = $("#sweep-log");
+  let stopped = false;
+  stop.style.display = "inline";
+  stop.onclick = () => {
+    stopped = true;
+    stop.textContent = "Stopping…";
+  };
+  btn.disabled = true;
+  log.textContent = "";
+  const startedAt = new Date().toISOString();
+  let page = 0;
+  let seen = 0;
+  let total = null;
+  let complete = false;
+  try {
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", files: ["nifty-listed.js"] });
+    while (!stopped) {
+      const [res] = await chrome.scripting.executeScript({
+        target: { tabId: tab.id },
+        world: "MAIN",
+        func: async (start, count) => {
+          try {
+            return await window.niftyListedPages(start, count, {});
+          } catch (e) {
+            return { error: String((e && e.message) || e) };
+          }
+        },
+        args: [page, SWEEP_PAGES_PER_CALL],
+      });
+      const r = res?.result || { error: "No result from the page" };
+      if (r.error) throw new Error(r.error);
+      if (r.total != null) total = r.total;
+      if (r.items.length) {
+        await fiaFetch("/api/admin/items/capture", { method: "POST", body: JSON.stringify({ filterMode: "listed", items: r.items }) });
+        seen += r.items.length;
+      }
+      page = r.nextPage;
+      btn.textContent = `Read ${seen}${total ? ` of ${total}` : ""}…`;
+      if (r.done) {
+        complete = true;
+        break;
+      }
+    }
+    const done = await fiaFetch("/api/admin/items/listed-sweep", {
+      method: "POST",
+      body: JSON.stringify({ startedAt, seen, total, complete }),
+    });
+    const v = done.sweep?.venues || {};
+    const line = Object.entries(v).map(([k, c]) => `${k} ${c.live} live${c.unknown ? `, ${c.unknown} unknown` : ""}`).join(" · ");
+    log.innerHTML = `${complete ? "Done" : "Stopped"}: ${seen} Listed items read.` +
+      (done.sweep?.endedUnseen ? ` ${done.sweep.endedUnseen} listings Nifty no longer shows marked ended.` : "") +
+      (complete ? "" : " Nothing was marked ended because the run didn't finish.") +
+      `<br>${escapeHtml(line)}`;
+    btn.textContent = complete ? "Done" : "Full inventory check";
+    btn.disabled = complete;
+  } catch (err) {
+    log.innerHTML = `<span style="color:#7f1d1d">${escapeHtml(err.message)}</span> Read ${seen} before stopping; run it again.`;
+    btn.textContent = "Full inventory check";
+    btn.disabled = false;
+  }
+  stop.style.display = "none";
 }
 
 async function doNiftyCheck(tab, since) {
