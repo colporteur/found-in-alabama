@@ -165,7 +165,8 @@ async function renderNiftySend(tab) {
            <div class="row" style="margin-top:8px"><button class="primary" id="nifty-send-btn">Send approved to Nifty</button></div>`
         : `<p class="muted">No approved drafts waiting. Approve drafts at foundinalabama.com/admin/listings.</p>`
     }
-    <div id="nifty-log" class="muted" style="margin-top:8px;font-size:12px"></div>`;
+    <div id="nifty-progress" style="margin-top:8px;font-size:13px;font-weight:600"></div>
+    <div id="nifty-log" class="muted" style="margin-top:6px;font-size:12px;max-height:220px;overflow-y:auto"></div>`;
   const btn = $("#nifty-send-btn");
   const ready = $("#nifty-ready");
   if (ready) {
@@ -183,9 +184,19 @@ async function doSendToNifty(tab, items, sendOpts = {}) {
   const log = $("#nifty-log");
   const line = (html) => {
     log.insertAdjacentHTML("beforeend", `<div>${html}</div>`);
+    log.scrollTop = log.scrollHeight;
   };
   let sent = 0;
   let failed = 0;
+  const progress = $("#nifty-progress");
+  const showProgress = (doneText) => {
+    const n = sent + failed;
+    const pct = items.length ? Math.round((n / items.length) * 100) : 100;
+    progress.innerHTML =
+      `<div style="height:6px;background:rgba(0,0,0,.1);border-radius:3px;overflow:hidden;margin-bottom:4px"><div style="height:6px;width:${pct}%;background:${failed ? "#b45309" : "#166534"}"></div></div>` +
+      (doneText || `${n} of ${items.length} processed · ${sent} in Nifty${failed ? ` · <span style="color:#7f1d1d">${failed} failed</span>` : ""}`);
+  };
+  showProgress();
   try {
     await chrome.scripting.executeScript({ target: { tabId: tab.id }, world: "MAIN", files: ["nifty-bridge.js"] });
   } catch (err) {
@@ -236,9 +247,16 @@ async function doSendToNifty(tab, items, sendOpts = {}) {
       }
     }
     if (out.reportError) line(`<span style="color:#78350f">Couldn't tell foundinalabama.com: ${escapeHtml(out.reportError)}</span>`);
-    await sleep(NIFTY_SEND_PAUSE_MS);
+    showProgress();
+    if (i < items.length - 1) await sleep(NIFTY_SEND_PAUSE_MS);
   }
+  const stoppedEarly = sent + failed < items.length;
   btn.textContent = `Done: ${sent} in Nifty${failed ? `, ${failed} failed` : ""}`;
+  showProgress(
+    `${stoppedEarly ? "⚠ Stopped" : "✓ Finished"}: ${sent} of ${items.length} in Nifty${failed ? ` · <span style="color:#7f1d1d">${failed} failed</span>` : ""}${
+      stoppedEarly ? ` · ${items.length - sent - failed} not sent` : ""
+    }`
+  );
 }
 
 // ─── Check sales & delists (Phase 2 readiness) ──────────────────────────────
