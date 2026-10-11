@@ -27,7 +27,7 @@ async function existing(tables: string[]): Promise<string[]> {
 }
 
 /** Link one draft to one eBay listing and mark it published. */
-async function link(draftId: string, ebayItemId: string, how: string): Promise<{ ok: boolean; error?: string }> {
+export async function linkDraftToEbay(draftId: string, ebayItemId: string, how: string): Promise<{ ok: boolean; error?: string }> {
   const [d] = await rows(sql`SELECT id, status, registry_item_id, nifty_item_id FROM listing_drafts WHERE id = ${draftId}::uuid`);
   if (!d) return { ok: false, error: "Draft not found" };
   if (!["in_nifty", "approved"].includes(String(d.status))) return { ok: false, error: `The draft is ${d.status}` };
@@ -106,7 +106,7 @@ export async function linkPublishedDrafts(): Promise<{ linked: number; checked: 
     const id = String(f.id);
     if (done.has(id) || (f.how === "title" && (counts.get(id) ?? 0) > 1)) continue;
     done.add(id);
-    const r = await link(id, String(f.item_id), String(f.how)).catch(() => ({ ok: false }));
+    const r = await linkDraftToEbay(id, String(f.item_id), String(f.how)).catch(() => ({ ok: false }));
     if (r.ok) linked++;
   }
   const [c] = await rows(sql`SELECT count(*)::int AS n FROM listing_drafts WHERE status = 'in_nifty'`);
@@ -119,7 +119,7 @@ export async function markListed(draftId: string, ebayRef: string | null): Promi
   if (ref) {
     const m = ref.match(/(\d{9,15})/);
     if (!m) return { ok: false, error: "That doesn't look like an eBay item number or link" };
-    const r = await link(draftId, m[1], "by_hand");
+    const r = await linkDraftToEbay(draftId, m[1], "by_hand");
     return { ...r, linked: r.ok ? m[1] : null };
   }
   // No id: try the automatic match first, then just mark it.

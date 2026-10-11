@@ -137,7 +137,27 @@ export async function niftyQueue(limit = 300): Promise<NiftyQueueItem[]> {
     WHERE d.status = 'approved' AND d.nifty_item_id IS NULL
     ORDER BY d.approved_at NULLS LAST, d.created_at
     LIMIT ${limit}`);
-  return found.map((d) => {
+  return found.map((d) => queueItemFromRow(d, templates));
+}
+
+/** One draft in the same shape (for direct eBay publishing, Phase 3e). */
+export async function queueItemForDraft(draftId: string): Promise<(NiftyQueueItem & { ebayCategoryId: string | null; status: string; aiMeta: Record<string, unknown> }) | null> {
+  const templates = await niftyTemplates();
+  const [d] = await rows(sql`
+    SELECT d.*, (SELECT json_agg(p.url ORDER BY p.position) FROM draft_photos p
+                 WHERE p.draft_id = d.id AND p.uploaded_at IS NOT NULL) AS photo_urls
+    FROM listing_drafts d WHERE d.id = ${draftId}::uuid`);
+  if (!d) return null;
+  return {
+    ...queueItemFromRow(d, templates),
+    ebayCategoryId: (d.ebay_category_id as string | null) ?? null,
+    status: String(d.status),
+    aiMeta: (d.ai_meta ?? {}) as Record<string, unknown>,
+  };
+}
+
+function queueItemFromRow(d: Row, templates: Record<TemplateKey, string>): NiftyQueueItem {
+  {
     const meta = (d.ai_meta ?? {}) as Record<string, unknown>;
     const ident = (meta.identification ?? {}) as Record<string, unknown>;
     const key = pickTemplateKey({
@@ -181,7 +201,7 @@ export async function niftyQueue(limit = 300): Promise<NiftyQueueItem[]> {
         return plan.oz ? { weightOz: plan.oz, weightSource: "assumed" as const } : { weightOz: null, weightSource: null };
       })(),
     };
-  });
+  }
 }
 
 /** What the extension reports back for one draft. */

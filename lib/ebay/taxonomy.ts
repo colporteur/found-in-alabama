@@ -20,7 +20,7 @@ function apiHost(): string {
   return (process.env.EBAY_ENV ?? "production") === "sandbox" ? "https://api.sandbox.ebay.com" : "https://api.ebay.com";
 }
 
-async function applicationToken(): Promise<string> {
+export async function applicationToken(): Promise<string> {
   if (appToken && appToken.exp - 120_000 > Date.now()) return appToken.token;
   const id = process.env.EBAY_APP_ID;
   const secret = process.env.EBAY_CERT_ID;

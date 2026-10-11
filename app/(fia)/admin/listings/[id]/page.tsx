@@ -13,6 +13,8 @@ import { AiNotes } from "./AiNotes";
 import { UnverifiedPanel } from "./UnverifiedPanel";
 import { PhotoStrip } from "./PhotoStrip";
 import { MarkListed } from "./MarkListed";
+import { EbayPublishPanel } from "./EbayPublishPanel";
+import { ebayPublishEnabled } from "@/lib/ebay/publish";
 import { ROTATABLE } from "@/lib/listings/photos";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 import { booksReady, itemCost, listAcquisitions } from "@/lib/books/books";
@@ -31,6 +33,8 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
     ? { cost: await itemCost(d.registryItemId), hauls: await listAcquisitions(100) }
     : null;
   const next = await nextReviewId(d.id).catch(() => ({ id: null, left: 0 }));
+  const ebayDone = (d.aiMeta?.ebayPublish as { itemId?: string } | undefined)?.itemId ?? null;
+  const ebayPilot = d.status === "approved" && !d.niftyItemId && (await ebayPublishEnabled().catch(() => false));
   const stale =
     d.status === "generating" &&
     (!d.generationStartedAt || Date.now() - new Date(d.generationStartedAt).getTime() > 10 * 60 * 1000);
@@ -102,6 +106,31 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
       />
 
       <ResearchPanel key={String((d.aiMeta?.research as Research | undefined)?.at ?? "none")} id={d.id} status={d.status} research={(d.aiMeta?.research as Research | null | undefined) ?? null} />
+
+      {ebayPilot && (
+        <EbayPublishPanel
+          id={d.id}
+          initial={(d.aiMeta?.ebayCheck as Parameters<typeof EbayPublishPanel>[0]["initial"]) ?? null}
+        />
+      )}
+
+      {d.status === "published" && !d.niftyItemId && ebayDone && (
+        <div className="bg-white border border-brand-ink/15 rounded-lg p-4 mb-8 text-sm">
+          <h2 className="text-xs uppercase tracking-wider text-brand-earth mb-1">eBay</h2>
+          <p>
+            Published straight to eBay from FIA:{" "}
+            <a
+              className="underline"
+              href={`https://www.ebay.com/itm/${ebayDone}`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              {ebayDone}
+            </a>
+            . To crosslist, import it into Nifty from eBay.
+          </p>
+        </div>
+      )}
 
       {(d.niftyItemId || d.niftyError) && (
         <div className="bg-white border border-brand-ink/15 rounded-lg p-4 mb-8 text-sm space-y-1">
