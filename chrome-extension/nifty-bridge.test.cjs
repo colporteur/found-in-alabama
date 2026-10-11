@@ -203,3 +203,14 @@ test("weight goes onto eBay/Mercari package weight, Mercari label, Depop parcel,
   assert.ok(r3.warnings.some((w) => /No weight/.test(w)));
   assert.deepEqual(r3.payload.marketplaceListings[0].attributeValues.find((v) => v.id === "pw").values.map((x) => x.value), [0, 12]);
 });
+
+test("can mark the new draft Ready to list (still a draft, still saveAsDraftV2)", async () => {
+  const api = fakeApi();
+  const out = await niftyBridgeSend(DRAFT, { api, lifecycleStatus: "READY_TO_LIST" });
+  assert.equal(out.ok, true, out.error);
+  const posts = api.calls.filter((c) => c[0] === "POST");
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0][1], "inventory.saveAsDraftV2");
+  assert.equal(posts[0][2].lifecycleStatus, "READY_TO_LIST");
+  assert.equal(posts[0][2].isDraft, false);
+});
