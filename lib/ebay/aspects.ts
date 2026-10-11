@@ -50,6 +50,7 @@ export function aspectPromptText(aspects: CategoryAspect[], optional = 12, value
   const opt = aspects.filter((a) => !a.required && a.usage !== "RECOMMENDED").slice(0, optional);
   const line = (a: CategoryAspect) => {
     const tags = [a.required ? "REQUIRED" : a.usage === "RECOMMENDED" ? "recommended" : "optional", a.multi ? "several values ok" : "one value"];
+    if (isYearAspect(a.name)) tags.push("a single four-digit year like 1965 — leave it out if you only know the decade");
     const vals = a.values.length
       ? a.mode === "SELECTION_ONLY"
         ? ` — choose from: ${a.values.slice(0, valuesShown).join(" | ")}${a.values.length > valuesShown ? " | …" : ""}`
@@ -59,6 +60,10 @@ export function aspectPromptText(aspects: CategoryAspect[], optional = 12, value
   };
   return [...req, ...rec, ...opt].map(line).join("\n");
 }
+
+/** eBay checks "year" fields as YYYY even when they are free text
+ *  (Year Printed rejected "mid-1960s" and failed a publish, Oct 2026). */
+export const isYearAspect = (name: string) => /^year\b|\byear$/i.test(name.trim());
 
 const norm = (s: string) => s.toLowerCase().replace(/&/g, " and ").replace(/[^a-z0-9]+/g, " ").trim();
 
@@ -81,6 +86,10 @@ export function fitSpecifics(
     const vals = (Array.isArray(raw) ? raw : [raw]).map((v) => String(v).trim()).filter(Boolean);
     const out: string[] = [];
     for (const v of vals) {
+      if (isYearAspect(a.name) && !/^\d{4}$/.test(v)) {
+        dropped.push(`${a.name}: "${v}" (eBay needs a four-digit year)`);
+        continue;
+      }
       if (a.mode === "SELECTION_ONLY" && a.values.length) {
         const hit = a.values.find((x) => norm(x) === norm(v));
         if (hit) out.push(hit);
