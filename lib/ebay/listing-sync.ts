@@ -444,3 +444,33 @@ export async function syncListingsBudgeted(
     sweepComplete: false,
   };
 }
+
+/**
+ * New listings between daily sweeps: pull every listing STARTED in the last
+ * `hours` (GetSellerList by start time, full detail) and upsert it, so a
+ * draft Todd just published from Nifty shows up in the mirror — and flips to
+ * "Published" in FIA — within one events tick instead of at the 4 AM sweep.
+ * Upsert only: never purges, never touches older rows.
+ */
+export async function syncRecentlyStarted(hours = 48, maxPages = 3): Promise<{ upserted: number; pages: number }> {
+  const to = new Date();
+  const from = new Date(to.getTime() - hours * 3600_000);
+  let upserted = 0;
+  let page = 1;
+  let totalPages = 1;
+  for (; page <= Math.min(totalPages, maxPages); page++) {
+    const res = await tradingCall("GetSellerList", {
+      StartTimeFrom: from.toISOString(),
+      StartTimeTo: to.toISOString(),
+      DetailLevel: "ReturnAll",
+      Pagination: { EntriesPerPage: 100, PageNumber: page },
+    });
+    const rawItems = (res as { ItemArray?: { Item?: unknown } }).ItemArray?.Item;
+    const arr = !rawItems ? [] : Array.isArray(rawItems) ? rawItems : [rawItems];
+    totalPages = Number((res as { PaginationResult?: { TotalNumberOfPages?: unknown } }).PaginationResult?.TotalNumberOfPages ?? 1) || 1;
+    upserted += await upsertPage(arr.map((i) => normalizeListing(i)));
+    if (!arr.length) break;
+  }
+  if (upserted > 0) revalidateStorefront(`recently-started upserted=${upserted}`);
+  return { upserted, pages: page - 1 };
+}
