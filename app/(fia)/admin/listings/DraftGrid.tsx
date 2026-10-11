@@ -61,17 +61,28 @@ export function DraftGrid({
       return n;
     });
 
-  async function writeAll() {
+  /** Drafts picked on the page that the writer / Claude can take. */
+  const pickedToWrite = drafts.filter((d) => picked.has(d.id) && (d.status === "ready" || d.status === "sent_back")).map((d) => d.id);
+  const pickedForClaude = drafts.filter((d) => picked.has(d.id) && ["ready", "review", "sent_back"].includes(d.status)).map((d) => d.id);
+
+  async function writeAll(only?: string[]) {
     setMsg(null);
-    const res = await fetch("/api/admin/listings/bulk", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "writable" }),
-    });
-    const out = (await res.json().catch(() => ({}))) as { ids?: string[]; error?: string };
-    const ids = out.ids ?? [];
-    if (!res.ok || ids.length === 0) {
-      setMsg(out.error ?? "Nothing ready to write.");
+    let ids: string[] = only ?? [];
+    if (!only) {
+      const res = await fetch("/api/admin/listings/bulk", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: "writable" }),
+      });
+      const out = (await res.json().catch(() => ({}))) as { ids?: string[]; error?: string };
+      ids = out.ids ?? [];
+      if (!res.ok || ids.length === 0) {
+        setMsg(out.error ?? "Nothing ready to write.");
+        return;
+      }
+    }
+    if (ids.length === 0) {
+      setMsg("Nothing picked that can be written.");
       return;
     }
     stop.current = false;
@@ -103,15 +114,16 @@ export function DraftGrid({
       `${stop.current ? "Stopped. " : ""}Wrote ${state.done}${state.failed ? `, ${state.failed} failed (open them to see why)` : ""} · $${state.spent.toFixed(2)}`
     );
     setRun(null);
+    if (only) setPicked(new Set());
     router.refresh();
   }
 
-  async function sendReadyToClaude() {
+  async function sendReadyToClaude(only?: string[]) {
     setMsg(null);
     const res = await fetch("/api/admin/listings/claude", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action: "send_ready" }),
+      body: JSON.stringify(only ? { action: "send", ids: only } : { action: "send_ready" }),
     });
     const out = (await res.json().catch(() => ({}))) as { sent?: number; skipped?: number; error?: string };
     if (!res.ok) {
@@ -119,6 +131,7 @@ export function DraftGrid({
       return;
     }
     setMsg(`Sent ${out.sent ?? 0} to Claude. In the Claude app, with FIA on, say "write my waiting FIA listings".`);
+    if (only) setPicked(new Set());
     router.refresh();
   }
 
@@ -127,13 +140,27 @@ export function DraftGrid({
   return (
     <>
       <div className="flex flex-wrap items-center gap-3 mb-6">
+        {pickedToWrite.length > 0 && !run && (
+          <button type="button" onClick={() => writeAll(pickedToWrite)} className={`${btn} bg-brand-earth text-white hover:bg-brand-earth/80`}>
+            Write selected ({pickedToWrite.length})
+          </button>
+        )}
+        {pickedForClaude.length > 0 && !run && (
+          <button
+            type="button"
+            onClick={() => sendReadyToClaude(pickedForClaude)}
+            className={`${btn} border border-brand-earth text-brand-earth hover:bg-brand-earth/10`}
+          >
+            Send selected to Claude ({pickedForClaude.length})
+          </button>
+        )}
         {readyCount > 0 && !run && (
-          <button type="button" onClick={writeAll} className={`${btn} bg-brand-earth text-white hover:bg-brand-earth/80`}>
+          <button type="button" onClick={() => writeAll()} className={`${btn} bg-brand-earth text-white hover:bg-brand-earth/80`}>
             Write all ready ({readyCount})
           </button>
         )}
         {readyCount > 0 && !run && (
-          <button type="button" onClick={sendReadyToClaude} className={`${btn} border border-brand-earth text-brand-earth hover:bg-brand-earth/10`}>
+          <button type="button" onClick={() => sendReadyToClaude()} className={`${btn} border border-brand-earth text-brand-earth hover:bg-brand-earth/10`}>
             Send all ready to Claude
           </button>
         )}
