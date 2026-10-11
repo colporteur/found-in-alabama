@@ -412,6 +412,15 @@ async function matchOne(e: Row): Promise<MatchResult> {
 export async function matchPending(
   limit = 500,
 ): Promise<Record<string, number>> {
+  // A brand-new eBay listing can sell before FIA links it to its item (the
+  // mirror learns about new listings a little later). Once the listing is
+  // linked, give a recent unmatched eBay sale for it another try.
+  await db.execute(sql`
+    UPDATE sale_events e SET status = 'pending'
+    WHERE e.status = 'unmatched' AND e.venue = 'ebay' AND e.resolved_by IS NULL
+      AND e.detected_at > now() - interval '3 days'
+      AND EXISTS (SELECT 1 FROM venue_listings v
+                  WHERE v.venue = 'ebay' AND v.venue_listing_id = COALESCE(e.ebay_item_id, e.venue_listing_id))`);
   const pending = await rows(sql`
     SELECT id, venue, venue_listing_id, ebay_item_id, title, title_truncated, price,
            COALESCE(sold_at, detected_at) < now() - make_interval(days => ${PLAN_WINDOW_DAYS}) AS historical
