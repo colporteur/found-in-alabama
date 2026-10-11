@@ -10,7 +10,7 @@ type Check = {
   at: string;
   ok: boolean;
   messages: Msg[];
-  fees: { total: number; lines: Array<{ name: string; amount: number }> } | null;
+  fees: { total: number; lines: Array<{ name: string; amount: number; listed?: number }> } | null;
   summary: {
     price: number;
     categoryId: string;
@@ -160,7 +160,13 @@ export function EbayPublishPanel({ id, initial }: { id: string; initial: Check |
               {check.fees && (
                 <>
                   <dt className="text-brand-ink/50">eBay listing fees</dt>
-                  <dd>{check.fees.total > 0 ? `$${check.fees.total.toFixed(2)} (${check.fees.lines.map((l) => l.name).join(", ")})` : "none"}</dd>
+                  <dd>
+                    {check.fees.total > 0 ? `$${check.fees.total.toFixed(2)}` : "none"}
+                    {check.fees.lines.length > 0 &&
+                      ` (${check.fees.lines
+                        .map((l) => (l.listed != null ? `${l.name} $${l.listed.toFixed(2)} less eBay discount = $${l.amount.toFixed(2)}` : `${l.name} $${l.amount.toFixed(2)}`))
+                        .join("; ")})`}
+                  </dd>
                 </>
               )}
             </dl>
