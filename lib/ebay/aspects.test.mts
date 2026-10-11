@@ -34,3 +34,16 @@ test("specifics are fitted to the category", () => {
   assert.ok(r.dropped.some((d) => /Reprint\?/.test(d)));
   assert.deepEqual(r.missingRequired, ["Type"]);
 });
+
+test("year fields take a four-digit year only", () => {
+  const a = [
+    { name: "Year Printed", required: false, usage: "OPTIONAL", mode: "FREE_TEXT", multi: false, maxLength: null, values: [] },
+    { name: "Year Manufactured", required: false, usage: "OPTIONAL", mode: "SELECTION_ONLY", multi: false, maxLength: null, values: ["1942", "1965"] },
+    { name: "Yearbook Name", required: false, usage: "OPTIONAL", mode: "FREE_TEXT", multi: false, maxLength: null, values: [] },
+  ];
+  const r = fitSpecifics({ "Year Printed": "mid-1960s", "Year Manufactured": "1942", "Yearbook Name": "The Mirror" }, a);
+  assert.deepEqual(r.kept, { "Year Manufactured": "1942", "Yearbook Name": "The Mirror" });
+  assert.ok(r.dropped.some((d) => /four-digit year/.test(d)));
+  assert.equal(fitSpecifics({ "Year Printed": "1965" }, a).kept["Year Printed"], "1965");
+  assert.match(aspectPromptText(a), /Year Printed .*four-digit year/);
+});
