@@ -88,4 +88,6 @@ test("messages and fees", () => {
   assert.equal(m[1].severity, "Error");
   const f = feeTotal({ Fee: [{ Name: "InsertionFee", Fee: 0.35 }, { Name: "ListingFee", Fee: 0 }, { Name: "BoldFee", Fee: "0.00" }] });
   assert.deepEqual(f, { total: 0.35, lines: [{ name: "InsertionFee", amount: 0.35 }] });
+  // A store's free listing: fee with an equal promotional discount → nothing to pay.
+  assert.deepEqual(feeTotal({ Fee: [{ Name: "InsertionFee", Fee: 0.2, PromotionalDiscount: 0.2 }] }), { total: 0, lines: [{ name: "InsertionFee", amount: 0, listed: 0.2 }] });
 });

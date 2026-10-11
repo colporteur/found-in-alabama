@@ -168,16 +168,22 @@ export function ebayMessages(errors: unknown): EbayMessage[] {
   }));
 }
 
-/** Total listing fees eBay quoted (excluding the zero lines). */
-export function feeTotal(fees: unknown): { total: number; lines: Array<{ name: string; amount: number }> } {
+/** What eBay will actually charge, per fee line: the fee minus its
+ *  PromotionalDiscount (a store's free monthly listings show up as an
+ *  InsertionFee with an equal discount). Zero lines are left out. */
+export function feeTotal(fees: unknown): { total: number; lines: Array<{ name: string; amount: number; listed?: number }> } {
   const list = ((fees as { Fee?: unknown })?.Fee ?? []) as unknown;
   const arr = Array.isArray(list) ? list : [list];
+  const num = (v: unknown) => {
+    const n = Number(typeof v === "object" && v ? (v as Record<string, unknown>)["#text"] : v);
+    return Number.isFinite(n) ? n : 0;
+  };
   const lines = arr
     .map((f: Record<string, unknown>) => {
-      const fee = f?.Fee as unknown;
-      const amount = Number(typeof fee === "object" && fee ? (fee as Record<string, unknown>)["#text"] : fee);
-      return { name: String(f?.Name ?? ""), amount: Number.isFinite(amount) ? amount : 0 };
+      const listed = num(f?.Fee);
+      const amount = Math.round(Math.max(0, listed - num(f?.PromotionalDiscount)) * 100) / 100;
+      return { name: String(f?.Name ?? ""), amount, ...(amount !== listed ? { listed } : {}) };
     })
-    .filter((l) => l.name && l.amount > 0);
+    .filter((l) => l.name && (l.amount > 0 || (l.listed ?? 0) > 0));
   return { total: Math.round(lines.reduce((t, l) => t + l.amount, 0) * 100) / 100, lines };
 }
