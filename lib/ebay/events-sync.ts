@@ -8,10 +8,11 @@
 // showing items that sold days ago.
 //
 // Scope: updates quantity/price/status for rows already in the mirror.
-// Brand-new listings are NOT inserted here (GetSellerEvents items are
-// sparse — store categories etc. may be missing); they arrive with the
-// daily sweep, which is fine: a new listing showing up a day late is
-// additive, a sold listing showing for a day is an oversell risk.
+// Brand-new listings are not built from these sparse events; instead, when
+// eBay reports unknown items (or FIA has drafts waiting "In Nifty"), one
+// GetSellerList call by start time pulls the last 48h of new listings with
+// full detail (syncRecentlyStarted), so a draft published from Nifty is
+// linked within ~15 minutes rather than after the daily sweep.
 //
 // Cursor: app_settings key "listingEventsCursor" stores the end of the
 // last successfully processed window. Each run re-reads a 2-minute
@@ -25,6 +26,7 @@ import { inArray, sql } from "drizzle-orm";
 import { db } from "@/db";
 import { ebayListings, ebaySyncLog, appSettings } from "@/db/schema";
 import { tradingCall } from "@/lib/ebay/client";
+import { syncRecentlyStarted } from "@/lib/ebay/listing-sync";
 import { closeHipForItems } from "@/lib/hip/close";
 import { revalidateStorefront } from "@/lib/storefront-cache";
 import { recordEbaySales, type EbaySaleSignal } from "@/lib/sales/pipeline";
@@ -216,6 +218,16 @@ export async function syncListingEventsDelta(): Promise<EventsSyncResult> {
 
   await saveCursor({ lastTo: windowTo });
 
+  // New listings (unknown to the mirror), or drafts waiting to be linked:
+  // pull recently started listings with full detail. Best-effort.
+  let newListings: number | null = null;
+  try {
+    const [w] = ((await db.execute(sql`SELECT count(*)::int AS n FROM listing_drafts WHERE status = 'in_nifty'`)) as { rows?: Array<{ n: number }> }).rows ?? [];
+    if (skippedUnknown > 0 || Number(w?.n ?? 0) > 0) newListings = (await syncRecentlyStarted()).upserted;
+  } catch (err) {
+    console.error("[sync-events] recently-started pull failed:", err);
+  }
+
   // Phase SALES-1 (shadow mode): a listing that sold out (available 0 with
   // units sold) is a sale signal for the sale-detection pipeline. Recorded
   // even for listings not yet in the mirror. A manual end (nothing sold) is
@@ -246,7 +258,7 @@ export async function syncListingEventsDelta(): Promise<EventsSyncResult> {
 
   // Keep the sync log readable: only record runs that changed something
   // (or that scanned events at all) — not 96 empty ticks a day.
-  if (deltas.length > 0) {
+  if (deltas.length > 0 || (newListings ?? 0) > 0) {
     await db.insert(ebaySyncLog).values({
       action: "events-delta-sync",
       success: true,
@@ -259,6 +271,7 @@ export async function syncListingEventsDelta(): Promise<EventsSyncResult> {
         skippedUnknown,
         saleSignals: saleSignals.length,
         salesRecorded: sales.inserted,
+        newListings,
       },
       startedAt,
       endedAt: new Date(),
