@@ -161,15 +161,23 @@ async function renderNiftySend(tab) {
     ${
       items.length
         ? `<p>${items.length} approved draft${items.length === 1 ? "" : "s"} waiting. They go into Nifty as <strong>drafts</strong> — nothing is published.</p>
+           <label style="display:flex;gap:6px;align-items:center;margin-top:8px;font-size:13px"><input type="checkbox" id="nifty-ready"> Mark them "Ready to list" in Nifty</label>
            <div class="row" style="margin-top:8px"><button class="primary" id="nifty-send-btn">Send approved to Nifty</button></div>`
         : `<p class="muted">No approved drafts waiting. Approve drafts at foundinalabama.com/admin/listings.</p>`
     }
     <div id="nifty-log" class="muted" style="margin-top:8px;font-size:12px"></div>`;
   const btn = $("#nifty-send-btn");
-  if (btn) btn.addEventListener("click", () => doSendToNifty(tab, items));
+  const ready = $("#nifty-ready");
+  if (ready) {
+    // Remembered; on unless Todd turns it off.
+    const { niftyReadyToList } = await chrome.storage.local.get(["niftyReadyToList"]);
+    ready.checked = niftyReadyToList !== false;
+    ready.addEventListener("change", () => chrome.storage.local.set({ niftyReadyToList: ready.checked }));
+  }
+  if (btn) btn.addEventListener("click", () => doSendToNifty(tab, items, { lifecycleStatus: ready && ready.checked ? "READY_TO_LIST" : "IN_PROGRESS" }));
 }
 
-async function doSendToNifty(tab, items) {
+async function doSendToNifty(tab, items, sendOpts = {}) {
   const btn = $("#nifty-send-btn");
   btn.disabled = true;
   const log = $("#nifty-log");
@@ -192,14 +200,15 @@ async function doSendToNifty(tab, items) {
       const [res] = await chrome.scripting.executeScript({
         target: { tabId: tab.id },
         world: "MAIN",
-        func: async (draft) => {
+        func: async (draft, o) => {
           try {
-            return await window.niftyBridgeSend(draft, {});
+            // Still a draft either way: READY_TO_LIST is only Nifty's checkbox.
+            return await window.niftyBridgeSend(draft, { lifecycleStatus: o.lifecycleStatus });
           } catch (e) {
             return { ok: false, error: String((e && e.message) || e) };
           }
         },
-        args: [item],
+        args: [item, sendOpts],
       });
       out = res?.result || { ok: false, error: "No result from the page" };
     } catch (err) {
