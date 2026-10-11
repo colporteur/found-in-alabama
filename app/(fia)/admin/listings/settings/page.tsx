@@ -7,12 +7,15 @@ import { DEFAULT_WRITER_SETTINGS } from "@/lib/listings/rules";
 import { SettingsForm } from "./SettingsForm";
 import { TemplatesForm } from "./TemplatesForm";
 import { niftyTemplates, DEFAULT_TEMPLATES, TEMPLATE_LABELS } from "@/lib/listings/nifty";
+import { ebayPublishEnabled } from "@/lib/ebay/publish";
+import { EbayPublishSwitch } from "./EbayPublishSwitch";
 
 export const dynamic = "force-dynamic";
 
 export default async function WriterSettingsPage() {
   const s = await writerSettings();
   const templates = await niftyTemplates();
+  const ebayOn = await ebayPublishEnabled().catch(() => false);
   return (
     <section className="container-content py-12 max-w-3xl">
       <p className="text-xs uppercase tracking-wider text-brand-earth mb-3">
@@ -37,6 +40,15 @@ export default async function WriterSettingsPage() {
         description, condition, prices, photos, eBay category, item specifics and store categories come from the draft.
       </p>
       <TemplatesForm initial={templates} defaults={DEFAULT_TEMPLATES} labels={TEMPLATE_LABELS} />
+
+      <h2 className="font-marker text-2xl mt-12 mb-2">Publish straight to eBay (pilot)</h2>
+      <p className="text-sm text-brand-ink/70 mb-4">
+        Adds a panel to approved drafts: <strong>Check with eBay</strong> (eBay&apos;s dry run, nothing is created), then{" "}
+        <strong>Publish to eBay</strong>. Payment and return policies, location, handling time, Best Offer and package size are
+        copied from your newest eBay listing with the same kind of shipping policy. Afterwards, import it into Nifty to crosslist.
+        Sending to Nifty keeps working as before. Turning this off just hides the panel.
+      </p>
+      <EbayPublishSwitch initial={ebayOn} />
     </section>
   );
 }

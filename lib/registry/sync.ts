@@ -392,6 +392,18 @@ export async function syncRegistryFromCapture(
   try {
     const niftyIds = Array.from(new Set(listings.map((l) => l.niftyId)));
 
+    // 0. An item FIA published to eBay itself (Phase 3e) and Todd then
+    //    imported into Nifty already has a registry row, keyed by its eBay
+    //    listing: attach the Nifty item to it instead of making a second row.
+    await db.execute(sql`
+      UPDATE registry_items r SET nifty_item_ref = i.id, nifty_id = i.nifty_id, updated_at = now()
+      FROM items i
+      WHERE i.nifty_id IN (${sql.join(niftyIds.map((id) => sql`${id}`), sql`, `)})
+        AND r.nifty_item_ref IS NULL AND r.nifty_id IS NULL
+        AND r.primary_ebay_item_id IS NOT NULL
+        AND r.primary_ebay_item_id = substring(i.marketplace_urls->>'ebay' from '/itm/(\\d+)')
+        AND NOT EXISTS (SELECT 1 FROM registry_items x WHERE x.nifty_item_ref = i.id OR x.nifty_id = i.nifty_id)`);
+
     // 1. Registry rows for any newly captured items (same rules as the full sync).
     await db.execute(sql`
       INSERT INTO registry_items (status, title, title_normalized, bin_sku, nifty_item_ref, nifty_id,

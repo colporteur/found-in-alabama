@@ -474,3 +474,9 @@ export async function syncRecentlyStarted(hours = 48, maxPages = 3): Promise<{ u
   if (upserted > 0) revalidateStorefront(`recently-started upserted=${upserted}`);
   return { upserted, pages: page - 1 };
 }
+
+/** Put one listing (a GetItem Item) into the mirror right away — used when
+ *  FIA itself creates the listing (Phase 3e). */
+export async function upsertListingFromItem(item: unknown): Promise<void> {
+  await upsertPage([normalizeListing(item)]);
+}
