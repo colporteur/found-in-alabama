@@ -34,6 +34,27 @@ const SLICE_SIZE = 100;
 /** Refill when outstanding autorun jobs drop below this. */
 const REFILL_THRESHOLD = 20;
 
+/** New listings keep their price untouched for this long (Todd, Oct 2026). */
+export const NEW_LISTING_GRACE_DAYS = 180;
+/** The wait applies to listings started on or after this date: this week's
+ *  FIA batches and everything after. Older inventory keeps being nudged as
+ *  before (its eBay start dates are often relist dates, so its real age is
+ *  unknown and a blanket age rule would pause most of the store). */
+export const GRACE_APPLIES_FROM = new Date("2026-10-05T00:00:00Z");
+
+/** Rows the autorun may nudge: fixed-price, priced, and not a new listing
+ *  still inside its wait. */
+function wigglableListings() {
+  const graceCutoff = new Date(Date.now() - NEW_LISTING_GRACE_DAYS * 86_400_000);
+  return and(
+    sql`${ebayListings.listingType} IS DISTINCT FROM 'Chinese'`,
+    sql`${ebayListings.price} IS NOT NULL`,
+    sql`NOT (${ebayListings.startTime} IS NOT NULL
+             AND ${ebayListings.startTime} >= ${GRACE_APPLIES_FROM.toISOString()}::timestamp
+             AND ${ebayListings.startTime} > ${graceCutoff.toISOString()}::timestamp)`
+  );
+}
+
 export type AutorunRow = typeof enhanceAutoruns.$inferSelect;
 
 export type StartAutorunParams = {
@@ -179,10 +200,7 @@ export async function autorunTick(): Promise<AutorunTickResult | null> {
     isNull(ebayListings.lastAutorunAt),
     lt(ebayListings.lastAutorunAt, pacingCutoff)
   );
-  const wigglable = and(
-    sql`${ebayListings.listingType} IS DISTINCT FROM 'Chinese'`,
-    sql`${ebayListings.price} IS NOT NULL`
-  );
+  const wigglable = wigglableListings();
 
   const slice = await db
     .select({
@@ -269,10 +287,7 @@ export async function getActiveAutorunStatus(): Promise<AutorunStatus | null> {
     .limit(1);
   if (!run) return null;
 
-  const wigglable = and(
-    sql`${ebayListings.listingType} IS DISTINCT FROM 'Chinese'`,
-    sql`${ebayListings.price} IS NOT NULL`
-  );
+  const wigglable = wigglableListings();
   const [total] = await db
     .select({ n: sql<number>`count(*)::int` })
     .from(ebayListings)
