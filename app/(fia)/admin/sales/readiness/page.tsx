@@ -5,6 +5,7 @@
 import Link from "next/link";
 import { readinessReport, type VenueReadiness } from "@/lib/sales/readiness";
 import { READY_DAYS, type ScoredDay } from "@/lib/sales/readiness-core";
+import { lastListedSweeps } from "@/lib/registry/listed-sweep";
 
 export const dynamic = "force-dynamic";
 
@@ -101,6 +102,7 @@ function Venue({ v }: { v: VenueReadiness }) {
 
 export default async function ReadinessPage() {
   const r = await readinessReport();
+  const [sweep] = await lastListedSweeps().catch(() => []);
   const stale = !r.lastCheck || Date.now() - Date.parse(r.lastCheck.at) > 36 * 3600_000;
   return (
     <section className="container-content py-12 max-w-4xl">
@@ -121,6 +123,10 @@ export default async function ReadinessPage() {
             <strong>Found in Alabama — Nifty Sync</strong> extension, then <strong>Check sales &amp; delists</strong>. Once a day is plenty.
           </>
         )}
+        <br />
+        Last full inventory check (listings known): <strong>{sweep ? when(sweep.finishedAt) : "never"}</strong>
+        {sweep && <> ({sweep.seen.toLocaleString()} of {sweep.total?.toLocaleString() ?? "?"} Listed items{sweep.complete ? "" : ", stopped early"})</>}.{" "}
+        {!sweep && <>In the same extension, run <strong>Full inventory check</strong> once (several minutes), then about weekly.</>}
       </div>
       {r.venues.map((v) => (
         <Venue key={v.venue} v={v} />
