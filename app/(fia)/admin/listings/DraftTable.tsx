@@ -197,7 +197,7 @@ export function DraftTable({ drafts, shelves, parents = [] }: { drafts: DraftSum
         <MinPriceControl selected={Array.from(picked).filter((id) => editableIds.includes(id))} shown={editableIds} />
       </div>
       <div className="mb-4">
-        <ShelfControl selected={Array.from(picked).filter((id) => editableIds.includes(id))} shown={editableIds} shelves={shelves} />
+        <ShelfControl selected={Array.from(picked).filter((id) => editableIds.includes(id))} shown={editableIds} shelves={shelves} parents={parents} />
       </div>
 
       <div className="overflow-x-auto bg-white border border-brand-ink/10 rounded-lg">
