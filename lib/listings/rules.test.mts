@@ -198,3 +198,24 @@ test("up87 rounds a minimum up to the next .87", async () => {
   assert.equal(up87(9.99), 10.87);
   assert.equal(up87(10), 10.87);
 });
+
+test("phone numbers never reach a listing", async () => {
+  const { stripPhoneNumbers } = await import("./rules.ts");
+  const cases: Array<[string, string]> = [
+    ["Call (205) 555-1234 today", "Call today"],
+    ["Smith Hardware, 123 Main St. Phone 2-4471. Est. 1922", "Smith Hardware, 123 Main St. Est. 1922"],
+    ["Dial ATlantic 3-4567 for service", "for service"],
+    ["Toll free 1-800-555-1234.", "Toll free."],
+    ["Tel. 555-1212", ""],
+  ];
+  for (const [inp] of cases) {
+    const r = stripPhoneNumbers(inp);
+    assert.ok(!/\d{3}[\s.\-]\d{4}|\d-\d{4}/.test(r.text), `${inp} → ${r.text}`);
+    assert.ok(r.removed.length > 0, inp);
+  }
+  for (const keep of ["Used 1950-1960", "Teich code 2B-H924 (1942)", "Buffalo, N.Y. 14212, number 113459", "ISBN 0851316123", "Rand McNally 1956 road map"]) {
+    const r = stripPhoneNumbers(keep);
+    assert.equal(r.text, keep, keep);
+    assert.equal(r.removed.length, 0, keep);
+  }
+});

@@ -298,6 +298,46 @@ export function cleanTitle(raw: string, binSku?: string | null): string {
   return t;
 }
 
+// ─── phone numbers (eBay flags them as off-eBay contact) ─────────────────────
+// Old advertising pieces print phone numbers. eBay treats a phone number in
+// a listing as an attempt to trade outside eBay, so none may reach a title or
+// description — even a 1940s "Phone 2-4471". Dates, year ranges, stock and
+// Teich codes, ZIPs and ISBNs are left alone.
+const PHONE_PATTERNS: RegExp[] = [
+  // A label with whatever number follows: "Phone 2-4471", "Tel. 555-1212", "Call ATlantic 3-4567".
+  /\b(?:tele?phone|phone|ph|tel|call|dial)\b\.?\s*(?:no\.?|number|#)?\s*[:\-–]?\s*(?:[A-Z][A-Za-z]{1,10}\s*)?[\d(][\d\s().\-–]{1,16}\d\b/gi,
+  // 10-digit North American numbers: (205) 555-1234, 205-555-1234, 205.555.1234, 1-800-555-1234.
+  /(?:\+?1[\s.\-–]?)?\(?\b\d{3}\)?[\s.\-–]\d{3}[\s.\-–]\d{4}\b/g,
+  // Old exchange names: "ATlantic 3-4567", "MAin 4-1234", "AT 3-4567".
+  /\b[A-Z][A-Za-z]{1,9}\s?\d-\d{4}\b/g,
+  // Bare 7-digit numbers: 555-1234.
+  /\b\d{3}-\d{4}\b/g,
+];
+
+/** Take phone numbers out of listing text. Returns the text and what was removed. */
+export function stripPhoneNumbers(text: string): { text: string; removed: string[] } {
+  let t = String(text ?? "");
+  const removed: string[] = [];
+  for (const re of PHONE_PATTERNS) {
+    t = t.replace(re, (m) => {
+      // A year range like 1950-1960 or a Teich code is not a phone number.
+      if (/^\d{4}\s*[-–]\s*\d{2,4}$/.test(m.trim())) return m;
+      removed.push(m.trim());
+      return " ";
+    });
+  }
+  if (!removed.length) return { text: t, removed };
+  t = t
+    .replace(/\(\s*\)/g, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\s+([,.;:])/g, "$1")
+    .replace(/([,;:])\s*([,.;:])/g, "$2")
+    .replace(/\.\s*\./g, ".")
+    .replace(/[ \t]+\n/g, "\n")
+    .trim();
+  return { text: t, removed };
+}
+
 const DESC_LABEL = /^(?:[*_#`"'\s]*)(?:here(?:'s| is)\s+(?:the|your|a|an)\s+)?(?:new|revised|suggested|final)?\s*description\s*[*_`]*\s*(?:[:\-–—]|\r?\n)\s*/i;
 
 /** Plain text, at most DESC_MAX characters, cut at a sentence end if one
@@ -481,11 +521,15 @@ export function parseWriteOutput(
   | { ok: false; error: string } {
   const j = extractJson(text);
   if (!j) return { ok: false, error: "The model's reply wasn't JSON" };
-  const title = cleanTitle(str(j.title, 300), opts.binSku);
+  const t0 = stripPhoneNumbers(cleanTitle(str(j.title, 300), opts.binSku));
+  const title = t0.text;
   if (title.length < 10) return { ok: false, error: "The model returned no usable title" };
   const extraFlags: string[] = [];
   if (title.length < 60) extraFlags.push(`Title is only ${title.length} of 80 characters — room for more search words`);
-  const description = cleanDescription(typeof j.description === "string" ? j.description : "");
+  const d0 = stripPhoneNumbers(cleanDescription(typeof j.description === "string" ? j.description : ""));
+  const description = d0.text;
+  const phones = [...t0.removed, ...d0.removed];
+  if (phones.length) extraFlags.push(`Phone number removed (eBay flags them): ${phones.slice(0, 3).join("; ")} — keep it out if you edit`);
   if (description.length < 40) return { ok: false, error: "The model returned no usable description" };
   const condRaw = str(j.condition, 60);
   const condition = CONDITIONS.find((c) => c.toLowerCase() === condRaw.toLowerCase()) ?? "Used";
