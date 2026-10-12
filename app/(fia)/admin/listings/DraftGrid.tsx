@@ -50,6 +50,7 @@ export function DraftGrid({
 }) {
   const router = useRouter();
   const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [lots, setLots] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [run, setRun] = useState<{ done: number; failed: number; total: number; spent: number } | null>(null);
   const stop = useRef(false);
@@ -125,14 +126,16 @@ export function DraftGrid({
     const res = await fetch("/api/admin/listings/claude", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(only ? { action: "send", ids: only } : { action: "send_ready" }),
+      body: JSON.stringify(only ? { action: "send", ids: only, lots } : { action: "send_ready", lots }),
     });
     const out = (await res.json().catch(() => ({}))) as { sent?: number; skipped?: number; error?: string };
     if (!res.ok) {
       setMsg(out.error ?? `HTTP ${res.status}`);
       return;
     }
-    setMsg(`Sent ${out.sent ?? 0} to Claude. In the Claude app, with FIA on, say "write my waiting FIA listings".`);
+    setMsg(
+      `Sent ${out.sent ?? 0} to Claude${lots ? " (it may combine lots)" : ""}. In the Claude app, with FIA on, say "write my waiting FIA listings".`
+    );
     if (only) setPicked(new Set());
     router.refresh();
   }
@@ -165,6 +168,15 @@ export function DraftGrid({
           <button type="button" onClick={() => sendReadyToClaude()} className={`${btn} border border-brand-earth text-brand-earth hover:bg-brand-earth/10`}>
             Send all ready to Claude
           </button>
+        )}
+        {(pickedForClaude.length > 0 || readyCount > 0) && !run && (
+          <label
+            className="flex items-center gap-1 text-xs text-brand-ink/80"
+            title="Claude may merge pieces from this send into one lot listing (photos, cover from the fronts, one bin). You can split a lot again from its page."
+          >
+            <input type="checkbox" checked={lots} onChange={(e) => setLots(e.target.checked)} /> Combine lots when price and shared affinity make
+            market sense
+          </label>
         )}
         {run && (
           <>
@@ -218,6 +230,11 @@ export function DraftGrid({
                 <label className="absolute top-2 left-2 z-10 bg-white/90 rounded px-1.5 py-1 flex items-center gap-1 text-xs">
                   <input type="checkbox" checked={picked.has(d.id)} onChange={() => toggle(d.id)} /> pick
                 </label>
+              )}
+              {d.lotOf && (
+                <span className="absolute top-9 right-2 z-10 rounded px-1.5 py-0.5 text-xs font-bold bg-purple-700 text-white" title="Claude combined these drafts into one lot — give it a careful look">
+                  LOT of {d.lotOf}
+                </span>
               )}
               {d.confidence != null && (
                 <span
