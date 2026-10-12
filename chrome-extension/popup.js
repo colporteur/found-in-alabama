@@ -31,6 +31,12 @@ async function init() {
     active: true,
     currentWindow: true,
   });
+  if (tab?.url && /^https:\/\/www\.mercari\.com\//.test(tab.url)) {
+    $("#main").innerHTML = `<div id="mercari-delist"></div>`;
+    setFooter(true);
+    renderMercariDelists(tab);
+    return;
+  }
   if (!tab?.url || !NIFTY_APP_PATTERN.test(tab.url)) {
     renderWrongTab({ lastSync });
     return;
@@ -912,6 +918,124 @@ function setFooter(showSettings) {
         "endpoint",
       ]);
       renderSettings({ apiKey, endpoint });
+    });
+  }
+}
+
+
+// ─── Delist on Mercari (Phase 7 worker, pilot) ──────────────────────────────
+//
+// Open in a signed-in mercari.com tab. Lists the Mercari delists FIA planned
+// after a sale elsewhere. "Delist" opens My listings → Active, searches for
+// the item, and (mercari-worker.js) ticks only that row and presses Mercari's
+// own Deactivate; then it checks the Inactive tab and reports to FIA.
+// Nifty keeps auto-delisting as the backup.
+
+const MERCARI = "https://www.mercari.com";
+
+async function waitForTabLoad(tabId, timeoutMs = 20000) {
+  const start = Date.now();
+  await sleep(400);
+  while (Date.now() - start < timeoutMs) {
+    const t = await chrome.tabs.get(tabId);
+    if (t.status === "complete") return;
+    await sleep(300);
+  }
+}
+
+async function mercariGo(tabId, path) {
+  await chrome.tabs.update(tabId, { url: MERCARI + path });
+  await waitForTabLoad(tabId);
+  await chrome.scripting.executeScript({ target: { tabId }, world: "MAIN", files: ["mercari-worker.js"] });
+}
+
+async function mercariRun(tabId, fnName, mercariId) {
+  const [res] = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: async (name, id) => {
+      try {
+        return await window[name](id);
+      } catch (e) {
+        return { ok: false, error: String((e && e.message) || e) };
+      }
+    },
+    args: [fnName, mercariId],
+  });
+  return res?.result || { ok: false, error: "No result from the page" };
+}
+
+/** One leg: search Active, deactivate, verify on Inactive. Returns { result, detail }. */
+async function mercariDelistOne(tabId, leg) {
+  const q = encodeURIComponent(leg.search || leg.mercariId);
+  await mercariGo(tabId, `/mypage/listings/active/?keyword=${q}&page=1`);
+  const onActive = await mercariRun(tabId, "mercariFindRow", leg.mercariId);
+  if (!onActive.found) {
+    await mercariGo(tabId, `/mypage/listings/inactive/?keyword=${q}&page=1`);
+    const onInactive = await mercariRun(tabId, "mercariFindRow", leg.mercariId);
+    if (onInactive.found) return { result: "already_inactive", detail: "Already on Mercari's Inactive tab" };
+    return { result: "not_found", detail: "Not on Active or Inactive (sold, deleted, or a different title on Mercari)" };
+  }
+  const done = await mercariRun(tabId, "mercariDeactivateRow", leg.mercariId);
+  if (!done.ok) return { result: "error", detail: done.error };
+  await mercariGo(tabId, `/mypage/listings/inactive/?keyword=${q}&page=1`);
+  const check = await mercariRun(tabId, "mercariFindRow", leg.mercariId);
+  return check.found
+    ? { result: "deactivated", detail: "Deactivated; seen on the Inactive tab" }
+    : { result: "error", detail: "Left Active but not seen on Inactive; check Mercari" };
+}
+
+async function renderMercariDelists(tab) {
+  const box = $("#mercari-delist");
+  box.innerHTML = `<h2>Delist on Mercari (pilot)</h2><p class="muted">Checking foundinalabama.com…</p>`;
+  let legs;
+  try {
+    legs = (await fiaFetch("/api/admin/sales/mercari-delists")).legs || [];
+  } catch (err) {
+    box.innerHTML = `<h2>Delist on Mercari (pilot)</h2><div class="alert error">${escapeHtml(err.message)}</div>`;
+    return;
+  }
+  const when = (s) => (s ? new Date(s).toLocaleString("en-US", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "");
+  box.innerHTML = `
+    <h2>Delist on Mercari (pilot)</h2>
+    <p class="muted">Items that sold elsewhere and should come off Mercari. <strong>Delist</strong> uses this tab: My listings → finds the item → ticks only it → Mercari's own Deactivate → checks Inactive. Keep this popup open while it works. Nifty still delists on its own as the backup.</p>
+    ${
+      legs.length
+        ? `<div id="mercari-legs" style="margin-top:8px;max-height:320px;overflow-y:auto">${legs
+            .map(
+              (l, i) => `<div style="border-top:1px solid rgba(0,0,0,.08);padding:6px 0">
+                <div style="font-size:13px"><a href="${MERCARI}/us/item/${escapeHtml(l.mercariId)}/" target="_blank">${escapeHtml(l.title.slice(0, 70))}</a></div>
+                <div class="muted" style="font-size:11px">Sold on ${escapeHtml(l.soldOn || "?")} ${escapeHtml(when(l.soldAt))} · ${escapeHtml(l.mercariId)}${
+                  l.lastTry ? ` · last try: ${escapeHtml(l.lastTry.result.replace("_", " "))}` : ""
+                }</div>
+                <div class="row" style="margin-top:4px"><button data-i="${i}" class="mercari-go">Delist</button> <span class="mercari-out" data-i="${i}" style="font-size:12px"></span></div>
+              </div>`
+            )
+            .join("")}</div>`
+        : `<p class="muted">Nothing waiting. FIA lists a Mercari delist here after an item sells on another venue.</p>`
+    }`;
+  for (const b of box.querySelectorAll(".mercari-go")) {
+    b.addEventListener("click", async () => {
+      const i = Number(b.dataset.i);
+      const leg = legs[i];
+      const out = box.querySelector(`.mercari-out[data-i="${i}"]`);
+      for (const x of box.querySelectorAll(".mercari-go")) x.disabled = true;
+      out.textContent = "Working in this tab…";
+      let r;
+      try {
+        r = await mercariDelistOne(tab.id, leg);
+      } catch (err) {
+        r = { result: "error", detail: err.message };
+      }
+      const color = r.result === "deactivated" || r.result === "already_inactive" ? "#166534" : "#7f1d1d";
+      out.innerHTML = `<span style="color:${color}">${escapeHtml(r.result.replace("_", " "))}</span> — ${escapeHtml(r.detail || "")}`;
+      try {
+        await fiaFetch("/api/admin/sales/mercari-delists", { method: "POST", body: JSON.stringify({ legId: leg.legId, result: r.result, detail: r.detail }) });
+      } catch (err) {
+        out.insertAdjacentHTML("beforeend", ` <span style="color:#78350f">(couldn't tell FIA: ${escapeHtml(err.message)})</span>`);
+      }
+      for (const x of box.querySelectorAll(".mercari-go")) x.disabled = false;
+      b.disabled = r.result === "deactivated" || r.result === "already_inactive";
     });
   }
 }
