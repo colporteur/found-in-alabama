@@ -51,7 +51,9 @@ const toRow = (d: DraftSummary): Row => ({
   quantity: String(d.quantity ?? 1),
 });
 
-export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelves: Array<{ id: string; path: string }> }) {
+type Shelf = { id: string; path: string };
+
+export function DraftTable({ drafts, shelves, parents = [] }: { drafts: DraftSummary[]; shelves: Shelf[]; parents?: Shelf[] }) {
   const router = useRouter();
   const start = useMemo(() => Object.fromEntries(drafts.map((d) => [d.id, toRow(d)])), [drafts]);
   const [rows, setRows] = useState<Record<string, Row>>(start);
@@ -100,7 +102,13 @@ export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelve
     for (const f of fields) {
       if (f === "title") body.title = r.title.replace(/\s+/g, " ").trim();
       if (f === "price") body.price = r.price.trim() ? Number(r.price.replace(/[$,]/g, "")) : null;
-      if (f === "shelf1" || f === "shelf2") body.storeCategoryIds = [r.shelf1, r.shelf2].filter(Boolean);
+      if (f === "shelf1" || f === "shelf2") {
+        // A parent shelf ("auto:<id>") is resolved by FIA after the save;
+        // that slot keeps its old shelf until then.
+        const s1 = r.shelf1.startsWith("auto:") ? start[id].shelf1 : r.shelf1;
+        const s2 = r.shelf2.startsWith("auto:") ? start[id].shelf2 : r.shelf2;
+        body.storeCategoryIds = [s1, s2].filter(Boolean);
+      }
       if (f === "binSku") body.binSku = r.binSku;
       if (f === "weightOz") body.weightOz = r.weightOz.trim() ? Number(r.weightOz) : null;
       if (f === "quantity") body.quantity = Number(r.quantity) || 1;
@@ -115,6 +123,17 @@ export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelve
       });
       const out = await res.json().catch(() => ({}));
       if (!res.ok || out.ok === false) throw new Error(out.error ?? `HTTP ${res.status}`);
+      for (const [slot, v] of [r.shelf1, r.shelf2].entries()) {
+        if (!v.startsWith("auto:")) continue;
+        const a = await fetch("/api/admin/listings/bulk", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "auto_shelf", ids: [id], parent: v.slice(5), slot }),
+        });
+        const ao = await a.json().catch(() => ({}));
+        if (!a.ok) throw new Error(ao.error ?? `HTTP ${a.status}`);
+        if (ao.failed) throw new Error(`FIA couldn't pick a subcategory: ${ao.picks?.[0]?.error ?? "unknown"}`);
+      }
       setErrors((e) => {
         const n = { ...e };
         delete n[id];
@@ -161,7 +180,7 @@ export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelve
           disabled={!dirtyIds.length || saving.size > 0}
           className="text-sm px-4 py-2 rounded font-medium bg-brand-ink text-white disabled:opacity-40"
         >
-          {saving.size ? "Saving…" : `Save all changes (${dirtyIds.length})`}
+          {saving.size ? "Saving… (FIA picks take a moment)" : `Save all changes (${dirtyIds.length})`}
         </button>
         {dirtyIds.length > 0 && (
           <button type="button" onClick={() => setRows(start)} className="text-sm underline text-brand-ink/60">
@@ -281,12 +300,23 @@ export function DraftTable({ drafts, shelves }: { drafts: DraftSummary[]; shelve
                         className={cell + " text-xs" + (k ? " mt-1" : "") + dirty(d.id, f)}
                       >
                         <option value="">{k ? "— second shelf —" : "— first shelf —"}</option>
-                        {r[f] && !shelfPath.has(r[f]) && <option value={r[f]}>{r[f]} (not in store list)</option>}
-                        {shelves.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.path}
-                          </option>
-                        ))}
+                        {r[f] && !r[f].startsWith("auto:") && !shelfPath.has(r[f]) && <option value={r[f]}>{r[f]} (not in store list)</option>}
+                        {parents.length > 0 && (
+                          <optgroup label="FIA picks the subcategory">
+                            {parents.map((o) => (
+                              <option key={o.id} value={`auto:${o.id}`}>
+                                {o.path} › (FIA picks)
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        <optgroup label="Shelves">
+                          {shelves.map((o) => (
+                            <option key={o.id} value={o.id}>
+                              {o.path}
+                            </option>
+                          ))}
+                        </optgroup>
                       </select>
                     ))}
                   </td>

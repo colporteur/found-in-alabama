@@ -8,6 +8,7 @@ import { draftsReady, listDrafts } from "@/lib/listings/drafts";
 import { DraftGrid } from "./DraftGrid";
 import { DraftTable } from "./DraftTable";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
+import { loadParentShelves } from "@/lib/listings/bulk";
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,8 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
   const shelves = (await buildCategoryOptions().catch(() => []))
     .map((o) => ({ id: o.id, path: o.path.replace(/&amp;/g, "&") }))
     .sort((a, b) => a.path.localeCompare(b.path));
+  // Shelves with subcategories: pick one and FIA's AI picks the subcategory.
+  const parents = (await loadParentShelves().catch(() => [])).map((p) => ({ id: p.id, path: p.path }));
   const href = (v: string | null, st: string | null = status) => {
     const p = new URLSearchParams();
     if (st) p.set("status", st);
@@ -91,9 +94,9 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
       </div>
 
       {table ? (
-        <DraftTable key={drafts.map((d) => d.id).join(",")} drafts={drafts} shelves={shelves} />
+        <DraftTable key={drafts.map((d) => d.id).join(",")} drafts={drafts} shelves={shelves} parents={parents} />
       ) : (
-        <DraftGrid drafts={drafts} readyCount={counts.ready ?? 0} shelves={shelves} />
+        <DraftGrid drafts={drafts} readyCount={counts.ready ?? 0} shelves={shelves} parents={parents} />
       )}
     </section>
   );
