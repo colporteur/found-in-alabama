@@ -19,6 +19,7 @@ import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { fetchEbayOrdersSince, type EbayOrder } from "@/lib/ebay/orders";
 import { parseEmailBuyer } from "./buyers";
+import { mercariCharges } from "@/lib/sales/parse";
 
 type Row = Record<string, unknown>;
 async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
@@ -203,8 +204,37 @@ export async function syncShipQueue(): Promise<SyncResult> {
         (SELECT v.registry_item_id FROM venue_listings v WHERE v.venue = 'ebay' AND v.venue_listing_id = l.ebay_item_id LIMIT 1))`);
 
   const buyers = await captureEmailBuyers();
+  await captureMercariCharges();
 
   return { ready: true, orders, lines, refreshed, dropped, shipped, ebayOrders, ebayError, buyers };
+}
+
+// Mercari sale emails list the tax and buyer protection fee the buyer paid;
+// copy them onto the package for the invoice. Only packages still being
+// worked, and only once (sales_tax / buyer_fee stay null when the email
+// doesn't carry them).
+async function captureMercariCharges(): Promise<void> {
+  const list = await rows(sql`
+    SELECT DISTINCT ON (o.id) o.id, m.from_address, m.from_name, m.subject, m.text_body, m.html_body
+    FROM ship_orders o
+    JOIN ship_order_lines l ON l.order_id = o.id
+    JOIN sale_events e ON e.id = l.sale_event_id AND e.source = 'email'
+    JOIN email_messages m ON m.id::text = e.source_ref
+    WHERE o.venue = 'mercari' AND o.status IN ('to_pick', 'packed')
+      AND o.sales_tax IS NULL AND o.buyer_fee IS NULL
+    ORDER BY o.id, m.received_at DESC
+    LIMIT 200`);
+  for (const r of list) {
+    const c = mercariCharges({
+      from: r.from_address == null ? null : String(r.from_address),
+      subject: r.subject == null ? null : String(r.subject),
+      text: r.text_body == null ? null : String(r.text_body),
+      html: r.html_body == null ? null : String(r.html_body),
+    });
+    if (!c || (c.tax == null && c.buyerFee == null)) continue;
+    await exec(sql`UPDATE ship_orders SET sales_tax = ${c.tax}::numeric, buyer_fee = ${c.buyerFee}::numeric, updated_at = now()
+      WHERE id = ${String(r.id)}::uuid AND sales_tax IS NULL AND buyer_fee IS NULL`);
+  }
 }
 
 // ─── eBay orders (4b) ────────────────────────────────────────────────────────
@@ -224,16 +254,17 @@ async function syncEbayOrders(startDate: string): Promise<number | null> {
 async function upsertEbayOrder(o: EbayOrder): Promise<void> {
   const [row] = await rows(sql`
     INSERT INTO ship_orders (venue, order_key, venue_order_id, buyer_name, buyer_username, ship_to, sold_at,
-                             order_total, shipping_paid, venue_fees)
+                             order_total, shipping_paid, sales_tax, venue_fees)
     VALUES ('ebay', ${`ebay:${o.orderId}`}, ${o.orderId}, ${o.buyerName}, ${o.buyerUsername},
             ${o.shipTo ? JSON.stringify(o.shipTo) : null}::jsonb, ${o.createdAt}::timestamptz,
-            ${o.total}::numeric, ${o.shipping}::numeric, ${o.fees}::numeric)
+            ${o.total}::numeric, ${o.shipping}::numeric, ${o.tax}::numeric, ${o.fees}::numeric)
     ON CONFLICT (venue, order_key) DO UPDATE SET
       buyer_name = COALESCE(EXCLUDED.buyer_name, ship_orders.buyer_name),
       buyer_username = COALESCE(EXCLUDED.buyer_username, ship_orders.buyer_username),
       ship_to = COALESCE(EXCLUDED.ship_to, ship_orders.ship_to),
       order_total = COALESCE(EXCLUDED.order_total, ship_orders.order_total),
       shipping_paid = COALESCE(EXCLUDED.shipping_paid, ship_orders.shipping_paid),
+      sales_tax = COALESCE(EXCLUDED.sales_tax, ship_orders.sales_tax),
       venue_fees = COALESCE(EXCLUDED.venue_fees, ship_orders.venue_fees)
     RETURNING id, status`);
   if (!row) return;
@@ -368,6 +399,8 @@ export type ShipOrder = {
   status: string;
   orderTotal: number | null;
   shippingPaid: number | null;
+  salesTax: number | null;
+  buyerFee: number | null;
   pickPrintedAt: string | null;
   invoicePrintedAt: string | null;
   packedAt: string | null;
@@ -392,6 +425,8 @@ function toOrder(r: Row): ShipOrder {
     status: String(r.status),
     orderTotal: r.order_total == null ? null : Number(r.order_total),
     shippingPaid: r.shipping_paid == null ? null : Number(r.shipping_paid),
+    salesTax: r.sales_tax == null ? null : Number(r.sales_tax),
+    buyerFee: r.buyer_fee == null ? null : Number(r.buyer_fee),
     pickPrintedAt: iso(r.pick_printed_at),
     invoicePrintedAt: iso(r.invoice_printed_at),
     packedAt: iso(r.packed_at),

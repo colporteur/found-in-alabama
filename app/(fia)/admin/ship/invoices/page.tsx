@@ -2,6 +2,8 @@
 // the Zebra label printer (the Nifty Pick List's "Invoices up to here", now
 // from FIA's own data). Marketplace invoices carry both brands; website
 // orders carry only the shop they came from. Prices are click-to-edit.
+// Shipping, sales tax and Mercari's buyer protection fee print when the venue
+// told FIA (eBay orders, Mercari sale emails, website orders).
 // "Pick list order" puts the labels in the same order as the pick list.
 
 import { loadShipOrders } from "@/lib/fulfillment/queue";
@@ -48,7 +50,10 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
             dateStyle: "medium",
           })
         : "",
-      shipping: website ? o.shippingPaid : null,
+      shipping: o.shippingPaid,
+      salesTax: o.salesTax,
+      taxNote: website ? null : `collected by ${VENUE[o.venue] ?? o.venue}`,
+      buyerFee: o.buyerFee,
       lines: o.lines.map((l) => ({ id: l.id, title: l.title ?? "(no title)", qty: l.quantity, price: l.price, img: l.imageUrl, sku: l.binSku })),
     };
   });
