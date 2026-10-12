@@ -1737,6 +1737,10 @@ export const shipOrders = pgTable(
     orderTotal: numeric("order_total", { precision: 10, scale: 2 }),
     shippingPaid: numeric("shipping_paid", { precision: 10, scale: 2 }),
     venueFees: numeric("venue_fees", { precision: 10, scale: 2 }),
+    /** Sales tax the buyer paid (eBay order; Mercari sale email). Marketplaces collect and remit it. */
+    salesTax: numeric("sales_tax", { precision: 10, scale: 2 }),
+    /** Mercari's buyer protection fee, from the sale email. */
+    buyerFee: numeric("buyer_fee", { precision: 10, scale: 2 }),
     pickPrintedAt: timestamp("pick_printed_at"),
     invoicePrintedAt: timestamp("invoice_printed_at"),
     packedAt: timestamp("packed_at"),

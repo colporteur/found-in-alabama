@@ -36,6 +36,8 @@ export type EbayOrder = {
   cancelled: boolean;
   total: number | null;
   shipping: number | null;
+  /** Sales tax the buyer paid (eBay collects and remits it; not in `total`). Null = eBay sent none. */
+  tax: number | null;
   fees: number | null;
   lines: EbayOrderLine[];
 };
@@ -47,6 +49,25 @@ const num = (v: unknown): number | null => {
   const n = Number(obj(v).value ?? v);
   return v == null || !Number.isFinite(n) ? null : n;
 };
+
+/** Sum of each line's taxes (eBay collect-and-remit, plus any seller-collected). */
+function orderTax(lineItems: unknown[]): number | null {
+  let seen = false;
+  let cents = 0;
+  for (const l of lineItems) {
+    const li = obj(l);
+    for (const key of ["ebayCollectAndRemitTaxes", "taxes"]) {
+      const list = li[key];
+      if (!Array.isArray(list)) continue;
+      seen = true;
+      for (const t of list) {
+        const n = num(obj(t).amount);
+        if (n != null) cents += Math.round(n * 100);
+      }
+    }
+  }
+  return seen ? cents / 100 : null;
+}
 
 export function parseEbayOrders(json: unknown): EbayOrder[] {
   const orders = (obj(json).orders ?? []) as unknown[];
@@ -81,6 +102,7 @@ export function parseEbayOrders(json: unknown): EbayOrder[] {
         cancelled: cancelState === "CANCELED",
         total: num(price.total),
         shipping: num(price.deliveryCost),
+        tax: orderTax((o.lineItems as unknown[]) ?? []),
         fees: num(o.totalMarketplaceFee),
         lines: ((o.lineItems as unknown[]) ?? []).map((l) => {
           const li = obj(l);

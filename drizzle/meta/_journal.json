@@ -309,6 +309,13 @@
       "when": 1791667574049,
       "tag": "0043_photo_rotation",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791809012186,
+      "tag": "0044_invoice_tax",
+      "breakpoints": true
     }
   ]
 }

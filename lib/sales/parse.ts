@@ -152,6 +152,26 @@ function parseMercari(e: EmailInput, body: string): ParsedSale | null {
   };
 }
 
+/**
+ * What the Mercari buyer paid on top of the price, from the sale email:
+ *   Tax charged to buyer / Buyer protection fee / $1.53 / $0.64
+ * Two labels, then their two amounts in the same order (checked against real
+ * sales: tax is on price + fee + shipping, the fee ~5% of price). Null when
+ * the email doesn't carry the block (older text-only imports).
+ */
+export function mercariCharges(e: EmailInput): { tax: number | null; buyerFee: number | null } | null {
+  if (!senderAddress(e.from).endsWith("mercari.com")) return null;
+  const body = bodyText(e);
+  const m = body.match(
+    /Tax charged to buyer\s+Buyer protection fee\s+(-?\$\s?[\d,]+\.\d{2})\s+(-?\$\s?[\d,]+\.\d{2})/i
+  );
+  if (m) return { tax: money(m[1]), buyerFee: money(m[2]) };
+  const tax = body.match(/Tax charged to buyer\s+(\$\s?[\d,]+\.\d{2})/i);
+  const fee = body.match(/Buyer protection fee\s+(\$\s?[\d,]+\.\d{2})/i);
+  if (!tax && !fee) return null;
+  return { tax: money(tax?.[1]), buyerFee: money(fee?.[1]) };
+}
+
 function parsePoshmark(e: EmailInput, body: string): ParsedSale | null {
   const subject = stripInvisible(decodeEntities(e.subject ?? ""));
   // Single item: "\"<title>\" just sold to @buyer on Poshmark!"

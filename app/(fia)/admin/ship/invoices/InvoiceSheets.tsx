@@ -20,6 +20,11 @@ export type InvoiceData = {
   orderId: string | null;
   date: string;
   shipping: number | null;
+  /** Sales tax the buyer paid; the marketplace collects and remits it. */
+  salesTax: number | null;
+  taxNote: string | null;
+  /** Mercari's buyer protection fee. */
+  buyerFee: number | null;
   lines: Array<{ id: string; title: string; qty: number; price: number | null; img: string | null; sku: string | null }>;
 };
 
@@ -68,7 +73,7 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
   // Any missing line price leaves the total blank (red $) so it gets noticed.
   const all = Object.values(prices);
   const computed = all.every((p) => p != null)
-    ? (all as number[]).reduce((a, b) => a + b, 0) + (inv.shipping ?? 0)
+    ? (all as number[]).reduce((a, b) => a + b, 0) + (inv.shipping ?? 0) + (inv.salesTax ?? 0) + (inv.buyerFee ?? 0)
     : null;
   const total = totalOverride ?? computed;
 
@@ -130,6 +135,20 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
         <div className="inv-saleline">
           <span>Shipping</span>
           <span>{money(inv.shipping)}</span>
+        </div>
+      )}
+      {inv.buyerFee != null && inv.buyerFee > 0 && (
+        <div className="inv-saleline">
+          <span>Buyer protection fee</span>
+          <span>{money(inv.buyerFee)}</span>
+        </div>
+      )}
+      {inv.salesTax != null && inv.salesTax > 0 && (
+        <div className="inv-saleline">
+          <span>
+            Sales tax{inv.taxNote && <span className="inv-note"> ({inv.taxNote})</span>}
+          </span>
+          <span>{money(inv.salesTax)}</span>
         </div>
       )}
       <div className="inv-total">
@@ -252,6 +271,7 @@ const INVOICE_CSS = `
   .inv-brand-name { margin: 0; font-size: 12px; font-weight: 700; line-height: 1.2; }
   .inv-brand-site { margin: 2px 0 0; font-size: 10px; }
   .inv-saleline { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: 11px; overflow-wrap: anywhere; }
+  .inv-note { font-size: 10px; }
   .inv-lines { margin-top: 4px; }
   .inv-line { display: flex; gap: 8px; align-items: center; padding: 8px 0; border-bottom: 1px solid #000; }
   .inv-line:last-child { border-bottom: 0; }

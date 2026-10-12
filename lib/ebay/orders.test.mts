@@ -26,8 +26,10 @@ const SAMPLE = {
         },
       ],
       lineItems: [
-        { lineItemId: "10001", legacyItemId: "117400000001", title: "Postcard A", sku: "NA12", quantity: 1, lineItemCost: { value: "9.87" } },
-        { lineItemId: "10002", legacyItemId: "117400000002", title: "Postcard B", quantity: 1, lineItemCost: { value: "9.87" } },
+        { lineItemId: "10001", legacyItemId: "117400000001", title: "Postcard A", sku: "NA12", quantity: 1, lineItemCost: { value: "9.87" },
+          ebayCollectAndRemitTaxes: [{ taxType: "STATE_SALES_TAX", amount: { value: "1.08", currency: "USD" }, collectionMethod: "NET" }] },
+        { lineItemId: "10002", legacyItemId: "117400000002", title: "Postcard B", quantity: 1, lineItemCost: { value: "9.87" },
+          ebayCollectAndRemitTaxes: [{ taxType: "STATE_SALES_TAX", amount: { value: "1.07", currency: "USD" } }] },
       ],
     },
     { orderId: "", lineItems: [] },
@@ -44,6 +46,7 @@ test("parseEbayOrders reads buyer, ship-to, totals and combined lines", () => {
   assert.equal(o.total, 24.74);
   assert.equal(o.shipping, 5);
   assert.equal(o.fees, 3.41);
+  assert.equal(o.tax, 2.15);
   assert.equal(o.cancelled, false);
   assert.deepEqual(o.lines.map((l) => [l.legacyItemId, l.lineCost]), [["117400000001", 9.87], ["117400000002", 9.87]]);
 });
@@ -51,4 +54,10 @@ test("parseEbayOrders reads buyer, ship-to, totals and combined lines", () => {
 test("cancelled orders are flagged", () => {
   const [o] = parseEbayOrders({ orders: [{ ...SAMPLE.orders[0], cancelStatus: { cancelState: "CANCELED" } }] });
   assert.equal(o.cancelled, true);
+});
+
+test("no tax arrays → tax unknown (null)", () => {
+  const lines = SAMPLE.orders[0].lineItems.map(({ ebayCollectAndRemitTaxes: _t, ...l }) => l);
+  const [o] = parseEbayOrders({ orders: [{ ...SAMPLE.orders[0], lineItems: lines }] });
+  assert.equal(o.tax, null);
 });

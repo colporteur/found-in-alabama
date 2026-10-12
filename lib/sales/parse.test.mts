@@ -6,7 +6,7 @@
 // here — this repo is public.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { parseSaleEmail, normalizeTitle, htmlToText } from "./parse";
+import { parseSaleEmail, normalizeTitle, htmlToText, mercariCharges } from "./parse";
 
 // ─── Mercari ──────────────────────────────────────────────────────────────────
 
@@ -342,4 +342,14 @@ test("poshmark: invisible direction marks inside the subject title are removed",
   assert.ok(r && r.kind === "sale");
   assert.equal(r.lines[0].title, "Cintas Men's Design Collective Dress Pants 42x30");
   assert.equal(normalizeTitle("Fairy\u200e Tale"), "fairy tale");
+});
+
+test("mercariCharges: tax and buyer protection fee (labels, then amounts)", () => {
+  const text = "Price\n\n Selling fee\n\n$13.00\n\n-$1.79\n\nEarnings\n$11.21\n\nTax charged to buyer\n\nBuyer protection fee\n\n$1.53\n\n$0.64\n\nShipping to\n";
+  const e = { from: "Mercari <no-reply@alerts.us.mercari.com>", subject: "You've made a sale: X", text, html: null };
+  assert.deepEqual(mercariCharges(e), { tax: 1.53, buyerFee: 0.64 });
+  const html = "<td>Tax charged to buyer</td><td>Buyer protection fee</td><td>$1.44</td><td>$0.71</td>";
+  assert.deepEqual(mercariCharges({ ...e, text: null, html }), { tax: 1.44, buyerFee: 0.71 });
+  assert.equal(mercariCharges({ ...e, text: "Congratulations! You made a sale." }), null);
+  assert.equal(mercariCharges({ ...e, from: "orders@poshmark.com" }), null);
 });
