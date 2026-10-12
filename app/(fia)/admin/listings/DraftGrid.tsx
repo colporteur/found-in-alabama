@@ -41,10 +41,12 @@ export function DraftGrid({
   drafts,
   readyCount,
   shelves,
+  parents = [],
 }: {
   drafts: DraftSummary[];
   readyCount: number;
   shelves: Array<{ id: string; path: string }>;
+  parents?: Array<{ id: string; path: string }>;
 }) {
   const router = useRouter();
   const [picked, setPicked] = useState<Set<string>>(new Set());
@@ -198,7 +200,7 @@ export function DraftGrid({
         <MinPriceControl selected={Array.from(picked)} shown={drafts.filter((d) => PICKABLE.has(d.status)).map((d) => d.id)} />
       </div>
       <div className="mb-6 -mt-4">
-        <ShelfControl selected={Array.from(picked)} shown={drafts.filter((d) => PICKABLE.has(d.status)).map((d) => d.id)} shelves={shelves} />
+        <ShelfControl selected={Array.from(picked)} shown={drafts.filter((d) => PICKABLE.has(d.status)).map((d) => d.id)} shelves={shelves} parents={parents} />
       </div>
 
       {drafts.length === 0 ? (

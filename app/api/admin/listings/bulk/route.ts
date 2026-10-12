@@ -3,6 +3,7 @@
 //   { action: "writable" }                → ids the "Write all ready" runner works through
 //   { action: "min_price", ids, min, round87 } → raise prices below the minimum
 //   { action: "store_shelf", ids, shelf, keepPlace } → set one of the two store shelves
+//   { action: "auto_shelf", ids, parent, keepPlace, slot? } → AI picks the subcategory of `parent` (≤25 per call)
 //   { action: "unapprove", ids }        → approved (not yet in Nifty) → back to review
 // Signed-in admin only. Approval only marks drafts; nothing is published.
 
@@ -11,10 +12,11 @@ import { auth } from "@/auth";
 import { approveDrafts, unapproveDraft } from "@/lib/listings/review";
 import { writableDraftIds, writerSettings } from "@/lib/listings/writer";
 import { raiseMinPrice } from "@/lib/listings/drafts";
-import { setStoreShelf } from "@/lib/listings/bulk";
+import { autoShelf, setStoreShelf } from "@/lib/listings/bulk";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 export async function POST(req: NextRequest) {
   const session = await auth();
@@ -26,7 +28,18 @@ export async function POST(req: NextRequest) {
     round87?: unknown;
     shelf?: unknown;
     keepPlace?: unknown;
+    parent?: unknown;
+    slot?: unknown;
   };
+  if (b.action === "auto_shelf") {
+    const ids = Array.isArray(b.ids) ? b.ids.map(String) : [];
+    const slot = b.slot === 0 || b.slot === 1 ? b.slot : undefined;
+    try {
+      return NextResponse.json({ ok: true, ...(await autoShelf(ids, String(b.parent ?? ""), { keepPlace: b.keepPlace !== false, slot })) });
+    } catch (err) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+    }
+  }
   if (b.action === "store_shelf") {
     const ids = Array.isArray(b.ids) ? b.ids.map(String) : [];
     try {

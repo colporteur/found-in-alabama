@@ -112,6 +112,14 @@ export async function suggestCategoryForListing(input: {
    * accuracy on title-only proves insufficient.
    */
   imageUrl?: string | null;
+  /** More about the item (description, eBay category) when the title isn't enough. */
+  details?: string;
+  /**
+   * The seller already put the item under this parent shelf (e.g.
+   * "Postcards"); `categories` holds only its subcategories and one must be
+   * picked — the closest fit, never null.
+   */
+  mustPickFrom?: string;
   categories: CategoryOption[];
 }): Promise<SuggestionResult> {
   // Sorted by path so siblings sit together — the tree shape is visible
@@ -144,7 +152,11 @@ ${lines}`,
       },
     ],
     content: `Listing title: ${input.title}
-
+${input.details ? `\nMore about the item:\n${input.details}\n` : ""}${
+      input.mustPickFrom
+        ? `\nThe seller has decided this item belongs under "${input.mustPickFrom}", so only its subcategories are listed. You MUST pick one of them as primaryCategoryId: the closest fit, even if none is perfect. Do not return null. Leave secondaryCategoryId null.\n`
+        : ""
+    }
 Return your JSON suggestion.`,
   });
 
