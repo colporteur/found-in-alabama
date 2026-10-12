@@ -974,7 +974,13 @@ async function mercariDelistOne(tabId, leg) {
     await mercariGo(tabId, `/mypage/listings/inactive/?keyword=${q}&page=1`);
     const onInactive = await mercariRun(tabId, "mercariFindRow", leg.mercariId);
     if (onInactive.found) return { result: "already_inactive", detail: "Already on Mercari's Inactive tab" };
-    return { result: "not_found", detail: "Not on Active or Inactive (sold, deleted, or a different title on Mercari)" };
+    // Not in either list: ask the item page itself. Nifty's delist removes
+    // the listing ("410 — Not Available").
+    await mercariGo(tabId, `/us/item/${leg.mercariId}/`);
+    const page = await mercariRun(tabId, "mercariItemState", leg.mercariId);
+    if (page.state === "gone") return { result: "gone", detail: "Mercari says the listing is no longer available (removed)" };
+    if (page.state === "sold") return { result: "gone", detail: "Sold on Mercari" };
+    return { result: "not_found", detail: page.state === "showing" ? "Listing still shows on Mercari but wasn't found under My listings (title differs?) — check it" : "Not on Active or Inactive; item page unclear" };
   }
   const done = await mercariRun(tabId, "mercariDeactivateRow", leg.mercariId);
   if (!done.ok) return { result: "error", detail: done.error };
@@ -1027,7 +1033,7 @@ async function renderMercariDelists(tab) {
       } catch (err) {
         r = { result: "error", detail: err.message };
       }
-      const color = r.result === "deactivated" || r.result === "already_inactive" ? "#166534" : "#7f1d1d";
+      const color = ["deactivated", "already_inactive", "gone"].includes(r.result) ? "#166534" : "#7f1d1d";
       out.innerHTML = `<span style="color:${color}">${escapeHtml(r.result.replace("_", " "))}</span> — ${escapeHtml(r.detail || "")}`;
       try {
         await fiaFetch("/api/admin/sales/mercari-delists", { method: "POST", body: JSON.stringify({ legId: leg.legId, result: r.result, detail: r.detail }) });
@@ -1035,7 +1041,7 @@ async function renderMercariDelists(tab) {
         out.insertAdjacentHTML("beforeend", ` <span style="color:#78350f">(couldn't tell FIA: ${escapeHtml(err.message)})</span>`);
       }
       for (const x of box.querySelectorAll(".mercari-go")) x.disabled = false;
-      b.disabled = r.result === "deactivated" || r.result === "already_inactive";
+      b.disabled = ["deactivated", "already_inactive", "gone"].includes(r.result);
     });
   }
 }

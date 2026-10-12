@@ -20,7 +20,8 @@ async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
 /** How far back the queue looks (older legs are Nifty's or stale). */
 export const QUEUE_DAYS = 14;
 
-export const RESULTS = ["deactivated", "already_inactive", "not_found", "error"] as const;
+/** gone = Mercari's item page says "no longer available" (Nifty removes listings) or sold. */
+export const RESULTS = ["deactivated", "already_inactive", "gone", "not_found", "error"] as const;
 export type MercariResult = (typeof RESULTS)[number];
 
 /** Pure: the words Mercari's "Search within active" box gets. */
@@ -81,7 +82,7 @@ export async function recordMercariDelist(p: { legId: string; result: string; de
   const [leg] = await rows(sql`SELECT id, venue, venue_listing_id, outcome FROM delist_plans WHERE id = ${p.legId}::uuid`);
   if (!leg || leg.venue !== "mercari") throw new Error("Not a Mercari delist leg");
   const tryInfo = JSON.stringify({ at: new Date().toISOString(), result: p.result, detail: (p.detail ?? "").slice(0, 300) || null, by: p.who });
-  const confirmed = p.result === "deactivated" || p.result === "already_inactive";
+  const confirmed = p.result === "deactivated" || p.result === "already_inactive" || p.result === "gone";
   await db.execute(sql`
     UPDATE delist_plans SET
       evidence = COALESCE(evidence, '{}'::jsonb) || jsonb_build_object('fia_mercari', ${tryInfo}::jsonb)

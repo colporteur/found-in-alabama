@@ -58,4 +58,19 @@ async function mercariDeactivateRow(mercariId) {
   return { ok: false, error: "Mercari didn't confirm within 15 seconds; check My listings" };
 }
 
-if (typeof module !== "undefined") module.exports = { mercariFindRow, mercariDeactivateRow };
+/** On an item page: is the listing gone (Mercari's "410 — Not Available"),
+ *  sold, or still showing? Read-only. */
+async function mercariItemState(mercariId) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  for (let i = 0; i < 16; i++) {
+    const t = document.title || "";
+    const body = (document.body && document.body.innerText) || "";
+    if (/^410\b|Not Available/i.test(t) || /no longer available/i.test(body)) return { state: "gone" };
+    if (/\bSold\b/.test(t) || /This item (has been )?sold|\bSOLD\b/.test(body.slice(0, 4000))) return { state: "sold" };
+    if (/\| Mercari$/.test(t) && document.querySelector("h1")) return { state: "showing", title: t.slice(0, 80) };
+    await sleep(500);
+  }
+  return { state: "unknown" };
+}
+
+if (typeof module !== "undefined") module.exports = { mercariFindRow, mercariDeactivateRow, mercariItemState };
