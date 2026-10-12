@@ -82,3 +82,8 @@ export function buildPickSections<T>(items: T[], skuOf: (t: T) => string | null 
   }
   return out;
 }
+
+/** Items flattened in pick-list walking order (same sort as buildPickSections). */
+export function pickOrder<T>(items: T[], skuOf: (t: T) => string | null | undefined): T[] {
+  return buildPickSections(items, skuOf).flatMap((s) => s.groups.flatMap((g) => g.items));
+}

@@ -1,7 +1,7 @@
 // Run: npx tsx --test lib/fulfillment/sku.test.mts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildPickSections, classifySku } from "./sku";
+import { buildPickSections, classifySku, pickOrder } from "./sku";
 
 test("classifySku follows the Nifty Pick List rules", () => {
   assert.deepEqual(classifySku("na294"), { type: "inventory", group: "NA", sortKey: 294, sku: "NA294" });
@@ -28,4 +28,9 @@ test("buildPickSections walks dated → inventory → named in shelf order", () 
     "Apps:Apps,Apps",
   ]);
   assert.equal(s[1].count, 4);
+});
+
+test("pickOrder flattens in the same walking order", () => {
+  const skus = ["Apps", "NA62", "260101", "NA294", "LT222"];
+  assert.deepEqual(pickOrder(skus, (x) => x), ["260101", "LT222", "NA294", "NA62", "Apps"]);
 });
