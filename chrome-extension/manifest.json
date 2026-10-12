@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Found in Alabama \u2014 Nifty Sync",
-  "version": "1.7.0",
+  "version": "1.7.1",
   "description": "Captures items from your Nifty.ai inventory \u2014 one page or all pages automatically \u2014 and links them to Found in Alabama haul posts via the private-notes haul-slug convention. Also sends approved Found in Alabama listing drafts into Nifty as drafts, and checks recent sales and delists (read-only). Pilot: deactivates Mercari listings FIA planned to delist, in your own Mercari tab, when you press Delist.",
   "permissions": [
     "activeTab",
