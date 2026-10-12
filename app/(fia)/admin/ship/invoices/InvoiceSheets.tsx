@@ -6,10 +6,14 @@
 // totals are editable before printing; Print records the packages as
 // invoiced.
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+
+const PICK_ORDER_KEY = "fia.invoices.pickOrder";
 
 export type InvoiceData = {
   id: string;
+  /** Position on the pick list for this selection (lower = picked first). */
+  pickRank: number;
   brand: "both" | "tes" | "fia";
   venue: string;
   buyer: string | null;
@@ -161,6 +165,23 @@ export function InvoiceSheets({ invoices }: { invoices: InvoiceData[] }) {
   const [photos, setPhotos] = useState(true);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<string | null>(null);
+  // On by default; the choice is remembered on this computer.
+  const [pickSorted, setPickSorted] = useState(true);
+  useEffect(() => {
+    try {
+      if (localStorage.getItem(PICK_ORDER_KEY) === "0") setPickSorted(false);
+    } catch {}
+  }, []);
+  const choosePickSorted = (on: boolean) => {
+    setPickSorted(on);
+    try {
+      localStorage.setItem(PICK_ORDER_KEY, on ? "1" : "0");
+    } catch {}
+  };
+  const shown = useMemo(
+    () => (pickSorted ? [...invoices].sort((a, b) => a.pickRank - b.pickRank) : invoices),
+    [invoices, pickSorted]
+  );
   const missing = invoices.filter((i) => i.lines.some((l) => l.price == null)).length;
 
   async function print() {
@@ -192,6 +213,9 @@ export function InvoiceSheets({ invoices }: { invoices: InvoiceData[] }) {
         <label>
           <input type="checkbox" checked={photos} onChange={(e) => setPhotos(e.target.checked)} /> Photos
         </label>
+        <label title="Print the labels in the same order as the pick list for these packages, so they come off the printer already sorted.">
+          <input type="checkbox" checked={pickSorted} onChange={(e) => choosePickSorted(e.target.checked)} /> Pick list order
+        </label>
         <button type="button" onClick={print} disabled={busy || !invoices.length}>
           {busy ? "Loading photos…" : "Print"}
         </button>
@@ -202,7 +226,7 @@ export function InvoiceSheets({ invoices }: { invoices: InvoiceData[] }) {
         recorded; if you took an offer, click a price to change it.
       </p>
       {!invoices.length && <p className="no-print inv-hint">No packages selected.</p>}
-      {invoices.map((inv) => (
+      {shown.map((inv) => (
         <Invoice key={inv.id} inv={inv} photos={photos} />
       ))}
     </div>
