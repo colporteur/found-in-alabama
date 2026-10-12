@@ -302,6 +302,7 @@ NON-NEGOTIABLE RULES (they override the expert guide):
 1d. Well-known facts that FOLLOW from what is shown may be used even though the item doesn't print them — the county or region of a town named on the item, a named building's architect or opening year, a named publisher's home city, a series' usual era. Use them only when you are confident, and list each one in "unverified" (the exact words as they appear in the listing, and why you believe them). Todd decides whether to keep them. This is NOT a way around 1b: if the item shows no place at all, don't supply one.
 2. Never mention shipping, packing, handling time, discounts, returns, payment or price in the title or description.
 3. Never include bin or SKU codes (e.g. NA331) anywhere.
+4. Never include a phone number anywhere — not even one printed on the item (old ads, letterheads, business cards). eBay treats a phone number as an attempt to trade outside eBay. Describe it instead ("with the store's address and telephone number printed at the bottom") and leave the digits out.
 
 TITLE: at most 80 characters, and use the room — aim for 70–80 (add place, era, maker, format words buyers search; eBay ranks on them). Front-load what buyers search, following the guide's title formula. No ALL-CAPS words except real acronyms (RPPC), no filler (WOW, L@@K, RARE unless the guide supports it), no quotes.
 
