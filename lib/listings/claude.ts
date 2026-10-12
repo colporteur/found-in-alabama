@@ -50,17 +50,26 @@ export const CLAUDE_STATUS = "with_claude";
 
 // ─── the queue (admin side) ──────────────────────────────────────────────────
 
-/** Send drafts to Claude. A note becomes Claude's instructions for them. */
-export async function sendToClaude(ids: string[], who: string, note?: string | null): Promise<{ sent: number; skipped: number }> {
+/** Send drafts to Claude. A note becomes Claude's instructions for them.
+ *  Everything sent in one go is one batch; with `lots` on, Claude may
+ *  combine drafts of that batch into lots (lib/listings/lots.ts). */
+export async function sendToClaude(
+  ids: string[],
+  who: string,
+  note?: string | null,
+  lots = false
+): Promise<{ sent: number; skipped: number }> {
   const clean = Array.from(new Set(ids.filter((id) => UUID.test(id)))).slice(0, 200);
   if (!clean.length) return { sent: 0, skipped: 0 };
   const n = (note ?? "").trim().slice(0, 2000) || null;
+  const batch = `${new Date().toISOString().slice(0, 16)}-${Math.random().toString(36).slice(2, 7)}`;
   const done = await rows(sql`
     UPDATE listing_drafts
     SET status = ${CLAUDE_STATUS},
         review_note = COALESCE(${n}, CASE WHEN status = 'sent_back' THEN review_note END),
         generation_error = NULL, updated_at = now(),
-        ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('claudeQueuedAt', now(), 'claudeQueuedBy', ${who}::text)
+        ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('claudeQueuedAt', now(), 'claudeQueuedBy', ${who}::text,
+                                                                     'claudeBatch', ${batch}::text, 'claudeLots', ${lots}::boolean)
     WHERE id IN (${sql.join(clean.map((id) => sql`${id}::uuid`), sql`, `)})
       AND status IN ('ready', 'review', 'sent_back')
       AND NOT EXISTS (SELECT 1 FROM draft_photos p WHERE p.draft_id = listing_drafts.id AND p.uploaded_at IS NULL)
@@ -90,12 +99,21 @@ export async function readyDraftIds(limit = 200): Promise<string[]> {
 export async function claudeQueue(limit = 50) {
   const list = await rows(sql`
     SELECT d.id, d.title, d.title_hint, d.source, d.source_label, d.bin_sku, d.review_note, d.created_at,
+           d.ai_meta->>'claudeBatch' AS batch, (d.ai_meta->>'claudeLots')::boolean AS lots,
+           jsonb_array_length(COALESCE(d.ai_meta->'lot'->'parts', '[]'::jsonb)) AS lot_parts,
            (SELECT count(*)::int FROM draft_photos p WHERE p.draft_id = d.id AND p.uploaded_at IS NOT NULL) AS photos
     FROM listing_drafts d WHERE d.status = ${CLAUDE_STATUS}
     ORDER BY d.created_at LIMIT ${limit}`);
   const [c] = await rows(sql`SELECT count(*)::int AS n FROM listing_drafts WHERE status = ${CLAUDE_STATUS}`);
+  const anyLots = list.some((r) => r.lots === true && !Number(r.lot_parts));
   return {
     waiting: Number(c?.n ?? 0),
+    ...(anyLots
+      ? {
+          lots:
+            "Some drafts have combineLots: true. Before writing those, look over their batch (same batch value; open them with listing_get_draft) and combine pieces into a lot with listing_combine_lot when price and shared affinity make market sense — e.g. low-value pieces that sell better together (same city, theme, maker, series). Leave anything that sells well on its own as its own listing. Then write each lot (and each remaining draft) as usual.",
+        }
+      : {}),
     drafts: list.map((r) => ({
       id: String(r.id),
       hint: (r.title as string | null) ?? (r.title_hint as string | null) ?? null,
@@ -104,6 +122,9 @@ export async function claudeQueue(limit = 50) {
       photos: Number(r.photos ?? 0),
       instructions: (r.review_note as string | null) ?? null,
       added: iso(r.created_at),
+      batch: (r.batch as string | null) ?? null,
+      ...(r.lots === true && !Number(r.lot_parts) ? { combineLots: true } : {}),
+      ...(Number(r.lot_parts) ? { lotOf: Number(r.lot_parts) } : {}),
     })),
   };
 }
@@ -145,7 +166,7 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
   const settings = await writerSettings();
   const photoRows = await rows(sql`
     SELECT position, role, url FROM draft_photos WHERE draft_id = ${id} AND uploaded_at IS NOT NULL
-    ORDER BY position LIMIT ${Math.min(settings.maxPhotos, 8)}`);
+    ORDER BY position LIMIT ${(d.ai_meta as Record<string, unknown> | null)?.lot ? 12 : Math.min(settings.maxPhotos, 8)}`);
   if (!photoRows.length) throw new Error("This draft has no uploaded photos yet.");
   const photos = await preparePhotos(
     photoRows.map((p) => ({ position: Number(p.position), role: p.role ? String(p.role) : null, url: String(p.url) })),
@@ -165,6 +186,16 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
     150
   );
   const instructions = (d.review_note as string | null)?.trim();
+  const meta = (d.ai_meta ?? {}) as Record<string, unknown>;
+  const lot = meta.lot as { parts?: Array<{ title: string | null; bin: string | null }> } | undefined;
+  const lotText = lot?.parts?.length
+    ? `THIS IS A LOT of ${lot.parts.length} pieces you combined: ${lot.parts.map((p, i) => `${i + 1}) ${p.title ?? "item"}`).join("; ")}. ` +
+      `Photo 1 is the cover (each piece's front); then each piece's front, then backs/insides. Write ONE listing for the whole lot: ` +
+      `the title starts "Lot of ${lot.parts.length}" (or names the set), the description covers each piece in turn with its own condition, ` +
+      `item specifics fit the lot as a whole, and the price is for the lot. Quantity stays 1. Never mention bins.`
+    : meta.claudeLots === true && String(d.status) === CLAUDE_STATUS
+      ? `COMBINE LOTS IS ON for this batch (${String(meta.claudeBatch ?? "")}): if this piece and others in the same batch sell better together (price and shared affinity make market sense), combine them with listing_combine_lot before writing; otherwise write it on its own.`
+      : "";
   const current =
     String(d.status) !== CLAUDE_STATUS && d.title
       ? [
@@ -179,6 +210,7 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
   const text = [
     `DRAFT ${id}${d.bin_sku ? ` · bin ${d.bin_sku} (never put the bin in the listing)` : ""} · from ${d.source_label ?? d.source}`,
     current,
+    lotText,
     instructions ? `TODD'S INSTRUCTIONS FOR THIS ONE (true; they override everything): ${instructions}` : "",
     `INTAKE FACTS:\n${factsText(d)}`,
     `Photos below: ${photos.labels.join(", ")}.${photos.skipped.length ? ` (Couldn't load: ${photos.skipped.join("; ")})` : ""}`,
@@ -353,6 +385,8 @@ export async function saveClaudeWrite(
   if (weight.source === "none") flags.push("No weight: not paper, so nothing was assumed — weigh it (Nifty would keep its template's weight).");
 
   const prevMeta = (d.ai_meta ?? {}) as Record<string, unknown>;
+  const lotParts = ((prevMeta.lot as { parts?: unknown[] } | undefined)?.parts ?? []).length;
+  if (lotParts && !opts.revise) flags.unshift(`Lot: Claude combined ${lotParts} drafts into this one — check the pieces, the cover and the price.`);
   const guidesUsed = Array.isArray(input.guides_used) ? (input.guides_used as unknown[]).map(String).slice(0, 5) : [];
   const aiMeta = {
     ...prevMeta,

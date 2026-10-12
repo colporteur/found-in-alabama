@@ -1,8 +1,10 @@
 // Write with Claude (connector side): the tools that let Claude in the Claude
 // app write the listing drafts Todd queued with "Send to Claude". Offered only
 // on connections where Todd turned listing writing on (/admin/connect).
-// The one write is listing_save, which puts a draft in Todd's Review queue;
-// nothing here approves, sends to Nifty or publishes.
+// The writes are listing_save / listing_revise, which put a draft in Todd's
+// Review queue, and listing_combine_lot, which merges drafts Todd sent with
+// "combine lots" on into one lot draft; nothing here approves, sends to Nifty
+// or publishes.
 
 import { argStr, rawContent, type ToolDef } from "./protocol";
 import {
@@ -17,6 +19,7 @@ import {
   saveClaudeWrite,
 } from "@/lib/listings/claude";
 import { CONDITIONS } from "@/lib/listings/rules";
+import { combineLot } from "@/lib/listings/lots";
 
 export function listingTools(who: string): ToolDef[] {
   const tools = buildTools(who);
@@ -72,6 +75,25 @@ function buildTools(who: string): ToolDef[] {
       description: "The real eBay item-specific fields for a category id: required / recommended / optional, one or several values, and allowed values where eBay restricts them. Use exact field names and values in listing_save.",
       inputSchema: { type: "object", properties: { category_id: { type: "string" } }, required: ["category_id"] },
       run: async (a) => claudeCategorySpecifics(argStr(a, "category_id", 20) ?? ""),
+    },
+    {
+      name: "listing_combine_lot",
+      title: "Combine drafts into a lot",
+      readOnly: false,
+      description:
+        "Only for drafts listing_queue marks combineLots: true, all from the same batch. Merges them into ONE lot draft (the first id): all photos move onto it, FIA makes a cover from each piece's front as photo 1, and the other drafts are set aside (Todd can split the lot again). Combine when price and shared affinity make market sense — pieces worth more together (same city, theme, maker or series) or too cheap to ship alone; keep anything that sells well by itself separate. Then call listing_get_draft on the lot id and write it with listing_save.",
+      inputSchema: {
+        type: "object",
+        required: ["draft_ids", "reason"],
+        properties: {
+          draft_ids: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 23, description: "The pieces, best/most representative first" },
+          reason: { type: "string", description: "One or two sentences: why these sell better as a lot (shown to Todd)" },
+        },
+      },
+      run: async (a) => {
+        const ids = Array.isArray(a.draft_ids) ? (a.draft_ids as unknown[]).map(String) : [];
+        return combineLot(ids, who, argStr(a, "reason", 600));
+      },
     },
     {
       name: "listing_written",

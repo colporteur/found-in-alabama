@@ -12,6 +12,7 @@ import type { Research } from "@/lib/listings/research";
 import { AiNotes } from "./AiNotes";
 import { UnverifiedPanel } from "./UnverifiedPanel";
 import { PhotoStrip } from "./PhotoStrip";
+import { LotPanel } from "./LotPanel";
 import { MarkListed } from "./MarkListed";
 import { EbayPublishPanel } from "./EbayPublishPanel";
 import { ebayPublishEnabled } from "@/lib/ebay/publish";
@@ -57,6 +58,27 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
         {d.sourceLabel ?? d.source} · added {new Date(d.createdAt).toLocaleString("en-US")}
         {d.createdBy && <> by {d.createdBy.replace(/^apikey:/, "")}</>}
       </p>
+
+      {(() => {
+        const lot = d.aiMeta?.lot as { parts?: Array<{ draftId: string; title: string | null; bin: string | null }>; reason?: string | null } | undefined;
+        return lot?.parts?.length ? (
+          <LotPanel
+            id={d.id}
+            parts={lot.parts}
+            reason={lot.reason ?? null}
+            canSplit={["ready", "review", "sent_back", "with_claude"].includes(d.status)}
+          />
+        ) : null;
+      })()}
+      {typeof d.aiMeta?.combinedInto === "string" && d.status === "discarded" && (
+        <p className="mb-6 rounded border border-purple-700 bg-purple-50 p-3 text-sm text-purple-900">
+          Claude combined this draft into a lot.{" "}
+          <Link href={`/admin/listings/${d.aiMeta.combinedInto as string}`} className="underline font-medium">
+            Open the lot
+          </Link>{" "}
+          (split it there to bring this one back).
+        </p>
+      )}
 
       <PhotoStrip id={d.id} photos={d.photoList} canRotate={ROTATABLE.includes(d.status)} />
 
