@@ -38,7 +38,7 @@ export const DEFAULT_WRITER_SETTINGS: WriterSettings = {
     premium: "anthropic/claude-fable-5",
   },
   identifyModel: "anthropic/claude-haiku-4.5",
-  maxPhotos: 6,
+  maxPhotos: 8,
   retryBelow: 0.6,
   floor: 5.87,
   poshmarkFloor: 15,

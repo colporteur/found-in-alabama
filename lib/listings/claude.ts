@@ -164,9 +164,12 @@ function routeText(d: Row, extra?: string | null): string {
 export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
   const d = await loadQueued(id, true);
   const settings = await writerSettings();
+  const first = (d.ai_meta as Record<string, unknown> | null)?.lot ? 12 : Math.min(settings.maxPhotos, 8);
   const photoRows = await rows(sql`
     SELECT position, role, url FROM draft_photos WHERE draft_id = ${id} AND uploaded_at IS NOT NULL
-    ORDER BY position LIMIT ${(d.ai_meta as Record<string, unknown> | null)?.lot ? 12 : Math.min(settings.maxPhotos, 8)}`);
+    ORDER BY position LIMIT ${first}`);
+  const [pc] = await rows(sql`SELECT count(*)::int AS n FROM draft_photos WHERE draft_id = ${id} AND uploaded_at IS NOT NULL`);
+  const totalPhotos = Number(pc?.n ?? photoRows.length);
   if (!photoRows.length) throw new Error("This draft has no uploaded photos yet.");
   const photos = await preparePhotos(
     photoRows.map((p) => ({ position: Number(p.position), role: p.role ? String(p.role) : null, url: String(p.url) })),
@@ -213,7 +216,10 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
     lotText,
     instructions ? `TODD'S INSTRUCTIONS FOR THIS ONE (true; they override everything): ${instructions}` : "",
     `INTAKE FACTS:\n${factsText(d)}`,
-    `Photos below: ${photos.labels.join(", ")}.${photos.skipped.length ? ` (Couldn't load: ${photos.skipped.join("; ")})` : ""}`,
+    `Photos below: ${photos.labels.join(", ")}.${photos.skipped.length ? ` (Couldn't load: ${photos.skipped.join("; ")})` : ""}` +
+      (totalPhotos > photoRows.length
+        ? ` This draft has ${totalPhotos} photos; you're seeing the first ${photoRows.length}. If the rest could change what you write (more pages, a back, a postmark, a maker's mark, another piece of a lot), call listing_get_photos with from=${photoRows.length + 1}; skip it when these are enough.`
+        : ""),
     guides.length
       ? guidePromptText(guides.map((g) => ({ id: g.id, name: g.name, content: g.content })), 24_000, 14_000)
       : "No Expert Guide matched the intake words. Once you know what the item is, call listing_find_guide with a few words (e.g. 'rppc postcard', 'vinyl record gospel') and use what it returns; otherwise be conservative on price.",
@@ -227,6 +233,38 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
     .join("\n\n");
   return [
     { type: "text", text },
+    ...photos.parts.map((p): McpContent => {
+      const url = (p as { image_url?: { url?: string } }).image_url?.url ?? "";
+      const m = url.match(/^data:([^;]+);base64,(.*)$/);
+      return m ? { type: "image", mimeType: m[1], data: m[2] } : { type: "text", text: "(photo missing)" };
+    }),
+  ];
+}
+
+/** More of a draft's photos, a few at a time (listing_get_photos), for
+ *  drafts with more photos than listing_get_draft sends. */
+export async function claudeMorePhotos(id: string, from: number, count: number): Promise<McpContent[]> {
+  await loadQueued(id, true);
+  const start = Math.max(1, Math.floor(from) || 1);
+  const n = Math.max(1, Math.min(6, Math.floor(count) || 6));
+  const all = await rows(sql`
+    SELECT position, role, url FROM draft_photos WHERE draft_id = ${id} AND uploaded_at IS NOT NULL ORDER BY position`);
+  const slice = all.slice(start - 1, start - 1 + n);
+  if (!slice.length) return [{ type: "text", text: `This draft has ${all.length} photos; there's nothing from photo ${start} on.` }];
+  const photos = await preparePhotos(
+    slice.map((p) => ({ position: Number(p.position), role: p.role ? String(p.role) : null, url: String(p.url) })),
+    1200
+  );
+  const end = start + slice.length - 1;
+  const labels = photos.labels.map((l, i) => l.replace(/^Photo \d+/, `Photo ${start + i}`));
+  return [
+    {
+      type: "text",
+      text:
+        `Photos ${start}–${end} of ${all.length}: ${labels.join(", ")}.` +
+        (photos.skipped.length ? ` (Couldn't load: ${photos.skipped.join("; ")})` : "") +
+        (end < all.length ? ` More with from=${end + 1}.` : " That's all of them."),
+    },
     ...photos.parts.map((p): McpContent => {
       const url = (p as { image_url?: { url?: string } }).image_url?.url ?? "";
       const m = url.match(/^data:([^;]+);base64,(.*)$/);

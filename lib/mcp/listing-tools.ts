@@ -13,6 +13,7 @@ import {
   claudeFindCategories,
   claudeFindGuide,
   claudeGuideById,
+  claudeMorePhotos,
   claudeQueue,
   claudeWritten,
   reviseClaudeWrite,
@@ -46,6 +47,22 @@ function buildTools(who: string): ToolDef[] {
         "Everything needed to write one queued draft (or to revise one you wrote that's still in Review — then it also shows the current listing): Todd's instructions, intake facts, the matched Expert Guide(s), the eBay supply snapshot and pricing policy, candidate eBay categories, the store's shelves, the writing rules and the expected fields — followed by the photos. Look at every photo (backs, labels, postmarks) before writing. You may use web search to identify places, makers and dates, but only state as fact what the photos or facts show; hedge anything else.",
       inputSchema: { type: "object", properties: { draft_id: { type: "string" } }, required: ["draft_id"] },
       run: async (a) => rawContent(await claudeDraftPacket(argStr(a, "draft_id", 40) ?? "")),
+    },
+    {
+      name: "listing_get_photos",
+      title: "More photos of a draft",
+      description:
+        "The next photos of a draft (up to 6 at a time) when listing_get_draft says it has more than it showed. Ask only when the rest could change the listing — more pages, a back, a postmark, a maker's mark, another piece of a lot.",
+      inputSchema: {
+        type: "object",
+        required: ["draft_id", "from"],
+        properties: {
+          draft_id: { type: "string" },
+          from: { type: "number", description: "First photo number to show (1-based)" },
+          count: { type: "number", default: 6, description: "How many (max 6)" },
+        },
+      },
+      run: async (a) => rawContent(await claudeMorePhotos(argStr(a, "draft_id", 40) ?? "", Number(a.from), Number(a.count ?? 6))),
     },
     {
       name: "listing_find_categories",
