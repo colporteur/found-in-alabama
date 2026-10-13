@@ -36,6 +36,9 @@ export type IntakeRequest = {
   /** Re-send of an existing source item: replace its photos (only while it
    *  hasn't been written yet). */
   replace: boolean;
+  /** What to do once every photo has arrived: queue it for Claude (one
+   *  batch per Scans-page send, optionally allowed to combine lots). */
+  after: { claude: { lots: boolean; batch: string | null } | null };
 };
 
 function str(v: unknown, max: number): string | null {
@@ -55,6 +58,15 @@ function num(v: unknown, min: number, max: number): number | null {
 }
 
 export type Parsed = { ok: true; value: IntakeRequest } | { ok: false; error: string };
+
+function parseAfter(v: unknown): IntakeRequest["after"] {
+  if (!v || typeof v !== "object") return { claude: null };
+  const c = (v as Record<string, unknown>).claude;
+  if (!c || typeof c !== "object") return { claude: null };
+  const r = c as Record<string, unknown>;
+  const batch = typeof r.batch === "string" && /^[\w:.-]{1,60}$/.test(r.batch) ? r.batch : null;
+  return { claude: { lots: r.lots === true, batch } };
+}
 
 export function parseIntakeRequest(body: unknown): Parsed {
   try {
@@ -109,6 +121,7 @@ export function parseIntakeRequest(body: unknown): Parsed {
         photos,
         uploadMode: b.uploadMode === "proxy" ? "proxy" : "presigned",
         replace: b.replace === true,
+        after: parseAfter(b.after),
       },
     };
   } catch (err) {
