@@ -8,6 +8,10 @@ import { VENUE_NAME, editsReady, loadItem } from "@/lib/inventory/browse";
 import { booksReady, itemCost, listAcquisitions } from "@/lib/books/books";
 import { HaulCostPanel } from "../../books/BooksControls";
 import { ItemEditor } from "./ItemEditor";
+import { AddToPool } from "../../listings/pool/AddToPool";
+import { poolReady } from "@/lib/listings/pool";
+import { db } from "@/db";
+import { sql } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +25,14 @@ export default async function ItemPage({ params }: { params: { id: string } }) {
   if (!it) notFound();
   const ready = await editsReady();
   const books = (await booksReady().catch(() => false)) ? { cost: await itemCost(it.id), hauls: await listAcquisitions(100) } : null;
+  // Stale or not, a live item can be suggested for a lot (it stays listed until delisted by hand).
+  const pool =
+    it.status === "live" && (await poolReady().catch(() => false))
+      ? {
+          inPool: (((await db.execute(sql`SELECT 1 AS x FROM lot_pool WHERE registry_item_id = ${it.id}::uuid AND status = 'waiting' LIMIT 1`)) as { rows?: unknown[] }).rows ?? []).length > 0,
+          groups: (((await db.execute(sql`SELECT id, name FROM lot_groups WHERE status = 'forming' ORDER BY name`)) as { rows?: Array<{ id: string; name: string }> }).rows ?? []).map((g) => ({ id: String(g.id), name: String(g.name) })),
+        }
+      : null;
 
   return (
     <section className="container-content py-10">
@@ -149,6 +161,14 @@ export default async function ItemPage({ params }: { params: { id: string } }) {
               splitCost={books.cost.splitCost}
             />
           )}
+          {pool &&
+            (pool.inPool ? (
+              <Link href="/admin/listings/pool" className="inline-block text-sm px-3 py-2 rounded border border-purple-700 text-purple-900">
+                Suggested for a lot — open the Lot pool
+              </Link>
+            ) : (
+              <AddToPool registryItemId={it.id} groups={pool.groups} />
+            ))}
           <a
             href={`/admin/labels/print?k=r:${it.id}`}
             target="_blank"

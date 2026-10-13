@@ -24,6 +24,8 @@ export const DRAFT_STATUSES = [
   "sent_back",
   /** Queued for Claude in the Claude app to write through the FIA connector. */
   "with_claude",
+  /** Set aside in the lot pool (bin LOTPOOL) until its lot is listed. */
+  "pooled",
   "discarded",
 ] as const;
 

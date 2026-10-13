@@ -8,16 +8,23 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 
-type Part = { draftId: string; title: string | null; bin: string | null };
+type Part = { draftId: string; title: string | null; bin: string | null; candidate?: { registryItemId: string } };
 
-export function LotPanel({ id, parts, reason, canSplit }: { id: string; parts: Part[]; reason: string | null; canSplit: boolean }) {
+export function LotPanel({ id, parts, reason, canSplit, fromPool = false }: { id: string; parts: Part[]; reason: string | null; canSplit: boolean; fromPool?: boolean }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const bins = Array.from(new Set(parts.map((p) => p.bin).filter(Boolean)));
 
   async function split() {
-    if (!confirm(`Split this lot back into ${parts.length} drafts? The lot's title, description and price are cleared; every piece goes back to Ready.`)) return;
+    if (
+      !confirm(
+        fromPool
+          ? `Put this lot back in the lot pool? The lot's text is cleared and its ${parts.length} pieces wait in the pool again.`
+          : `Split this lot back into ${parts.length} drafts? The lot's title, description and price are cleared; every piece goes back to Ready.`
+      )
+    )
+      return;
     setBusy(true);
     setMsg(null);
     try {
@@ -46,19 +53,32 @@ export function LotPanel({ id, parts, reason, canSplit }: { id: string; parts: P
       <ol className="mt-2 list-decimal pl-5 text-purple-900/90">
         {parts.map((p, i) => (
           <li key={p.draftId}>
-            {i === 0 ? p.title ?? "item" : <Link href={`/admin/listings/${p.draftId}`} className="underline">{p.title ?? "item"}</Link>}
+            {p.candidate ? (
+              <Link href={`/admin/inventory/${p.candidate.registryItemId}`} className="underline">{p.title ?? "item"}</Link>
+            ) : p.draftId === id || !p.draftId ? (
+              p.title ?? "item"
+            ) : (
+              <Link href={`/admin/listings/${p.draftId}`} className="underline">{p.title ?? "item"}</Link>
+            )}
+            {p.candidate && <span className="ml-1 text-xs">(was listed on its own — pull it from its old bin)</span>}
             {p.bin && <span className="ml-1 font-mono text-xs">(bin {p.bin})</span>}
           </li>
         ))}
       </ol>
-      {bins.length > 1 && (
+      {fromPool && (
+        <p className="mt-2 text-purple-900/80">
+          From the lot pool: the pooled pieces are in the <span className="font-mono">LOTPOOL</span> bin. Give the lot its own bin below and put
+          every piece there.
+        </p>
+      )}
+      {!fromPool && bins.length > 1 && (
         <p className="mt-2 text-purple-900/80">
           The pieces came from bins {bins.join(", ")}; the lot keeps bin <span className="font-mono">{bins[0]}</span> — put them together there.
         </p>
       )}
       {canSplit && (
         <button type="button" onClick={split} disabled={busy} className="mt-3 rounded border border-purple-700 px-3 py-1.5 text-purple-900 hover:bg-purple-100 disabled:opacity-50">
-          {busy ? "Splitting…" : "Split lot"}
+          {busy ? "Splitting…" : fromPool ? "Put back in the lot pool" : "Split lot"}
         </button>
       )}
       {msg && <p className="mt-2 text-red-800">{msg}</p>}

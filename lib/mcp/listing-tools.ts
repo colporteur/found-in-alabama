@@ -14,6 +14,9 @@ import {
   claudeFindGuide,
   claudeGuideById,
   claudeMorePhotos,
+  claudePool,
+  claudePoolAdd,
+  claudePoolGroup,
   claudeQueue,
   claudeWritten,
   reviseClaudeWrite,
@@ -111,6 +114,54 @@ function buildTools(who: string): ToolDef[] {
         const ids = Array.isArray(a.draft_ids) ? (a.draft_ids as unknown[]).map(String) : [];
         return combineLot(ids, who, argStr(a, "reason", 600));
       },
+    },
+    {
+      name: "listing_pool",
+      title: "Todd's lot pool",
+      description:
+        "The lot pool: lots being formed (pieces, estimated values, Todd's suggested price) and pieces not in a lot yet. 'pooled' pieces are set aside in bin LOTPOOL; 'candidate' pieces are still listed on their own (stale inventory). Text only — cheap to read before deciding lots.",
+      inputSchema: { type: "object", properties: {} },
+      run: async () => claudePool(),
+    },
+    {
+      name: "listing_pool_add",
+      title: "Set a piece aside in the lot pool",
+      readOnly: false,
+      description:
+        "For a queued draft with combineLots: true that would sell better in a lot but has no partner in this batch (or fits a lot forming in the pool). Identify it and estimate its value — don't write a listing. Optionally put it straight into a forming lot (group_id from listing_pool) or start a new one (new_lot_name). Postcards only go with postcards unless the lot allows mixing.",
+      inputSchema: {
+        type: "object",
+        required: ["draft_id", "identification", "est_value_usd"],
+        properties: {
+          draft_id: { type: "string" },
+          identification: { type: "string", description: "What it is, in a line (maker, place, era)" },
+          est_value_usd: { type: "number", description: "What it would sell for on its own" },
+          is_postcard: { type: "boolean" },
+          group_id: { type: "string" },
+          new_lot_name: { type: "string", description: "e.g. 'St. Louis souvenir brochures'" },
+          note: { type: "string" },
+        },
+      },
+      run: async (a) => claudePoolAdd(argStr(a, "draft_id", 40) ?? "", a, who),
+    },
+    {
+      name: "listing_pool_group",
+      title: "Group lot pool pieces",
+      readOnly: false,
+      description:
+        "Put pool pieces (member ids from listing_pool) into a forming lot (group_id) or a new one (new_lot_name), with a short reason and a suggested lot price. Todd lists it when he's ready.",
+      inputSchema: {
+        type: "object",
+        required: ["member_ids"],
+        properties: {
+          member_ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 50 },
+          group_id: { type: "string" },
+          new_lot_name: { type: "string" },
+          reason: { type: "string" },
+          suggested_price: { type: "number" },
+        },
+      },
+      run: async (a) => claudePoolGroup(a, who),
     },
     {
       name: "listing_written",
