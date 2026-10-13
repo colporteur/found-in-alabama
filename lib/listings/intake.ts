@@ -75,6 +75,14 @@ async function insertPhotos(cfg: R2Config, draftId: string, req: IntakeRequest) 
   }
 }
 
+/** Keep the sender's "after upload" wish on the draft until the photos are in. */
+async function rememberAfter(draftId: string, req: IntakeRequest): Promise<void> {
+  if (!req.after.claude) return;
+  await db.execute(sql`
+    UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('intakeAfter', ${JSON.stringify(req.after)}::jsonb)
+    WHERE id = ${draftId}`);
+}
+
 export async function startIntake(req: IntakeRequest, who: string): Promise<IntakeResult> {
   const cfg = r2Config();
   if (!cfg) return { ok: false, status: 503, error: "Photo storage (R2) is not configured yet" };
@@ -107,6 +115,7 @@ export async function startIntake(req: IntakeRequest, who: string): Promise<Inta
         await insertPhotos(cfg, draftId, req);
         await db.execute(sql`UPDATE listing_drafts SET status = 'uploading', updated_at = now() WHERE id = ${draftId}`);
       }
+      await rememberAfter(draftId, req);
       return {
         ok: true,
         draftId,
@@ -136,6 +145,7 @@ export async function startIntake(req: IntakeRequest, who: string): Promise<Inta
       RETURNING id`);
     draftId = String(draft.id);
     await insertPhotos(cfg, draftId, req);
+    await rememberAfter(draftId, req);
   } catch (err) {
     // Don't leave an orphan registry item behind (the draft cascades its photos).
     await db.execute(sql`DELETE FROM listing_drafts WHERE registry_item_id = ${registryItemId}`).catch(() => {});
@@ -160,7 +170,7 @@ export async function completeIntake(
 ): Promise<{ ok: true; status: string; missing: number[] } | { ok: false; status: number; error: string }> {
   const cfg = r2Config();
   if (!cfg) return { ok: false, status: 503, error: "Photo storage (R2) is not configured yet" };
-  const [draft] = await rows(sql`SELECT status FROM listing_drafts WHERE id = ${draftId}`);
+  const [draft] = await rows(sql`SELECT status, ai_meta FROM listing_drafts WHERE id = ${draftId}`);
   if (!draft) return { ok: false, status: 404, error: "Draft not found" };
 
   const pending = await rows(sql`
@@ -178,6 +188,18 @@ export async function completeIntake(
   if (missing.length === 0 && status === "uploading") {
     await db.execute(sql`UPDATE listing_drafts SET status = 'ready', updated_at = now() WHERE id = ${draftId}`);
     status = "ready";
+  }
+  // Sent from the Scans page with "also send to Claude": queue it now.
+  const after = (draft.ai_meta as Record<string, unknown> | null)?.intakeAfter as IntakeRequest["after"] | undefined;
+  if (missing.length === 0 && after?.claude && status === "ready") {
+    const c = after.claude;
+    const done = await rows(sql`
+      UPDATE listing_drafts SET status = 'with_claude', generation_error = NULL, updated_at = now(),
+        ai_meta = (COALESCE(ai_meta, '{}'::jsonb) - 'intakeAfter') || jsonb_build_object(
+          'claudeQueuedAt', now(), 'claudeQueuedBy', 'scans page',
+          'claudeBatch', ${c.batch ?? `scans-${new Date().toISOString().slice(0, 13)}`}::text, 'claudeLots', ${c.lots}::boolean)
+      WHERE id = ${draftId} AND status = 'ready' RETURNING id`);
+    if (done.length) status = "with_claude";
   }
   return { ok: true, status, missing };
 }

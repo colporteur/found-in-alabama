@@ -56,3 +56,13 @@ test("item specifics round-trip through the text box format", () => {
   assert.deepEqual(spec, { Brand: "Curt Teich", Era: "Linen (1930-1945)", Theme: ["Cowboys", "Western"] });
   assert.equal(formatSpecifics(spec), "Brand: Curt Teich\nEra: Linen (1930-1945)\nTheme: Cowboys | Western");
 });
+
+test("after: queue for Claude with lots and a batch id", () => {
+  const r = parseIntakeRequest({ source: "scans", photos: [photo("a")], after: { claude: { lots: true, batch: "scans-2026-10-13T16:40-ab12" } } });
+  assert.ok(r.ok);
+  if (r.ok) assert.deepEqual(r.value.after, { claude: { lots: true, batch: "scans-2026-10-13T16:40-ab12" } });
+  const none = parseIntakeRequest({ source: "scans", photos: [photo("a")] });
+  assert.ok(none.ok && none.value.after.claude === null);
+  const bad = parseIntakeRequest({ source: "scans", photos: [photo("a")], after: { claude: { batch: "x; DROP" } } });
+  assert.ok(bad.ok && bad.value.after.claude?.batch === null && bad.value.after.claude?.lots === false);
+});
