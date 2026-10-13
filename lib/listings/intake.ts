@@ -77,7 +77,7 @@ async function insertPhotos(cfg: R2Config, draftId: string, req: IntakeRequest) 
 
 /** Keep the sender's "after upload" wish on the draft until the photos are in. */
 async function rememberAfter(draftId: string, req: IntakeRequest): Promise<void> {
-  if (!req.after.claude) return;
+  if (!req.after.claude && !req.after.pool) return;
   await db.execute(sql`
     UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('intakeAfter', ${JSON.stringify(req.after)}::jsonb)
     WHERE id = ${draftId}`);
@@ -191,6 +191,19 @@ export async function completeIntake(
   }
   // Sent from the Scans page with "also send to Claude": queue it now.
   const after = (draft.ai_meta as Record<string, unknown> | null)?.intakeAfter as IntakeRequest["after"] | undefined;
+  // Sent from the Scans page's "Lot pool": set it aside in the lot pool.
+  if (missing.length === 0 && after?.pool && status === "ready") {
+    try {
+      const { poolDraft, poolReady } = await import("./pool");
+      if (await poolReady()) {
+        await poolDraft(draftId, "scans page", { note: "from the Scans page Lot pool folder" });
+        await db.execute(sql`UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) - 'intakeAfter' WHERE id = ${draftId}`);
+        status = "pooled";
+      }
+    } catch (err) {
+      console.error("[intake] lot pool failed", draftId, err);
+    }
+  }
   if (missing.length === 0 && after?.claude && status === "ready") {
     const c = after.claude;
     const done = await rows(sql`

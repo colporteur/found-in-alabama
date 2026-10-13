@@ -1883,3 +1883,59 @@ export const registryItemEdits = pgTable(
     itemIdx: index("registry_item_edits_item_idx").on(t.registryItemId, t.editedAt),
   })
 );
+
+// ─── Lot pool (LIST-POOL) ────────────────────────────────────────────────────
+// Pieces waiting to become part of a lot. "pooled" = a listing draft set
+// aside in the LOTPOOL bin (not for sale anywhere); "candidate" = an item
+// still listed on its own (stale inventory) suggested for a lot — it must be
+// delisted everywhere (by hand, for now) before the lot is listed. Groups are
+// lots being formed; "List this lot now" turns one into a lot draft.
+
+export const lotGroups = pgTable("lot_groups", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  /** Postcards stay with postcards unless this is on. */
+  allowMix: boolean("allow_mix").default(false).notNull(),
+  /** forming | listed | dissolved */
+  status: text("status").default("forming").notNull(),
+  suggestedPrice: numeric("suggested_price", { precision: 10, scale: 2 }),
+  reason: text("reason"),
+  lotDraftId: uuid("lot_draft_id"),
+  createdBy: text("created_by"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const lotPool = pgTable(
+  "lot_pool",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** pooled | candidate */
+    kind: text("kind").notNull(),
+    /** waiting | in_lot | released */
+    status: text("status").default("waiting").notNull(),
+    draftId: uuid("draft_id"),
+    registryItemId: uuid("registry_item_id"),
+    groupId: uuid("group_id").references(() => lotGroups.id, { onDelete: "set null" }),
+    title: text("title"),
+    identification: text("identification"),
+    isPostcard: boolean("is_postcard").default(false).notNull(),
+    estValue: numeric("est_value", { precision: 10, scale: 2 }),
+    photoUrl: text("photo_url"),
+    note: text("note"),
+    /** The bin it had before LOTPOOL (pooled), put back on release. */
+    prevBin: text("prev_bin"),
+    /** Todd has put it in the physical LOTPOOL bin. */
+    movedAt: timestamp("moved_at"),
+    /** Candidate: Todd confirmed it's delisted on every marketplace. */
+    delistedAt: timestamp("delisted_at"),
+    addedBy: text("added_by"),
+    addedAt: timestamp("added_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    draftUq: uniqueIndex("lot_pool_draft_uq").on(t.draftId).where(sql`${t.draftId} IS NOT NULL AND ${t.status} = 'waiting'`),
+    itemUq: uniqueIndex("lot_pool_item_uq").on(t.registryItemId).where(sql`${t.registryItemId} IS NOT NULL AND ${t.status} = 'waiting'`),
+    groupIdx: index("lot_pool_group_idx").on(t.groupId),
+  })
+);

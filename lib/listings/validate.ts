@@ -38,7 +38,7 @@ export type IntakeRequest = {
   replace: boolean;
   /** What to do once every photo has arrived: queue it for Claude (one
    *  batch per Scans-page send, optionally allowed to combine lots). */
-  after: { claude: { lots: boolean; batch: string | null } | null };
+  after: { claude: { lots: boolean; batch: string | null } | null; pool?: boolean };
 };
 
 function str(v: unknown, max: number): string | null {
@@ -61,6 +61,8 @@ export type Parsed = { ok: true; value: IntakeRequest } | { ok: false; error: st
 
 function parseAfter(v: unknown): IntakeRequest["after"] {
   if (!v || typeof v !== "object") return { claude: null };
+  // Scans page "Lot pool": the draft waits in the lot pool instead.
+  if ((v as Record<string, unknown>).pool === true) return { claude: null, pool: true };
   const c = (v as Record<string, unknown>).claude;
   if (!c || typeof c !== "object") return { claude: null };
   const r = c as Record<string, unknown>;

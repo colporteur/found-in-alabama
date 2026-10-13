@@ -46,3 +46,14 @@ test("lotOrder: fronts first, then the rest part by part, extras parked", () => 
   assert.deepEqual(tight.keep.map((x) => x.id), ["a1", "b1", "a2", "a3"]);
   assert.deepEqual(tight.park.map((x) => x.id), ["b2", "b3"]);
 });
+
+test("lot pool: postcard detection and the no-mixing rule", async () => {
+  const { looksLikePostcard, mixProblem } = await import("./pool");
+  assert.equal(looksLikePostcard("Vintage Linen Postcard Mobile AL"), true);
+  assert.equal(looksLikePostcard("RPPC Main Street"), true);
+  assert.equal(looksLikePostcard("1950s St. Louis Souvenir Brochure"), false);
+  assert.equal(mixProblem([{ isPostcard: true }, { isPostcard: true }], false), null);
+  assert.equal(mixProblem([{ isPostcard: false }, { isPostcard: false }], false), null);
+  assert.ok(mixProblem([{ isPostcard: true }, { isPostcard: false }], false));
+  assert.equal(mixProblem([{ isPostcard: true }, { isPostcard: false }], true), null);
+});

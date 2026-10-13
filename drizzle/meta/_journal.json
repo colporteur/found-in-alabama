@@ -316,6 +316,13 @@
       "when": 1791809012186,
       "tag": "0044_invoice_tax",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791927884562,
+      "tag": "0045_lot_pool",
+      "breakpoints": true
     }
   ]
 }

@@ -22,6 +22,7 @@ const STATUS_LABEL: Record<string, string> = {
   published: "Published",
   sent_back: "Sent back",
   with_claude: "With Claude",
+  pooled: "In lot pool",
   discarded: "Discarded",
 };
 
@@ -64,6 +65,9 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
           </p>
         </div>
         <div className="flex gap-2">
+          <Link href="/admin/listings/pool" className="text-sm px-4 py-2 rounded border border-purple-700 text-purple-900 hover:bg-purple-50">
+            Lot pool{counts.pooled ? ` (${counts.pooled})` : ""}
+          </Link>
           <Link href="/admin/listings/settings" className="text-sm px-4 py-2 rounded border border-brand-ink/20 hover:border-brand-ink/50">
             Writer settings
           </Link>

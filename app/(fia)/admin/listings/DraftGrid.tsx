@@ -26,6 +26,7 @@ const STATUS_LABEL: Record<string, string> = {
   published: "Published",
   sent_back: "Sent back",
   with_claude: "With Claude",
+  pooled: "In lot pool",
   discarded: "Discarded",
 };
 

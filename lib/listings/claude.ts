@@ -111,7 +111,7 @@ export async function claudeQueue(limit = 50) {
     ...(anyLots
       ? {
           lots:
-            "Some drafts have combineLots: true. Before writing those, look over their batch (same batch value; open them with listing_get_draft) and combine pieces into a lot with listing_combine_lot when price and shared affinity make market sense — e.g. low-value pieces that sell better together (same city, theme, maker, series). Leave anything that sells well on its own as its own listing. Then write each lot (and each remaining draft) as usual.",
+            "Some drafts have combineLots: true. Before writing those, look over their batch (same batch value; open them with listing_get_draft) and combine pieces into a lot with listing_combine_lot when price and shared affinity make market sense — e.g. low-value pieces that sell better together (same city, theme, maker, series). Leave anything that sells well on its own as its own listing. Also check Todd's lot pool (listing_pool): a piece that fits a lot forming there, or that would make a good lot but has no partner yet, goes into the pool with listing_pool_add (identify it and estimate its value; don't write a listing). Postcards only lot with postcards unless the pool lot allows mixing. Then write each lot (and each remaining draft) as usual.",
         }
       : {}),
     drafts: list.map((r) => ({
@@ -507,3 +507,67 @@ export async function saveClaudeWrite(
   };
 }
 
+
+// ─── the lot pool, for Claude (lib/listings/pool.ts) ────────────────────────
+
+export async function claudePool() {
+  const { loadPool } = await import("./pool");
+  const p = await loadPool();
+  const m = (x: Awaited<ReturnType<typeof loadPool>>["loose"][number]) => ({
+    memberId: x.id,
+    kind: x.kind === "candidate" ? "candidate (still listed on its own)" : "pooled",
+    title: x.title,
+    identification: x.identification,
+    postcard: x.isPostcard,
+    estValue: x.estValue,
+    waitingDays: x.days,
+  });
+  return {
+    note: "Lot pool: pieces waiting to become lots. Todd decides when a lot is listed. Postcards only go with postcards unless allowMix.",
+    lots: p.groups.map((g) => ({
+      groupId: g.id,
+      name: g.name,
+      allowMix: g.allowMix,
+      suggestedPrice: g.suggestedPrice,
+      reason: g.reason,
+      estTotal: g.estTotal,
+      pieces: g.members.map(m),
+    })),
+    notInALotYet: p.loose.map(m),
+  };
+}
+
+/** Claude parks a queued piece in the pool (identified, valued, not written). */
+export async function claudePoolAdd(id: string, a: Record<string, unknown>, who: string) {
+  const d = await loadQueued(id, false);
+  if (((d.ai_meta ?? {}) as Record<string, unknown>).claudeLots !== true)
+    throw new Error("Todd didn't turn on lots for this draft; write it on its own.");
+  const { poolDraft } = await import("./pool");
+  const str = (k: string, max: number) => (typeof a[k] === "string" ? String(a[k]).trim().slice(0, max) || null : null);
+  const est = Number(a.est_value_usd);
+  const r = await poolDraft(id, `claude:${who}`, {
+    identification: str("identification", 400),
+    estValue: Number.isFinite(est) && est > 0 ? Math.round(est * 100) / 100 : null,
+    isPostcard: typeof a.is_postcard === "boolean" ? a.is_postcard : null,
+    note: str("note", 600),
+    groupId: str("group_id", 40),
+    newGroup: str("new_lot_name", 120),
+  });
+  return { pooled: true, ...r, note: "Set aside in the lot pool (bin LOTPOOL). Todd lists the lot from FIA when it's ready." };
+}
+
+/** Claude groups pool pieces into a forming lot (or a new one). */
+export async function claudePoolGroup(a: Record<string, unknown>, who: string) {
+  const { assignMembers, updateGroup } = await import("./pool");
+  const memberIds = Array.isArray(a.member_ids) ? (a.member_ids as unknown[]).map(String) : [];
+  const groupId = typeof a.group_id === "string" ? a.group_id : null;
+  const newGroup = typeof a.new_lot_name === "string" ? a.new_lot_name : null;
+  const r = await assignMembers(memberIds, { groupId, newGroup }, `claude:${who}`);
+  const price = Number(a.suggested_price);
+  if (r.groupId)
+    await updateGroup(r.groupId, {
+      reason: typeof a.reason === "string" ? a.reason : undefined,
+      suggestedPrice: Number.isFinite(price) && price > 0 ? Math.round(price * 100) / 100 : undefined,
+    });
+  return { ...r, note: "Grouped. Todd sees it on the Lot pool page and lists it when he's ready." };
+}

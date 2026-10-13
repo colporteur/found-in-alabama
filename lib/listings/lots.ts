@@ -33,6 +33,9 @@ export type LotPart = {
   bin: string | null;
   /** Every photo the part had, with where it was, so a split restores it. */
   photos: Array<{ id: string; position: number }>;
+  /** A lot-pool candidate (an item that was listed on its own): no draft;
+   *  its photos are copies of its eBay photos on the lot draft. */
+  candidate?: { registryItemId: string; memberId: string };
 };
 export type LotMeta = {
   parts: LotPart[];
@@ -40,6 +43,10 @@ export type LotMeta = {
   combinedAt: string;
   combinedBy: string;
   reason: string | null;
+  /** Built from a lot-pool group (lib/listings/pool.ts): splitting puts the
+   *  pieces back in the pool rather than back to Ready. */
+  poolGroupId?: string;
+  poolMemberIds?: string[];
 };
 
 type P = { id: string; draftId: string; position: number; role: string | null };
@@ -69,7 +76,7 @@ export function lotOrder(parts: P[][], room: number): { keep: P[]; park: P[] } {
 
 /** Move photos to their places without tripping the (draft, position)
  *  unique index: first everything to unique negative spots, then home. */
-async function placePhotos(moves: Array<{ id: string; draftId: string; position: number }>): Promise<void> {
+export async function placePhotos(moves: Array<{ id: string; draftId: string; position: number }>): Promise<void> {
   for (const [i, m] of moves.entries()) {
     await db.execute(sql`UPDATE draft_photos SET position = ${-100000 - i} WHERE id = ${m.id}::uuid`);
   }
@@ -78,7 +85,7 @@ async function placePhotos(moves: Array<{ id: string; draftId: string; position:
   }
 }
 
-async function uploadCover(draftId: string, urls: string[]): Promise<{ key: string; url: string; bytes: number }> {
+export async function uploadCover(draftId: string, urls: string[]): Promise<{ key: string; url: string; bytes: number }> {
   const cfg = r2Config();
   if (!cfg) throw new Error("Photo storage (R2) is not configured");
   const jpg = await renderCover(urls);
@@ -87,7 +94,7 @@ async function uploadCover(draftId: string, urls: string[]): Promise<{ key: stri
   return { key, url: publicUrl(cfg, key), bytes: jpg.length };
 }
 
-async function insertCoverRow(draftId: string, cover: { key: string; url: string; bytes: number }, position: number): Promise<string> {
+export async function insertCoverRow(draftId: string, cover: { key: string; url: string; bytes: number }, position: number): Promise<string> {
   const [r] = await rows(sql`
     INSERT INTO draft_photos (draft_id, position, role, storage_key, url, original_name, bytes, content_type, uploaded_at)
     VALUES (${draftId}::uuid, ${position}, 'cover', ${cover.key}, ${cover.url}, '00-cover.jpg', ${cover.bytes}, 'image/jpeg', now())
@@ -95,7 +102,7 @@ async function insertCoverRow(draftId: string, cover: { key: string; url: string
   return String(r.id);
 }
 
-async function loadPhotos(draftIds: string[]): Promise<P[]> {
+export async function loadPhotos(draftIds: string[]): Promise<P[]> {
   const list = await rows(sql`
     SELECT id, draft_id, position, role FROM draft_photos
     WHERE draft_id IN (${sql.join(draftIds.map((id) => sql`${id}::uuid`), sql`, `)}) AND uploaded_at IS NOT NULL
@@ -201,6 +208,7 @@ export async function splitLot(lotId: string): Promise<{ restored: number }> {
     throw new Error(`A lot can only be split before it's approved (this one is "${String(d.status).replace("_", " ")}").`);
 
   if (lot.coverPhotoId) await db.execute(sql`DELETE FROM draft_photos WHERE id = ${lot.coverPhotoId}::uuid AND draft_id = ${lotId}::uuid`);
+  if (lot.poolGroupId) return splitPoolLot(lotId, lot);
   // Photos Todd added to the lot afterwards (e.g. his own cover) stay on it,
   // after the first part's own photos.
   const known = new Set(lot.parts.flatMap((p) => p.photos.map((x) => x.id)));
@@ -225,6 +233,44 @@ export async function splitLot(lotId: string): Promise<{ restored: number }> {
       written_by = NULL, title_hint = ${lot.parts[0].title}, review_note = NULL,
       ai_meta = COALESCE(ai_meta, '{}'::jsonb) - 'lot', updated_at = now()
     WHERE id = ${lotId}::uuid`);
+  return { restored: lot.parts.length };
+}
+
+/** A lot made from the lot pool goes back into the pool: pooled pieces get
+ *  their photos back and wait again (bin LOTPOOL), candidates wait again
+ *  (still delisted), and the lot is forming again. A lot that was made only
+ *  of candidates had a new draft, which is set aside. */
+async function splitPoolLot(lotId: string, lot: LotMeta): Promise<{ restored: number }> {
+  const pooled = lot.parts.filter((p) => p.draftId);
+  const candPhotos = lot.parts.filter((p) => p.candidate).flatMap((p) => p.photos.map((x) => x.id));
+  if (candPhotos.length) {
+    await db.execute(sql`DELETE FROM draft_photos WHERE id IN (${sql.join(candPhotos.map((id) => sql`${id}::uuid`), sql`, `)}) AND storage_key LIKE 'external:%'`);
+  }
+  const known = new Set(pooled.flatMap((p) => p.photos.map((x) => x.id)));
+  const extra = pooled.length && pooled[0].draftId === lotId ? (await loadPhotos([lotId])).filter((p) => !known.has(p.id)) : [];
+  const maxOwn = Math.max(0, ...(pooled[0]?.photos ?? []).map((x) => x.position));
+  await placePhotos([
+    ...pooled.flatMap((p) => p.photos.map((x) => ({ id: x.id, draftId: p.draftId, position: x.position }))),
+    ...extra.map((p, i) => ({ id: p.id, draftId: lotId, position: maxOwn + 1 + i })),
+  ]);
+  for (const p of pooled) {
+    const [r] = await rows(sql`
+      UPDATE listing_drafts SET status = 'pooled', bin_sku = 'LOTPOOL', review_note = NULL, title = NULL, description = NULL,
+        price = NULL, item_specifics = NULL, written_by = NULL, title_hint = COALESCE(${p.title}, title_hint),
+        ai_meta = (COALESCE(ai_meta, '{}'::jsonb) - 'combinedInto') - 'lot', updated_at = now()
+      WHERE id = ${p.draftId}::uuid RETURNING registry_item_id`);
+    if (r?.registry_item_id) {
+      await db.execute(sql`UPDATE registry_items SET status = 'draft', bin_sku = 'LOTPOOL', updated_at = now() WHERE id = ${String(r.registry_item_id)} AND status IN ('archived', 'draft')`);
+    }
+  }
+  if (!pooled.some((p) => p.draftId === lotId)) {
+    await db.execute(sql`UPDATE listing_drafts SET status = 'discarded', review_note = 'lot split back into the lot pool', updated_at = now() WHERE id = ${lotId}::uuid`);
+  }
+  if (lot.poolMemberIds?.length) {
+    await db.execute(sql`UPDATE lot_pool SET status = 'waiting', group_id = ${lot.poolGroupId}::uuid, updated_at = now()
+      WHERE id IN (${sql.join(lot.poolMemberIds.map((id) => sql`${id}::uuid`), sql`, `)})`);
+  }
+  await db.execute(sql`UPDATE lot_groups SET status = 'forming', lot_draft_id = NULL, updated_at = now() WHERE id = ${lot.poolGroupId}::uuid`);
   return { restored: lot.parts.length };
 }
 
