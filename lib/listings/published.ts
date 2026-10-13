@@ -4,7 +4,8 @@
 // sync may already have made for it) and marks the draft published.
 // Runs with the registry sync and the 5-minute sales sync, and from the
 // draft page ("Mark as listed", with an eBay item id when the title was
-// changed in Nifty). Touches FIA's own tables only.
+// changed in Nifty). A bin typed only in Nifty comes back from the eBay SKU.
+// Touches FIA's own tables only.
 
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
@@ -31,7 +32,7 @@ export async function linkDraftToEbay(draftId: string, ebayItemId: string, how: 
   const [d] = await rows(sql`SELECT id, status, registry_item_id, nifty_item_id FROM listing_drafts WHERE id = ${draftId}::uuid`);
   if (!d) return { ok: false, error: "Draft not found" };
   if (!["in_nifty", "approved"].includes(String(d.status))) return { ok: false, error: `The draft is ${d.status}` };
-  const [e] = await rows(sql`SELECT item_id, quantity FROM ebay_listings WHERE item_id = ${ebayItemId}`);
+  const [e] = await rows(sql`SELECT item_id, quantity, sku FROM ebay_listings WHERE item_id = ${ebayItemId}`);
   if (!e) return { ok: false, error: `eBay item ${ebayItemId} isn't in FIA's eBay mirror yet (it syncs every 15 minutes)` };
   const mine = d.registry_item_id ? String(d.registry_item_id) : null;
 
@@ -71,6 +72,14 @@ export async function linkDraftToEbay(draftId: string, ebayItemId: string, how: 
     UPDATE listing_drafts SET status = 'published', updated_at = now(),
       ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('ebayItemId', ${ebayItemId}::text, 'publishedAt', now(), 'publishedHow', ${how}::text)
     WHERE id = ${draftId}::uuid`);
+  // A bin typed in Nifty (not in FIA) reaches eBay as the listing's SKU:
+  // fill it in where FIA has none, so the inventory browser and pick list
+  // find the item. A bin FIA already has is never overwritten.
+  const sku = typeof e.sku === "string" ? e.sku.trim() : "";
+  if (sku) {
+    await db.execute(sql`UPDATE listing_drafts SET bin_sku = ${sku} WHERE id = ${draftId}::uuid AND (bin_sku IS NULL OR bin_sku = '')`);
+    if (mine) await db.execute(sql`UPDATE registry_items SET bin_sku = ${sku} WHERE id = ${mine}::uuid AND (bin_sku IS NULL OR bin_sku = '')`);
+  }
   return { ok: true };
 }
 

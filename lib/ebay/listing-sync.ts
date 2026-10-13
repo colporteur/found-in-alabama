@@ -452,7 +452,12 @@ export async function syncListingsBudgeted(
  * "Published" in FIA — within one events tick instead of at the 4 AM sweep.
  * Upsert only: never purges, never touches older rows.
  */
-export async function syncRecentlyStarted(hours = 48, maxPages = 3): Promise<{ upserted: number; pages: number }> {
+// eBay returns GetSellerList oldest-first unless asked otherwise, so with a
+// page cap a busy listing day (300+ new listings in 48 h) hid every newer
+// listing until the older ones aged out of the window. Sort=1 is "by end
+// time, descending" (2 = ascending); fixed-price GTC listings end 30 days
+// after they start, so that's newest-started first.
+export async function syncRecentlyStarted(hours = 48, maxPages = 5): Promise<{ upserted: number; pages: number }> {
   const to = new Date();
   const from = new Date(to.getTime() - hours * 3600_000);
   let upserted = 0;
@@ -463,6 +468,7 @@ export async function syncRecentlyStarted(hours = 48, maxPages = 3): Promise<{ u
       StartTimeFrom: from.toISOString(),
       StartTimeTo: to.toISOString(),
       DetailLevel: "ReturnAll",
+      Sort: 1,
       Pagination: { EntriesPerPage: 100, PageNumber: page },
     });
     const rawItems = (res as { ItemArray?: { Item?: unknown } }).ItemArray?.Item;
