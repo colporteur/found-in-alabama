@@ -66,3 +66,8 @@ test("after: queue for Claude with lots and a batch id", () => {
   const bad = parseIntakeRequest({ source: "scans", photos: [photo("a")], after: { claude: { batch: "x; DROP" } } });
   assert.ok(bad.ok && bad.value.after.claude?.batch === null && bad.value.after.claude?.lots === false);
 });
+
+test("after: pool", () => {
+  const r = parseIntakeRequest({ source: "scans", photos: [photo("a")], after: { pool: true } });
+  assert.ok(r.ok && r.value.after.pool === true && r.value.after.claude === null);
+});
