@@ -36,6 +36,9 @@ export type LotPart = {
   /** A lot-pool candidate (an item that was listed on its own): no draft;
    *  its photos are copies of its eBay photos on the lot draft. */
   candidate?: { registryItemId: string; memberId: string };
+  /** A pooled piece Claude pulled out of the lot pool into a batch lot;
+   *  a split puts it back in the pool (same lot, bin LOTPOOL). */
+  fromPool?: { memberId: string; groupId: string | null };
 };
 export type LotMeta = {
   parts: LotPart[];
@@ -115,11 +118,25 @@ export async function loadPhotos(draftIds: string[]): Promise<P[]> {
 export async function combineLot(
   ids: string[],
   who: string,
-  reason?: string | null
+  reason?: string | null,
+  poolMemberIds: string[] = []
 ): Promise<{ lotDraftId: string; parts: number; photos: number; parked: number; bin: string | null; note: string }> {
-  const clean = Array.from(new Set(ids.filter((id) => UUID.test(id))));
-  if (clean.length < 2) throw new Error("Give at least two draft ids from listing_queue to combine.");
-  if (clean.length > COVER_MAX_TILES) throw new Error(`A lot can have at most ${COVER_MAX_TILES} drafts.`);
+  const queuedIds = Array.from(new Set(ids.filter((id) => UUID.test(id))));
+  if (!queuedIds.length) throw new Error("Give at least one draft id from listing_queue (the lot is built on it).");
+  // Pooled pieces from the lot pool can join a lot formed in this batch.
+  const poolIds = Array.from(new Set(poolMemberIds.filter((id) => UUID.test(id))));
+  const pool = poolIds.length
+    ? await rows(sql`
+        SELECT p.id, p.draft_id, p.group_id FROM lot_pool p JOIN listing_drafts d ON d.id = p.draft_id
+        WHERE p.id IN (${sql.join(poolIds.map((id) => sql`${id}::uuid`), sql`, `)})
+          AND p.status = 'waiting' AND p.kind = 'pooled' AND d.status = 'pooled'`)
+    : [];
+  if (pool.length !== poolIds.length)
+    throw new Error("Some of those lot pool pieces aren't waiting in the pool as pooled drafts (still-listed candidates can only be listed from the Lot pool page).");
+  const poolByDraft = new Map(pool.map((p) => [String(p.draft_id), p]));
+  const clean = [...queuedIds, ...pool.map((p) => String(p.draft_id)).filter((id) => !queuedIds.includes(id))];
+  if (clean.length < 2) throw new Error("A lot needs at least two pieces.");
+  if (clean.length > COVER_MAX_TILES) throw new Error(`A lot can have at most ${COVER_MAX_TILES} pieces.`);
   const found = await rows(sql`
     SELECT id, status, title, title_hint, bin_sku, registry_item_id, ai_meta FROM listing_drafts
     WHERE id IN (${sql.join(clean.map((id) => sql`${id}::uuid`), sql`, `)})`);
@@ -127,12 +144,12 @@ export async function combineLot(
   const byId = new Map(found.map((d) => [String(d.id), d]));
   const drafts = clean.map((id) => byId.get(id)!);
   const meta = (d: Row) => (d.ai_meta ?? {}) as Record<string, unknown>;
-  for (const d of drafts) {
+  for (const d of drafts.filter((x) => !poolByDraft.has(String(x.id)))) {
     if (String(d.status) !== CLAUDE_STATUS) throw new Error(`Draft ${d.id} isn't waiting for Claude, so it can't go in a lot.`);
     if (meta(d).claudeLots !== true) throw new Error(`Todd didn't turn on "combine lots" for draft ${d.id}; write it on its own.`);
     if (meta(d).lot) throw new Error(`Draft ${d.id} is already a lot.`);
   }
-  const batch = new Set(drafts.map((d) => String(meta(d).claudeBatch ?? "")));
+  const batch = new Set(drafts.filter((x) => !poolByDraft.has(String(x.id))).map((d) => String(meta(d).claudeBatch ?? "")));
   if (batch.size !== 1 || batch.has("")) throw new Error("Only drafts Todd sent together (the same batch) can be combined.");
 
   const lot = drafts[0];
@@ -161,11 +178,15 @@ export async function combineLot(
       title: (d.title as string | null) ?? (d.title_hint as string | null) ?? null,
       bin: (d.bin_sku as string | null) ?? null,
       photos: perPart[i].map((p) => ({ id: p.id, position: p.position })),
+      ...(poolByDraft.has(String(d.id))
+        ? { fromPool: { memberId: String(poolByDraft.get(String(d.id))!.id), groupId: (poolByDraft.get(String(d.id))!.group_id as string | null) ?? null } }
+        : {}),
     })),
     coverPhotoId: coverId,
     combinedAt: new Date().toISOString(),
     combinedBy: who,
     reason: (reason ?? "").trim().slice(0, 600) || null,
+    ...(pool.length ? { poolMemberIds: pool.map((p) => String(p.id)) } : {}),
   };
   const hint = `Lot of ${drafts.length}: ${lotMeta.parts.map((p) => p.title ?? "item").join(" + ")}`.slice(0, 300);
   await db.execute(sql`
@@ -181,6 +202,18 @@ export async function combineLot(
       WHERE id = ${String(d.id)}::uuid`);
     if (d.registry_item_id) {
       await db.execute(sql`UPDATE registry_items SET status = 'archived', updated_at = now() WHERE id = ${String(d.registry_item_id)} AND status = 'draft'`);
+    }
+  }
+  if (pool.length) {
+    await db.execute(sql`UPDATE lot_pool SET status = 'in_lot', updated_at = now()
+      WHERE id IN (${sql.join(pool.map((p) => sql`${String(p.id)}::uuid`), sql`, `)})`);
+    // A pool lot whose every piece went into this lot is done.
+    const groups = Array.from(new Set(pool.map((p) => p.group_id).filter(Boolean).map(String)));
+    for (const g of groups) {
+      await db.execute(sql`
+        UPDATE lot_groups SET status = 'listed', lot_draft_id = ${lotId}::uuid, updated_at = now()
+        WHERE id = ${g}::uuid AND status = 'forming'
+          AND NOT EXISTS (SELECT 1 FROM lot_pool x WHERE x.group_id = ${g}::uuid AND x.status = 'waiting')`);
     }
   }
   return {
@@ -221,8 +254,13 @@ export async function splitLot(lotId: string): Promise<{ restored: number }> {
 
   for (const p of lot.parts.slice(1)) {
     const [r] = await rows(sql`
-      UPDATE listing_drafts SET status = 'ready', review_note = NULL, ai_meta = COALESCE(ai_meta, '{}'::jsonb) - 'combinedInto', updated_at = now()
+      UPDATE listing_drafts SET status = ${p.fromPool ? "pooled" : "ready"}, review_note = NULL, ai_meta = COALESCE(ai_meta, '{}'::jsonb) - 'combinedInto', updated_at = now()
       WHERE id = ${p.draftId}::uuid AND status = 'discarded' RETURNING registry_item_id`);
+    if (p.fromPool) {
+      // Back in the lot pool, in the same forming lot.
+      await db.execute(sql`UPDATE lot_pool SET status = 'waiting', group_id = ${p.fromPool.groupId}::uuid, updated_at = now() WHERE id = ${p.fromPool.memberId}::uuid`);
+      if (p.fromPool.groupId) await db.execute(sql`UPDATE lot_groups SET status = 'forming', lot_draft_id = NULL, updated_at = now() WHERE id = ${p.fromPool.groupId}::uuid AND status = 'listed'`);
+    }
     if (r?.registry_item_id) {
       await db.execute(sql`UPDATE registry_items SET status = 'draft', updated_at = now() WHERE id = ${String(r.registry_item_id)} AND status = 'archived'`);
     }
