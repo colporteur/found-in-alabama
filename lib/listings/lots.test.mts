@@ -57,3 +57,11 @@ test("lot pool: postcard detection and the no-mixing rule", async () => {
   assert.ok(mixProblem([{ isPostcard: true }, { isPostcard: false }], false));
   assert.equal(mixProblem([{ isPostcard: true }, { isPostcard: false }], true), null);
 });
+
+test("lot pool: ready rule", async () => {
+  const { lotReady } = await import("./pool");
+  assert.equal(lotReady(1, 40), false);
+  assert.equal(lotReady(2, 10), false);
+  assert.equal(lotReady(2, 15), true);
+  assert.equal(lotReady(3, 6), true);
+});

@@ -118,6 +118,11 @@ const btn = BTN;
           <span className={g.oldestDays >= AGING_DAYS ? "text-red-800 font-medium" : ""}>oldest {g.oldestDays} days</span>
           {postcards > 0 && postcards < g.members.length && <> · mixed</>}
         </span>
+        {g.ready && (
+          <span className="rounded bg-green-700 text-white text-xs font-bold px-1.5 py-0.5" title="3 or more pieces, or 2+ pieces worth $15 or more together — your call">
+            Ready?
+          </span>
+        )}
       </div>
       {g.reason && <p className="text-xs text-brand-ink/70 mb-2">Why: {g.reason}</p>}
       <div className="grid gap-2 md:grid-cols-2 mb-3">

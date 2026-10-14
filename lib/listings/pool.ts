@@ -72,8 +72,16 @@ export type PoolMember = {
   /** candidate: where it's still listed (venue → url) */
   venues: Array<{ venue: string; url: string | null; status: string }>;
 };
+/** Pure: a forming lot worth listing — 3+ pieces, or 2+ worth $15+ together. */
+export const READY_RULE = "3 or more pieces, or 2+ pieces worth $15 or more together";
+export function lotReady(pieces: number, estTotal: number): boolean {
+  return pieces >= 3 || (pieces >= 2 && estTotal >= 15);
+}
+
 export type PoolGroup = {
   id: string;
+  /** Meets READY_RULE (Todd still decides). */
+  ready: boolean;
   name: string;
   allowMix: boolean;
   suggestedPrice: number | null;
@@ -113,14 +121,16 @@ export async function loadPool(): Promise<{ groups: PoolGroup[]; loose: PoolMemb
   const grp = await rows(sql`SELECT * FROM lot_groups WHERE status = 'forming' ORDER BY created_at`);
   const groups: PoolGroup[] = grp.map((g) => {
     const ms = members.filter((m) => m.groupId === String(g.id));
+    const estTotal = Math.round(ms.reduce((s, m) => s + (m.estValue ?? 0), 0) * 100) / 100;
     return {
       id: String(g.id),
+      ready: lotReady(ms.length, estTotal),
       name: String(g.name),
       allowMix: g.allow_mix === true,
       suggestedPrice: num(g.suggested_price),
       reason: (g.reason as string | null) ?? null,
       members: ms,
-      estTotal: Math.round(ms.reduce((s, m) => s + (m.estValue ?? 0), 0) * 100) / 100,
+      estTotal,
       oldestDays: Math.max(0, ...ms.map((m) => m.days)),
     };
   });
@@ -254,6 +264,12 @@ export async function assignMembers(memberIds: string[], target: { groupId?: str
   if (problem) throw new Error(problem);
   await db.execute(sql`UPDATE lot_pool SET group_id = ${groupId}::uuid, updated_at = now() WHERE id IN (${ids(clean)}) AND status = 'waiting'`);
   await db.execute(sql`UPDATE lot_groups SET updated_at = now() WHERE id = ${groupId}::uuid`);
+  // Lots emptied by the move (a merge) stop showing.
+  await db.execute(sql`
+    UPDATE lot_groups g SET status = 'dissolved', updated_at = now()
+    WHERE g.status = 'forming' AND g.id <> ${groupId}::uuid
+      AND NOT EXISTS (SELECT 1 FROM lot_pool x WHERE x.group_id = g.id AND x.status = 'waiting')
+      AND EXISTS (SELECT 1 FROM lot_pool y WHERE y.group_id = g.id)`);
   return { groupId, moved: ms.length };
 }
 

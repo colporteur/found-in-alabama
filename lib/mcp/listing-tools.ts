@@ -101,18 +101,20 @@ function buildTools(who: string): ToolDef[] {
       title: "Combine drafts into a lot",
       readOnly: false,
       description:
-        "Only for drafts listing_queue marks combineLots: true, all from the same batch. Merges them into ONE lot draft (the first id): all photos move onto it, FIA makes a cover from each piece's front as photo 1, and the other drafts are set aside (Todd can split the lot again). Combine when price and shared affinity make market sense — pieces worth more together (same city, theme, maker or series) or too cheap to ship alone; keep anything that sells well by itself separate. Then call listing_get_draft on the lot id and write it with listing_save.",
+        "Only for drafts listing_queue marks combineLots: true, all from the same batch — plus, optionally, pooled pieces waiting in Todd's lot pool (pool_member_ids from listing_pool; check it first). Merges them into ONE lot draft (the first draft id): all photos move onto it, FIA makes a cover from each piece's front as photo 1, and the other drafts are set aside (Todd can split the lot again; pool pieces go back to the pool). Combine when price and shared affinity make market sense — pieces worth more together (same city, theme, maker or series) or too cheap to ship alone; keep anything that sells well by itself separate. Then call listing_get_draft on the lot id and write it with listing_save.",
       inputSchema: {
         type: "object",
         required: ["draft_ids", "reason"],
         properties: {
-          draft_ids: { type: "array", items: { type: "string" }, minItems: 2, maxItems: 23, description: "The pieces, best/most representative first" },
+          draft_ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 23, description: "Pieces from this batch, best/most representative first (the lot is built on the first)" },
+          pool_member_ids: { type: "array", items: { type: "string" }, maxItems: 22, description: "Pooled pieces from listing_pool (memberId) to include" },
           reason: { type: "string", description: "One or two sentences: why these sell better as a lot (shown to Todd)" },
         },
       },
       run: async (a) => {
         const ids = Array.isArray(a.draft_ids) ? (a.draft_ids as unknown[]).map(String) : [];
-        return combineLot(ids, who, argStr(a, "reason", 600));
+        const pool = Array.isArray(a.pool_member_ids) ? (a.pool_member_ids as unknown[]).map(String) : [];
+        return combineLot(ids, who, argStr(a, "reason", 600), pool);
       },
     },
     {
@@ -128,7 +130,7 @@ function buildTools(who: string): ToolDef[] {
       title: "Set a piece aside in the lot pool",
       readOnly: false,
       description:
-        "For a queued draft with combineLots: true that would sell better in a lot but has no partner in this batch (or fits a lot forming in the pool). Identify it and estimate its value — don't write a listing. Optionally put it straight into a forming lot (group_id from listing_pool) or start a new one (new_lot_name). Postcards only go with postcards unless the lot allows mixing.",
+        "For a queued draft with combineLots: true that would sell better in a lot but has no partner in this batch. Identify it and estimate its value — don't write a listing. Put it into an EXISTING forming lot (group_id from listing_pool) whenever one reasonably fits; start a new one (new_lot_name, with a reason) only when none does, and name it broadly (a theme, not one city or state). Postcards only go with postcards unless the lot allows mixing. The reply says when the lot becomes ready to list.",
       inputSchema: {
         type: "object",
         required: ["draft_id", "identification", "est_value_usd"],
@@ -138,7 +140,8 @@ function buildTools(who: string): ToolDef[] {
           est_value_usd: { type: "number", description: "What it would sell for on its own" },
           is_postcard: { type: "boolean" },
           group_id: { type: "string" },
-          new_lot_name: { type: "string", description: "e.g. 'St. Louis souvenir brochures'" },
+          new_lot_name: { type: "string", description: "Broad theme, e.g. 'Linen view postcards, US' or 'St. Louis souvenir brochures'" },
+          reason: { type: "string", description: "Required with new_lot_name: why these would sell as a lot" },
           note: { type: "string" },
         },
       },
@@ -149,7 +152,7 @@ function buildTools(who: string): ToolDef[] {
       title: "Group lot pool pieces",
       readOnly: false,
       description:
-        "Put pool pieces (member ids from listing_pool) into a forming lot (group_id) or a new one (new_lot_name), with a short reason and a suggested lot price. Todd lists it when he's ready.",
+        "Put pool pieces (member ids from listing_pool) into a forming lot (group_id) or a new one (new_lot_name), with a short reason and a suggested lot price. Also use it to merge lots that belong together (move every piece of one into the other; the empty one stops showing). Todd lists lots when he's ready.",
       inputSchema: {
         type: "object",
         required: ["member_ids"],

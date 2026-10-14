@@ -111,7 +111,7 @@ export async function claudeQueue(limit = 50) {
     ...(anyLots
       ? {
           lots:
-            "Some drafts have combineLots: true. Before writing those, look over their batch (same batch value; open them with listing_get_draft) and combine pieces into a lot with listing_combine_lot when price and shared affinity make market sense — e.g. low-value pieces that sell better together (same city, theme, maker, series). Leave anything that sells well on its own as its own listing. Also check Todd's lot pool (listing_pool): a piece that fits a lot forming there, or that would make a good lot but has no partner yet, goes into the pool with listing_pool_add (identify it and estimate its value; don't write a listing). Postcards only lot with postcards unless the pool lot allows mixing. Then write each lot (and each remaining draft) as usual.",
+            "Some drafts have combineLots: true. Before writing those, look over their batch (same batch value; open them with listing_get_draft) and combine pieces into a lot with listing_combine_lot when price and shared affinity make market sense — e.g. low-value pieces that sell better together (same city, theme, maker, series). Leave anything that sells well on its own as its own listing. FIRST read Todd's lot pool (listing_pool) — pieces from earlier batches waiting for partners. When a lot you're forming in this batch fits pieces waiting there, include them: listing_combine_lot with draft_ids (from this batch) plus pool_member_ids. A piece that would sell better in a lot but has no partner yet goes into the pool with listing_pool_add (identify + estimate value; no listing) — into an EXISTING pool lot whenever one reasonably fits; start a new lot only when none does, name it broadly (e.g. 'Linen view postcards, US', not one lot per state) and give a reason. Postcards only lot with postcards unless the lot allows mixing. When a pool lot is marked ready, tell Todd in your reply (he lists it from FIA's Lot pool page). Then write each lot (and each remaining draft) as usual.",
         }
       : {}),
     drafts: list.map((r) => ({
@@ -522,10 +522,16 @@ export async function claudePool() {
     estValue: x.estValue,
     waitingDays: x.days,
   });
+  const { READY_RULE } = await import("./pool");
   return {
-    note: "Lot pool: pieces waiting to become lots. Todd decides when a lot is listed. Postcards only go with postcards unless allowMix.",
+    note:
+      "Lot pool: pieces waiting to become lots. Join pieces to existing lots when they reasonably fit; keep lot themes broad. " +
+      `A lot is 'ready' at ${READY_RULE} — mention ready lots to Todd; he lists them from the Lot pool page. ` +
+      "Pooled pieces (not candidates) can also join a lot you form in the current batch: listing_combine_lot with pool_member_ids. " +
+      "Lots that should be one (e.g. three single-state linen view lots) can be merged with listing_pool_group. Postcards only go with postcards unless allowMix.",
     lots: p.groups.map((g) => ({
       groupId: g.id,
+      ready: g.ready,
       name: g.name,
       allowMix: g.allowMix,
       suggestedPrice: g.suggestedPrice,
@@ -553,12 +559,22 @@ export async function claudePoolAdd(id: string, a: Record<string, unknown>, who:
     groupId: str("group_id", 40),
     newGroup: str("new_lot_name", 120),
   });
-  return { pooled: true, ...r, note: "Set aside in the lot pool (bin LOTPOOL). Todd lists the lot from FIA when it's ready." };
+  const { updateGroup, loadPool } = await import("./pool");
+  if (str("new_lot_name", 120) && r.groupId) await updateGroup(r.groupId, { reason: str("reason", 600) });
+  const lot = r.groupId ? (await loadPool()).groups.find((g) => g.id === r.groupId) : null;
+  return {
+    pooled: true,
+    ...r,
+    lot: lot ? { name: lot.name, pieces: lot.members.length, estTotal: lot.estTotal, ready: lot.ready } : null,
+    note:
+      "Set aside in the lot pool (bin LOTPOOL). Todd lists the lot from FIA when it's ready." +
+      (lot?.ready ? ` The lot "${lot.name}" is now ready to list — tell Todd.` : ""),
+  };
 }
 
 /** Claude groups pool pieces into a forming lot (or a new one). */
 export async function claudePoolGroup(a: Record<string, unknown>, who: string) {
-  const { assignMembers, updateGroup } = await import("./pool");
+  const { assignMembers, updateGroup, loadPool } = await import("./pool");
   const memberIds = Array.isArray(a.member_ids) ? (a.member_ids as unknown[]).map(String) : [];
   const groupId = typeof a.group_id === "string" ? a.group_id : null;
   const newGroup = typeof a.new_lot_name === "string" ? a.new_lot_name : null;
@@ -569,5 +585,10 @@ export async function claudePoolGroup(a: Record<string, unknown>, who: string) {
       reason: typeof a.reason === "string" ? a.reason : undefined,
       suggestedPrice: Number.isFinite(price) && price > 0 ? Math.round(price * 100) / 100 : undefined,
     });
-  return { ...r, note: "Grouped. Todd sees it on the Lot pool page and lists it when he's ready." };
+  const lot = r.groupId ? (await loadPool()).groups.find((g) => g.id === r.groupId) : null;
+  return {
+    ...r,
+    lot: lot ? { name: lot.name, pieces: lot.members.length, estTotal: lot.estTotal, ready: lot.ready } : null,
+    note: "Grouped. Todd sees it on the Lot pool page and lists it when he's ready." + (lot?.ready ? ` "${lot.name}" is ready to list — tell Todd.` : ""),
+  };
 }
