@@ -11,6 +11,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DraftSummary } from "@/lib/listings/drafts";
 import { MinPriceControl } from "./MinPriceControl";
+import { BinControl } from "./BinControl";
 import { ShelfControl } from "./ShelfControl";
 import { ApproveControl } from "./ApproveControl";
 
@@ -196,6 +197,9 @@ export function DraftTable({ drafts, shelves, parents = [] }: { drafts: DraftSum
       </div>
       <div className="mb-4">
         <MinPriceControl selected={Array.from(picked).filter((id) => editableIds.includes(id))} shown={editableIds} />
+      </div>
+      <div className="mb-4">
+        <BinControl selected={Array.from(picked)} shown={pickableIds} />
       </div>
       <div className="mb-4">
         <ShelfControl selected={Array.from(picked).filter((id) => editableIds.includes(id))} shown={editableIds} shelves={shelves} parents={parents} />
