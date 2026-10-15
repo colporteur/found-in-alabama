@@ -10,6 +10,7 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { DraftSummary } from "@/lib/listings/drafts";
 import { MinPriceControl } from "./MinPriceControl";
+import { BinControl } from "./BinControl";
 import { ShelfControl } from "./ShelfControl";
 import { ApproveControl } from "./ApproveControl";
 
@@ -211,6 +212,9 @@ export function DraftGrid({
       </div>
       <div className="mb-6">
         <MinPriceControl selected={Array.from(picked)} shown={drafts.filter((d) => PICKABLE.has(d.status)).map((d) => d.id)} />
+      </div>
+      <div className="mb-6 -mt-4">
+        <BinControl selected={Array.from(picked)} shown={drafts.filter((d) => SELECTABLE.has(d.status)).map((d) => d.id)} />
       </div>
       <div className="mb-6 -mt-4">
         <ShelfControl selected={Array.from(picked)} shown={drafts.filter((d) => PICKABLE.has(d.status)).map((d) => d.id)} shelves={shelves} parents={parents} />

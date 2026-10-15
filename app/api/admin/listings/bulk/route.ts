@@ -3,6 +3,7 @@
 //   { action: "writable" }                → ids the "Write all ready" runner works through
 //   { action: "min_price", ids, min, round87 } → raise prices below the minimum
 //   { action: "store_shelf", ids, shelf, keepPlace } → set one of the two store shelves
+//   { action: "bin", ids, bin, onlyEmpty? }         → set the bin / SKU on many drafts
 //   { action: "auto_shelf", ids, parent, keepPlace, slot? } → AI picks the subcategory of `parent` (≤25 per call)
 //   { action: "unapprove", ids }        → approved (not yet in Nifty) → back to review
 // Signed-in admin only. Approval only marks drafts; nothing is published.
@@ -12,7 +13,7 @@ import { auth } from "@/auth";
 import { approveDrafts, unapproveDraft } from "@/lib/listings/review";
 import { writableDraftIds, writerSettings } from "@/lib/listings/writer";
 import { raiseMinPrice } from "@/lib/listings/drafts";
-import { autoShelf, setStoreShelf } from "@/lib/listings/bulk";
+import { autoShelf, setBin, setStoreShelf } from "@/lib/listings/bulk";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +32,15 @@ export async function POST(req: NextRequest) {
     parent?: unknown;
     slot?: unknown;
   };
+  if (b.action === "bin") {
+    const ids = Array.isArray(b.ids) ? b.ids.map(String) : [];
+    const bb = b as Record<string, unknown>;
+    try {
+      return NextResponse.json({ ok: true, ...(await setBin(ids, String(bb.bin ?? ""), bb.onlyEmpty !== false)) });
+    } catch (err) {
+      return NextResponse.json({ error: (err as Error).message }, { status: 400 });
+    }
+  }
   if (b.action === "auto_shelf") {
     const ids = Array.isArray(b.ids) ? b.ids.map(String) : [];
     const slot = b.slot === 0 || b.slot === 1 ? b.slot : undefined;

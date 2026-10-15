@@ -236,3 +236,48 @@ export async function autoShelf(
   }
   return out;
 }
+
+// ─── bulk bin / SKU ──────────────────────────────────────────────────────────
+// Todd often forgets the bin on the Scans page: set it on many drafts at
+// once. Drafts not yet sent to Nifty can change (approved too — the bin goes
+// to Nifty with the draft); pooled pieces keep LOTPOOL. "Only empty" (the
+// default) leaves drafts that already have a bin alone. The registry item's
+// bin follows, as with a hand edit.
+
+const BIN_STATUSES = ["uploading", "ready", "review", "sent_back", "with_claude", "approved"];
+
+export async function setBin(
+  ids: string[],
+  bin: string,
+  onlyEmpty: boolean
+): Promise<{ changed: number; hadBin: number; skipped: number; bin: string }> {
+  const b = bin.trim().replace(/\s+/g, " ");
+  if (!b) throw new Error("Type a bin / SKU first.");
+  if (b.length > 120) throw new Error("That bin is too long.");
+  const clean = Array.from(new Set(ids.filter((id) => /^[0-9a-f-]{36}$/i.test(id)))).slice(0, 500);
+  if (!clean.length) return { changed: 0, hadBin: 0, skipped: 0, bin: b };
+  const found = await rows(sql`
+    SELECT id, status, bin_sku, registry_item_id FROM listing_drafts
+    WHERE id IN (${sql.join(clean.map((id) => sql`${id}::uuid`), sql`, `)})`);
+  let changed = 0;
+  let hadBin = 0;
+  let skipped = clean.length - found.length;
+  for (const d of found) {
+    if (!BIN_STATUSES.includes(String(d.status))) {
+      skipped++;
+      continue;
+    }
+    const cur = String(d.bin_sku ?? "").trim();
+    if (cur === b) continue;
+    if (onlyEmpty && cur) {
+      hadBin++;
+      continue;
+    }
+    await db.execute(sql`UPDATE listing_drafts SET bin_sku = ${b}, updated_at = now() WHERE id = ${String(d.id)}::uuid`);
+    if (d.registry_item_id) {
+      await db.execute(sql`UPDATE registry_items SET bin_sku = ${b}, updated_at = now() WHERE id = ${String(d.registry_item_id)}::uuid AND status = 'draft'`);
+    }
+    changed++;
+  }
+  return { changed, hadBin, skipped, bin: b };
+}
