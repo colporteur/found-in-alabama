@@ -142,6 +142,19 @@ export async function loadPool(): Promise<{ groups: PoolGroup[]; loose: PoolMemb
   };
 }
 
+/** For the Listings page: lots that meet READY_RULE, and still-listed
+ *  candidates waiting in the pool. */
+export async function poolSummary(): Promise<{ readyLots: number; readyNames: string[]; candidates: number }> {
+  if (!(await poolReady())) return { readyLots: 0, readyNames: [], candidates: 0 };
+  const g = await rows(sql`
+    SELECT g.name, count(p.id)::int AS n, COALESCE(sum(p.est_value), 0)::float AS est
+    FROM lot_groups g JOIN lot_pool p ON p.group_id = g.id AND p.status = 'waiting'
+    WHERE g.status = 'forming' GROUP BY g.id, g.name ORDER BY min(p.added_at)`);
+  const ready = g.filter((r) => lotReady(Number(r.n), Number(r.est)));
+  const [c] = await rows(sql`SELECT count(*)::int AS n FROM lot_pool WHERE status = 'waiting' AND kind = 'candidate'`);
+  return { readyLots: ready.length, readyNames: ready.map((r) => String(r.name)), candidates: Number(c?.n ?? 0) };
+}
+
 export async function poolCount(): Promise<number> {
   if (!(await poolReady())) return 0;
   const [r] = await rows(sql`SELECT count(*)::int AS n FROM lot_pool WHERE status = 'waiting'`);

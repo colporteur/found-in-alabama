@@ -237,8 +237,11 @@ export function DraftGrid({
                 </label>
               )}
               {d.lotOf && (
-                <span className="absolute top-9 right-2 z-10 rounded px-1.5 py-0.5 text-xs font-bold bg-purple-700 text-white" title="Claude combined these drafts into one lot — give it a careful look">
-                  LOT of {d.lotOf}
+                <span
+                  className={`absolute top-9 right-2 z-10 rounded px-1.5 py-0.5 text-xs font-bold text-white ${d.fromPool ? "bg-fuchsia-700 ring-2 ring-fuchsia-300" : "bg-purple-700"}`}
+                  title={d.fromPool ? "A lot built from the lot pool — pieces pulled from LOTPOOL (and any still-listed candidates)" : "Claude combined these drafts into one lot — give it a careful look"}
+                >
+                  {d.fromPool ? "POOL LOT" : "LOT"} of {d.lotOf}
                 </span>
               )}
               {d.confidence != null && (
