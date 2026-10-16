@@ -5,9 +5,12 @@
 // Shipping, sales tax and Mercari's buyer protection fee print when the venue
 // told FIA (eBay orders, Mercari sale emails, website orders).
 // "Pick list order" puts the labels in the same order as the pick list.
+// Each package gets a one-use code (20% by default; Ship → Invoice coupons) off a next order on
+// either website, printed big at the bottom when there's room.
 
 import { loadShipOrders } from "@/lib/fulfillment/queue";
 import { pickOrder } from "@/lib/fulfillment/sku";
+import { codesForOrders } from "@/lib/shop/coupons";
 import { InvoiceSheets, type InvoiceData } from "./InvoiceSheets";
 
 export const dynamic = "force-dynamic";
@@ -35,6 +38,12 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
   );
   const pickRank = new Map<string, number>();
   walk.forEach((x, i) => { if (!pickRank.has(x.orderId)) pickRank.set(x.orderId, i); });
+  // COUPON-1: each package's code for a next order on either site (made the
+  // first time its invoice is shown; reprints show the same one).
+  const codes = await codesForOrders(orders.map((o) => ({ id: o.id, venue: o.venue }))).catch((err) => {
+    console.error("[invoices] coupon codes failed", err);
+    return new Map();
+  });
   const data: InvoiceData[] = orders.map((o) => {
     const website = o.venue === "tes" || o.venue === "fia";
     return {
@@ -54,6 +63,17 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
       salesTax: o.salesTax,
       taxNote: website ? null : `collected by ${VENUE[o.venue] ?? o.venue}`,
       buyerFee: o.buyerFee,
+      discount: o.discount,
+      coupon: (() => {
+        const c = codes.get(o.id);
+        return c
+          ? {
+              code: c.code,
+              percent: c.percent,
+              expires: new Date(c.expiresAt).toLocaleDateString("en-US", { timeZone: "America/Chicago", dateStyle: "medium" }),
+            }
+          : null;
+      })(),
       lines: o.lines.map((l) => ({ id: l.id, title: l.title ?? "(no title)", qty: l.quantity, price: l.price, img: l.imageUrl, sku: l.binSku })),
     };
   });

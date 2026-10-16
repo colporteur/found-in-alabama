@@ -1036,6 +1036,9 @@ export const tesOrders = pgTable(
     total: numeric("total", { precision: 10, scale: 2 }).notNull(),
     governingShipClass: text("governing_ship_class").notNull(),
     freeShipping: boolean("free_shipping").default(false).notNull(),
+    /** Coupon discount Stripe took off at checkout (invoice coupon codes). */
+    discount: numeric("discount", { precision: 10, scale: 2 }),
+    couponCode: text("coupon_code"),
     /** pending | done — has every item been delisted from Nifty? */
     delistStatus: text("delist_status").default("pending").notNull(),
     /**
@@ -1741,6 +1744,8 @@ export const shipOrders = pgTable(
     salesTax: numeric("sales_tax", { precision: 10, scale: 2 }),
     /** Mercari's buyer protection fee, from the sale email. */
     buyerFee: numeric("buyer_fee", { precision: 10, scale: 2 }),
+    /** Website orders: the coupon discount taken at checkout. */
+    discount: numeric("discount", { precision: 10, scale: 2 }),
     pickPrintedAt: timestamp("pick_printed_at"),
     invoicePrintedAt: timestamp("invoice_printed_at"),
     packedAt: timestamp("packed_at"),
@@ -1939,3 +1944,23 @@ export const lotPool = pgTable(
     groupIdx: index("lot_pool_group_idx").on(t.groupId),
   })
 );
+
+// ─── Invoice coupon codes (COUPON-1) ─────────────────────────────────────────
+// One code per package, printed on its invoice; good once on either website
+// (both check out through the same Stripe account, where it is a promotion
+// code with max_redemptions 1 and an expiry). Percent and lifetime come from
+// app_settings 'coupons' at issue time.
+export const couponCodes = pgTable("coupon_codes", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  code: text("code").notNull().unique(),
+  percent: numeric("percent", { precision: 5, scale: 2 }).notNull(),
+  shipOrderId: uuid("ship_order_id").unique(),
+  venue: text("venue"),
+  issuedAt: timestamp("issued_at").defaultNow().notNull(),
+  expiresAt: timestamp("expires_at").notNull(),
+  stripeCouponId: text("stripe_coupon_id"),
+  stripePromoId: text("stripe_promo_id"),
+  redeemedAt: timestamp("redeemed_at"),
+  /** tes_orders.id of the order that used it */
+  redeemedOrderId: uuid("redeemed_order_id"),
+});

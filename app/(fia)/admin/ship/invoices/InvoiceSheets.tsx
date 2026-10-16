@@ -6,7 +6,8 @@
 // totals are editable before printing; Print records the packages as
 // invoiced.
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { couponFits } from "@/lib/shop/coupon-fit";
 
 const PICK_ORDER_KEY = "fia.invoices.pickOrder";
 
@@ -25,6 +26,10 @@ export type InvoiceData = {
   taxNote: string | null;
   /** Mercari's buyer protection fee. */
   buyerFee: number | null;
+  /** Website orders: what an invoice code took off. */
+  discount: number | null;
+  /** This package's code for the next order on either site (COUPON-1). */
+  coupon: { code: string; percent: number; expires: string } | null;
   lines: Array<{ id: string; title: string; qty: number; price: number | null; img: string | null; sku: string | null }>;
 };
 
@@ -73,12 +78,29 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
   // Any missing line price leaves the total blank (red $) so it gets noticed.
   const all = Object.values(prices);
   const computed = all.every((p) => p != null)
-    ? (all as number[]).reduce((a, b) => a + b, 0) + (inv.shipping ?? 0) + (inv.salesTax ?? 0) + (inv.buyerFee ?? 0)
+    ? (all as number[]).reduce((a, b) => a + b, 0) + (inv.shipping ?? 0) + (inv.salesTax ?? 0) + (inv.buyerFee ?? 0) - (inv.discount ?? 0)
     : null;
   const total = totalOverride ?? computed;
 
+  // The code prints only when it fits in the room left on the last label.
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const couponRef = useRef<HTMLDivElement>(null);
+  const [fits, setFits] = useState(true);
+  useLayoutEffect(() => {
+    if (!inv.coupon || !bodyRef.current || !couponRef.current) return;
+    const measure = () => {
+      const pxPerIn = 96;
+      setFits(couponFits(bodyRef.current!.offsetHeight, couponRef.current!.offsetHeight, LABEL_CONTENT_IN * pxPerIn));
+    };
+    measure();
+    const imgs = Array.from(bodyRef.current.querySelectorAll("img"));
+    imgs.forEach((i) => i.addEventListener("load", measure));
+    return () => imgs.forEach((i) => i.removeEventListener("load", measure));
+  }, [inv.coupon, photos, prices]);
+
   return (
     <div className="invoice">
+      <div ref={bodyRef}>
       <div className={`inv-brands ${inv.brand === "both" ? "" : "inv-brands-single"}`}>
         {inv.brand !== "fia" && <Brand which="tes" />}
         {inv.brand !== "tes" && <Brand which="fia" />}
@@ -143,6 +165,12 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
           <span>{money(inv.buyerFee)}</span>
         </div>
       )}
+      {inv.discount != null && inv.discount > 0 && (
+        <div className="inv-saleline">
+          <span>Code discount</span>
+          <span>−{money(inv.discount)}</span>
+        </div>
+      )}
       {inv.salesTax != null && inv.salesTax > 0 && (
         <div className="inv-saleline">
           <span>
@@ -176,9 +204,22 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
             ? "Thank you for supporting Found in Alabama!"
             : "Thank you for supporting our small businesses!"}
       </div>
+      </div>
+      {inv.coupon && (
+        <div ref={couponRef} className={`inv-coupon ${fits ? "" : "inv-coupon-skip"}`}>
+          <p className="inv-coupon-head">{inv.coupon.percent}% OFF your next order</p>
+          <p className="inv-coupon-code">{inv.coupon.code}</p>
+          <p className="inv-coupon-sites">foundinalabama.com · theephemeralstate.com</p>
+          <p className="inv-coupon-fine">Enter the code at checkout · one use · good through {inv.coupon.expires}</p>
+        </div>
+      )}
+      {inv.coupon && !fits && <p className="no-print inv-coupon-note">No room for the coupon code on this label — it will be left off.</p>}
     </div>
   );
 }
+
+/** Printable height of a 4 × 6 label: 6in less the 0.15in @page margins. */
+const LABEL_CONTENT_IN = 6 - 0.3;
 
 export function InvoiceSheets({ invoices }: { invoices: InvoiceData[] }) {
   const [photos, setPhotos] = useState(true);
@@ -288,6 +329,15 @@ const INVOICE_CSS = `
   .inv-total { display: flex; justify-content: flex-end; align-items: baseline; gap: 8px; margin-top: 10px; padding-top: 7px; border-top: 1px solid #000; }
   .inv-total-label { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; }
   .inv-footer { margin-top: 12px; font-size: 10px; text-align: center; }
+  .inv-coupon { margin-top: 14px; padding: 8px 6px; border: 3px dashed #000; border-radius: 6px; text-align: center; break-inside: avoid; }
+  .inv-coupon p { margin: 0; }
+  .inv-coupon-head { font-size: 16px; font-weight: 800; letter-spacing: .02em; }
+  .inv-coupon-code { margin: 4px 0 !important; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 30px; font-weight: 900; letter-spacing: .08em; }
+  .inv-coupon-sites { font-size: 11px; font-weight: 700; }
+  .inv-coupon-fine { margin-top: 2px !important; font-size: 9.5px; }
+  /* kept in the layout (invisible) so it can be re-measured after an edit */
+  .inv-coupon-skip { position: absolute; left: 0.15in; right: 0.15in; visibility: hidden; }
+  .inv-coupon-note { margin: 8px 0 0; font-size: 11px; color: #b00020; text-align: center; }
   @page { size: 4in 6in; margin: 0.15in; }
   @media print {
     html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; min-height: 0 !important; display: block !important; }
@@ -299,5 +349,6 @@ const INVOICE_CSS = `
     .inv-brands, .inv-saleline { break-after: avoid; }
     .inv-total, .inv-footer { break-before: avoid; }
     .inv-price, .inv-line-price { border-color: transparent !important; color: #000 !important; }
+    .inv-coupon-skip { display: none !important; }
   }
 `;

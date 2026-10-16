@@ -107,9 +107,9 @@ export async function syncShipQueue(): Promise<SyncResult> {
 
   // 1. one package per order key
   const orders = await exec(sql`
-    INSERT INTO ship_orders (venue, order_key, venue_order_id, buyer_name, sold_at, order_total, shipping_paid)
+    INSERT INTO ship_orders (venue, order_key, venue_order_id, buyer_name, sold_at, order_total, shipping_paid, discount)
     SELECT k.venue, k.order_key, min(k.venue_order_id), min(t.shipping_name), min(k.sold_at),
-           min(t.total), min(t.shipping)
+           min(t.total), min(t.shipping), min(t.discount)
     FROM (
       SELECT e.venue, ${ORDER_KEY} AS order_key,
              CASE WHEN e.source = 'hip' THEN e.source_ref ELSE e.order_ref END AS venue_order_id,
@@ -132,6 +132,11 @@ export async function syncShipQueue(): Promise<SyncResult> {
     UPDATE ship_orders o SET order_total = t.total, shipping_paid = t.shipping
     FROM tes_orders t
     WHERE o.order_key = 'stripe:' || t.id::text AND o.order_total IS NULL`);
+  // 1c. an invoice code the buyer used (COUPON-1), if recorded after the package was made
+  await exec(sql`
+    UPDATE ship_orders o SET discount = t.discount, order_total = t.total
+    FROM tes_orders t
+    WHERE o.order_key = 'stripe:' || t.id::text AND t.discount IS NOT NULL AND o.discount IS NULL`);
 
   // 2. its lines (title, bin, photo from the registry when matched)
   const lines = await exec(sql`
@@ -401,6 +406,8 @@ export type ShipOrder = {
   shippingPaid: number | null;
   salesTax: number | null;
   buyerFee: number | null;
+  /** Website orders: what an invoice code took off the items. */
+  discount: number | null;
   pickPrintedAt: string | null;
   invoicePrintedAt: string | null;
   packedAt: string | null;
@@ -427,6 +434,7 @@ function toOrder(r: Row): ShipOrder {
     shippingPaid: r.shipping_paid == null ? null : Number(r.shipping_paid),
     salesTax: r.sales_tax == null ? null : Number(r.sales_tax),
     buyerFee: r.buyer_fee == null ? null : Number(r.buyer_fee),
+    discount: r.discount == null ? null : Number(r.discount),
     pickPrintedAt: iso(r.pick_printed_at),
     invoicePrintedAt: iso(r.invoice_printed_at),
     packedAt: iso(r.packed_at),
