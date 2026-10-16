@@ -36,14 +36,15 @@ test("frontOf prefers the front, then cover, then a non-back photo", () => {
   assert.equal(frontOf([p("b", 2, "back"), p("i", 1, "inside")])?.id, "i");
 });
 
-test("lotOrder: fronts first, then the rest part by part, extras parked", () => {
+test("lotOrder: item by item (each front, then its own insides/backs), extras parked", () => {
   const a = [p("a1", 1, "front"), p("a2", 2, "inside"), p("a3", 3, "back")];
   const b = [p("b2", 2, "inside", "b"), p("b1", 1, "front", "b"), p("b3", 3, "back", "b")];
   const { keep, park } = lotOrder([a, b], 23);
-  assert.deepEqual(keep.map((x) => x.id), ["a1", "b1", "a2", "a3", "b2", "b3"]);
+  assert.deepEqual(keep.map((x) => x.id), ["a1", "a2", "a3", "b1", "b2", "b3"]);
   assert.equal(park.length, 0);
   const tight = lotOrder([a, b], 4);
-  assert.deepEqual(tight.keep.map((x) => x.id), ["a1", "b1", "a2", "a3"]);
+  // Short on room every front still makes it; the order stays by item.
+  assert.deepEqual(tight.keep.map((x) => x.id), ["a1", "a2", "a3", "b1"]);
   assert.deepEqual(tight.park.map((x) => x.id), ["b2", "b3"]);
 });
 
@@ -64,4 +65,15 @@ test("lot pool: ready rule", async () => {
   assert.equal(lotReady(2, 10), false);
   assert.equal(lotReady(2, 15), true);
   assert.equal(lotReady(3, 6), true);
+});
+
+test("lotOrder: a front is pulled ahead of a back that sorts first; fewer slots than fronts keeps the earlier fronts", () => {
+  const d = [p("d0", 0, "back", "d"), p("d1", 1, "front", "d")];
+  assert.deepEqual(lotOrder([d], 23).keep.map((x) => x.id), ["d1", "d0"]);
+  const a = [p("a1", 1, "front"), p("a2", 2, "back")];
+  const b = [p("b1", 1, "front", "b"), p("b2", 2, "back", "b")];
+  const c = [p("c1", 1, null, "c"), p("c2", 2, "back", "c")];
+  const r = lotOrder([a, b, c], 2);
+  assert.deepEqual(r.keep.map((x) => x.id), ["a1", "b1"]);
+  assert.deepEqual(r.park.map((x) => x.id), ["c1", "a2", "b2", "c2"]);
 });
