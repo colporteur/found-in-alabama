@@ -7,6 +7,8 @@ import { completeIntake } from "@/lib/listings/intake";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+// A whole-folder lot builds its overview and grid here (dozens of scans).
+export const maxDuration = 300;
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const who = await listingCaller(req);

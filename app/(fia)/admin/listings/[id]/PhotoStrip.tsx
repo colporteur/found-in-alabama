@@ -128,6 +128,7 @@ export function PhotoStrip({ id, photos, canRotate }: { id: string; photos: Draf
               <span className="truncate flex-1">
                 {p.position}. {p.role ?? ""} {p.name ?? ""}
                 {p.rotation ? ` · turned ${p.rotation}°` : ""}
+                {p.position >= 1001 ? " · kept, not listed" : ""}
               </span>
               {canRotate && p.uploaded && (
                 <>

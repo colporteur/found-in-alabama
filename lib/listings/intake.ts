@@ -77,6 +77,12 @@ async function insertPhotos(cfg: R2Config, draftId: string, req: IntakeRequest) 
 
 /** Keep the sender's "after upload" wish on the draft until the photos are in. */
 async function rememberAfter(draftId: string, req: IntakeRequest): Promise<void> {
+  if (req.folderLot) {
+    // Laid out as a lot (overview, solos, grid) once every photo is in.
+    await db.execute(sql`
+      UPDATE listing_drafts SET quantity = 1, ai_meta = COALESCE(ai_meta, '{}'::jsonb) || '{"folderLotPending": true}'::jsonb
+      WHERE id = ${draftId} AND NOT (COALESCE(ai_meta, '{}'::jsonb) ? 'folderLot')`);
+  }
   if (!req.after.claude && !req.after.pool) return;
   await db.execute(sql`
     UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('intakeAfter', ${JSON.stringify(req.after)}::jsonb)
@@ -96,10 +102,15 @@ export async function startIntake(req: IntakeRequest, who: string): Promise<Inta
     if (existing) {
       const draftId = String(existing.id);
       const status = String(existing.status);
-      const known = (await rows(sql`SELECT sha256 FROM draft_photos WHERE draft_id = ${draftId} ORDER BY position`)).map(
-        (r) => String(r.sha256)
-      );
-      const same = known.length === req.photos.length && known.every((s, i) => s === req.photos[i].sha256);
+      // FIA-made covers (and a folder lot's grid) aren't the sender's photos.
+      const known = (
+        await rows(sql`SELECT sha256 FROM draft_photos WHERE draft_id = ${draftId} AND storage_key NOT LIKE '%/cover/%' ORDER BY position`)
+      ).map((r) => String(r.sha256));
+      const sent = req.photos.map((p) => p.sha256);
+      // A folder lot's photos are rearranged once it's laid out, so only the set matters.
+      const same =
+        known.length === sent.length &&
+        (req.folderLot ? sent.every((s) => known.includes(s)) : known.every((s, i) => s === sent[i]));
       if (!same) {
         if (!req.replace) {
           return {
@@ -113,7 +124,8 @@ export async function startIntake(req: IntakeRequest, who: string): Promise<Inta
         }
         await db.execute(sql`DELETE FROM draft_photos WHERE draft_id = ${draftId}`);
         await insertPhotos(cfg, draftId, req);
-        await db.execute(sql`UPDATE listing_drafts SET status = 'uploading', updated_at = now() WHERE id = ${draftId}`);
+        await db.execute(sql`UPDATE listing_drafts SET status = 'uploading', updated_at = now(),
+          ai_meta = (COALESCE(ai_meta, '{}'::jsonb) - 'folderLot') - 'folderLotError' WHERE id = ${draftId}`);
       }
       await rememberAfter(draftId, req);
       return {
@@ -189,8 +201,23 @@ export async function completeIntake(
     await db.execute(sql`UPDATE listing_drafts SET status = 'ready', updated_at = now() WHERE id = ${draftId}`);
     status = "ready";
   }
+  const meta = (draft.ai_meta as Record<string, unknown> | null) ?? {};
+  // Scans page "Send as one lot": lay the lot out before anything else sees it.
+  if (missing.length === 0 && meta.folderLotPending === true && status === "ready") {
+    try {
+      const { arrangeFolderLot } = await import("./folder-lot");
+      await arrangeFolderLot(draftId, null, "scans page", { rebuildCover: true });
+      await db.execute(sql`UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) - 'folderLotPending' WHERE id = ${draftId}`);
+    } catch (err) {
+      // Stays Ready (not queued anywhere) with the error showing on its page;
+      // "Lay out the lot" there tries again.
+      console.error("[intake] folder lot layout failed", draftId, err);
+      await db.execute(sql`UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('folderLotError', ${(err as Error).message}::text) WHERE id = ${draftId}`);
+      return { ok: true, status, missing };
+    }
+  }
   // Sent from the Scans page with "also send to Claude": queue it now.
-  const after = (draft.ai_meta as Record<string, unknown> | null)?.intakeAfter as IntakeRequest["after"] | undefined;
+  const after = meta.intakeAfter as IntakeRequest["after"] | undefined;
   // Sent from the Scans page's "Lot pool": set it aside in the lot pool.
   if (missing.length === 0 && after?.pool && status === "ready") {
     try {

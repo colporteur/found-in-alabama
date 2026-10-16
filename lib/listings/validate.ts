@@ -8,6 +8,9 @@ export const PHOTO_ROLES = ["cover", "front", "back", "inside", "detail", "other
 
 export const MAX_PHOTOS = 24; // Nifty's per-item cap; eBay allows 24 too
 export const MAX_PHOTO_BYTES = 25 * 1024 * 1024;
+/** A whole-folder lot (one photo per piece) may hold more; FIA lists 24 of
+ *  them laid out by lib/listings/folder-lot.ts. Keep in step with FOLDER_LOT_MAX. */
+export const MAX_LOT_PHOTOS = 60;
 
 const PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp", "image/gif", "image/tiff", "image/heic"]);
 
@@ -39,6 +42,8 @@ export type IntakeRequest = {
   /** What to do once every photo has arrived: queue it for Claude (one
    *  batch per Scans-page send, optionally allowed to combine lots). */
   after: { claude: { lots: boolean; batch: string | null } | null; pool?: boolean };
+  /** Scans page "Send as one lot": every photo is one piece of a single lot. */
+  folderLot: boolean;
 };
 
 function str(v: unknown, max: number): string | null {
@@ -81,7 +86,10 @@ export function parseIntakeRequest(body: unknown): Parsed {
     }
 
     if (!Array.isArray(b.photos) || b.photos.length === 0) throw new Error("at least one photo is required");
-    if (b.photos.length > MAX_PHOTOS) throw new Error(`at most ${MAX_PHOTOS} photos per item`);
+    const folderLot = b.folderLot === true;
+    if (folderLot && b.photos.length < 2) throw new Error("a lot needs at least two photos");
+    if (folderLot && b.photos.length > MAX_LOT_PHOTOS) throw new Error(`at most ${MAX_LOT_PHOTOS} photos in one lot`);
+    if (!folderLot && b.photos.length > MAX_PHOTOS) throw new Error(`at most ${MAX_PHOTOS} photos per item`);
     const seen = new Set<string>();
     const photos: IntakePhoto[] = b.photos.map((p, i) => {
       if (!p || typeof p !== "object") throw new Error(`photo ${i + 1}: object expected`);
@@ -124,6 +132,7 @@ export function parseIntakeRequest(body: unknown): Parsed {
         uploadMode: b.uploadMode === "proxy" ? "proxy" : "presigned",
         replace: b.replace === true,
         after: parseAfter(b.after),
+        folderLot,
       },
     };
   } catch (err) {
