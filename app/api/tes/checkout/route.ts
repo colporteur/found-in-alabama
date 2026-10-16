@@ -101,6 +101,9 @@ export async function POST(req: NextRequest) {
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     client_reference_id: order.id,
+    // Invoice coupon codes (lib/shop/coupons.ts): Stripe shows the
+    // promotion-code box and enforces expiry and one use.
+    allow_promotion_codes: true,
     line_items: lines.map((l) => ({
       quantity: l.quantity,
       price_data: {

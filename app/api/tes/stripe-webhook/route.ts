@@ -10,6 +10,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { recordRedemption } from "@/lib/shop/coupons";
 import { eq, sql, and, inArray } from "drizzle-orm";
 import { db } from "@/db";
 import { tesOrders, tesOrderItems, ebayListings } from "@/db/schema";
@@ -194,6 +195,13 @@ export async function POST(req: NextRequest) {
       // Sold items leave both storefronts' cached pages now, not at the
       // next 10-minute ISR window.
       revalidateStorefront("site order paid");
+      // COUPON-1: an invoice code used at checkout — record the discount
+      // (before notifyTodd so the email shows the paid total).
+      if ((session.total_details?.amount_discount ?? 0) > 0) {
+        await recordRedemption(stripe, session.id, orderId).catch((err) =>
+          console.error("[stripe-webhook] coupon record failed", err)
+        );
+      }
       await notifyTodd(orderId);
     }
   }

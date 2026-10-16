@@ -323,6 +323,13 @@
       "when": 1791927884562,
       "tag": "0045_lot_pool",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1792164326808,
+      "tag": "0046_invoice_coupons",
+      "breakpoints": true
     }
   ]
 }

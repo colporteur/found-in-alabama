@@ -69,7 +69,12 @@ export default async function ShipPage({ searchParams }: { searchParams: { tab?:
             themselves shipped from the TES orders page; mark the rest here.
           </p>
         </div>
-        <SyncButton />
+        <div className="flex items-center gap-3">
+          <Link href="/admin/ship/coupons" className="text-sm underline text-brand-ink/70 hover:text-brand-ink">
+            Invoice coupons
+          </Link>
+          <SyncButton />
+        </div>
       </div>
 
       {!ebayAccess && (
