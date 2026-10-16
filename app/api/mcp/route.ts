@@ -12,7 +12,7 @@ import { CORS, json, preflight } from "@/lib/mcp/http";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300; // listing_lot_photos rebuilds a lot's grid from dozens of scans
 
 function unauthorized(req: Request, why: string) {
   const meta = `${siteOrigin(req)}/.well-known/oauth-protected-resource`;

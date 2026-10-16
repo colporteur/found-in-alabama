@@ -13,6 +13,8 @@ import { AiNotes } from "./AiNotes";
 import { UnverifiedPanel } from "./UnverifiedPanel";
 import { PhotoStrip } from "./PhotoStrip";
 import { LotPanel } from "./LotPanel";
+import { FolderLotPanel } from "./FolderLotPanel";
+import { folderLotOf } from "@/lib/listings/folder-lot";
 import { AddToPool } from "../pool/AddToPool";
 import { poolReady } from "@/lib/listings/pool";
 import { db } from "@/db";
@@ -83,6 +85,21 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
           />
         ) : null;
       })()}
+      {(() => {
+        const f = folderLotOf(d.aiMeta);
+        const pending = d.aiMeta?.folderLotPending === true;
+        const error = typeof d.aiMeta?.folderLotError === "string" ? (d.aiMeta.folderLotError as string) : null;
+        return f || pending || error ? (
+          <FolderLotPanel
+            id={d.id}
+            pieces={f?.pieces.length ?? 0}
+            solo={f?.solo ?? []}
+            error={error}
+            pending={pending}
+            canEdit={ROTATABLE.includes(d.status)}
+          />
+        ) : null;
+      })()}
       {typeof d.aiMeta?.combinedInto === "string" && d.status === "discarded" && (
         <p className="mb-6 rounded border border-purple-700 bg-purple-50 p-3 text-sm text-purple-900">
           Claude combined this draft into a lot.{" "}
@@ -105,7 +122,7 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
             splitCost={books.cost.splitCost}
           />
         )}
-        {pool && ["ready", "review", "sent_back", "with_claude"].includes(d.status) && !d.aiMeta?.lot && <AddToPool draftId={d.id} groups={pool.groups} />}
+        {pool && ["ready", "review", "sent_back", "with_claude"].includes(d.status) && !d.aiMeta?.lot && !d.aiMeta?.folderLot && <AddToPool draftId={d.id} groups={pool.groups} />}
         {d.status === "pooled" && (
           <Link href="/admin/listings/pool" className="text-sm px-3 py-2 rounded border border-purple-700 text-purple-900 hover:bg-purple-50">
             In the lot pool (bin LOTPOOL) — open the Lot pool

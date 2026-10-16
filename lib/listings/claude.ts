@@ -37,6 +37,7 @@ import {
   CONDITIONS,
   type Identification,
 } from "./rules";
+import { arrangeFolderLot, folderLotOf, folderLotText } from "./folder-lot";
 
 type Row = Record<string, unknown>;
 async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
@@ -100,7 +101,7 @@ export async function claudeQueue(limit = 50) {
   const list = await rows(sql`
     SELECT d.id, d.title, d.title_hint, d.source, d.source_label, d.bin_sku, d.review_note, d.created_at,
            d.ai_meta->>'claudeBatch' AS batch, (d.ai_meta->>'claudeLots')::boolean AS lots,
-           jsonb_array_length(COALESCE(d.ai_meta->'lot'->'parts', '[]'::jsonb)) AS lot_parts,
+           jsonb_array_length(COALESCE(d.ai_meta->'lot'->'parts', d.ai_meta->'folderLot'->'pieces', '[]'::jsonb)) AS lot_parts,
            (SELECT count(*)::int FROM draft_photos p WHERE p.draft_id = d.id AND p.uploaded_at IS NOT NULL) AS photos
     FROM listing_drafts d WHERE d.status = ${CLAUDE_STATUS}
     ORDER BY d.created_at LIMIT ${limit}`);
@@ -164,7 +165,8 @@ function routeText(d: Row, extra?: string | null): string {
 export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
   const d = await loadQueued(id, true);
   const settings = await writerSettings();
-  const first = (d.ai_meta as Record<string, unknown> | null)?.lot ? 12 : Math.min(settings.maxPhotos, 8);
+  const folderLot = folderLotOf(d.ai_meta);
+  const first = (d.ai_meta as Record<string, unknown> | null)?.lot || folderLot ? 12 : Math.min(settings.maxPhotos, 8);
   const photoRows = await rows(sql`
     SELECT position, role, url FROM draft_photos WHERE draft_id = ${id} AND uploaded_at IS NOT NULL
     ORDER BY position LIMIT ${first}`);
@@ -191,7 +193,9 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
   const instructions = (d.review_note as string | null)?.trim();
   const meta = (d.ai_meta ?? {}) as Record<string, unknown>;
   const lot = meta.lot as { parts?: Array<{ title: string | null; bin: string | null }> } | undefined;
-  const lotText = lot?.parts?.length
+  const lotText = folderLot
+    ? folderLotText(folderLot)
+    : lot?.parts?.length
     ? `THIS IS A LOT of ${lot.parts.length} pieces you combined: ${lot.parts.map((p, i) => `${i + 1}) ${p.title ?? "item"}`).join("; ")}. ` +
       `Photo 1 is the cover (each piece's front); then each piece's front, then backs/insides. Write ONE listing for the whole lot: ` +
       `the title starts "Lot of ${lot.parts.length}" (or names the set), the description covers each piece in turn with its own condition, ` +
@@ -271,6 +275,22 @@ export async function claudeMorePhotos(id: string, from: number, count: number):
       return m ? { type: "image", mimeType: m[1], data: m[2] } : { type: "text", text: "(photo missing)" };
     }),
   ];
+}
+
+/** listing_lot_photos: choose which pieces of a whole-folder lot get their
+ *  own listed photo; the overview and "Also included" grid are rebuilt. */
+export async function claudeLotPhotos(id: string, solo: number[], who: string) {
+  const d = await loadQueued(id, true);
+  const f = folderLotOf(d.ai_meta);
+  if (!f) throw new Error("This draft isn't a whole-folder lot (Todd's Scans page \"Send as one lot\"); use listing_combine_lot for batch lots.");
+  const out = await arrangeFolderLot(id, solo, who);
+  return {
+    ...out,
+    note:
+      `Photo 1: overview of all ${out.pieces}. Photos 2–${out.solo.length + 1}: pieces #${out.solo.join(", #")}.` +
+      (out.grid.length ? ` Photo ${out.solo.length + 2}: "Also included" grid of #${out.grid.join(", #")}.` : "") +
+      ` Now write the lot with listing_save (or listing_revise if you already saved it).`,
+  };
 }
 
 export async function claudeFindCategories(query: string) {

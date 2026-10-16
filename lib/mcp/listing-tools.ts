@@ -13,6 +13,7 @@ import {
   claudeFindCategories,
   claudeFindGuide,
   claudeGuideById,
+  claudeLotPhotos,
   claudeMorePhotos,
   claudePool,
   claudePoolAdd,
@@ -66,6 +67,26 @@ function buildTools(who: string): ToolDef[] {
         },
       },
       run: async (a) => rawContent(await claudeMorePhotos(argStr(a, "draft_id", 40) ?? "", Number(a.from), Number(a.count ?? 6))),
+    },
+    {
+      name: "listing_lot_photos",
+      title: "Choose a folder lot's own photos",
+      description:
+        "Only for a whole-folder lot (listing_get_draft says Todd sent it as one folder, pieces numbered 1–N). eBay shows 24 photos: photo 1 is a numbered overview of every piece; with more than 23 pieces, 22 pieces get their own photo and the rest share one numbered \"Also included\" grid. Give the piece numbers that deserve their own photo, best first (the most searchable, valuable or best-condition pieces; up to 22); FIA rebuilds the overview and grid. Nothing is published.",
+      inputSchema: {
+        type: "object",
+        required: ["draft_id", "solo"],
+        properties: {
+          draft_id: { type: "string" },
+          solo: { type: "array", items: { type: "number" }, maxItems: 22, description: "Piece numbers (from the overview), best first" },
+        },
+      },
+      run: async (a) =>
+        claudeLotPhotos(
+          argStr(a, "draft_id", 40) ?? "",
+          (Array.isArray(a.solo) ? a.solo : []).map(Number).filter(Number.isInteger).slice(0, 22),
+          who
+        ),
     },
     {
       name: "listing_find_categories",

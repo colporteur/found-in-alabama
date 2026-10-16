@@ -14,7 +14,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { putObject, publicUrl, r2Config } from "@/lib/storage/r2";
-import { renderCover, COVER_MAX_TILES } from "./cover";
+import { renderCover, COVER_MAX_TILES, COVER_SIZE, type CoverOptions } from "./cover";
 import { ROTATABLE } from "./photos";
 import { CLAUDE_STATUS } from "./claude";
 
@@ -88,10 +88,14 @@ export async function placePhotos(moves: Array<{ id: string; draftId: string; po
   }
 }
 
-export async function uploadCover(draftId: string, urls: string[]): Promise<{ key: string; url: string; bytes: number }> {
+export async function uploadCover(
+  draftId: string,
+  urls: string[],
+  opts: CoverOptions & { side?: number } = {}
+): Promise<{ key: string; url: string; bytes: number }> {
   const cfg = r2Config();
   if (!cfg) throw new Error("Photo storage (R2) is not configured");
-  const jpg = await renderCover(urls);
+  const jpg = await renderCover(urls, opts.side ?? COVER_SIZE, opts);
   const key = `drafts/${draftId}/cover/${Date.now().toString(36)}-${randomUUID().slice(0, 8)}.jpg`;
   await putObject(cfg, key, jpg, "image/jpeg");
   return { key, url: publicUrl(cfg, key), bytes: jpg.length };
