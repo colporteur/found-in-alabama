@@ -9,6 +9,7 @@ import { DraftGrid } from "./DraftGrid";
 import { DraftTable } from "./DraftTable";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 import { loadParentShelves } from "@/lib/listings/bulk";
+import { poolSummary } from "@/lib/listings/pool";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,7 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
     .sort((a, b) => a.path.localeCompare(b.path));
   // Shelves with subcategories: pick one and FIA's AI picks the subcategory.
   const parents = (await loadParentShelves().catch(() => [])).map((p) => ({ id: p.id, path: p.path }));
+  const pool = await poolSummary().catch(() => ({ readyLots: 0, readyNames: [] as string[], candidates: 0 }));
   const href = (v: string | null, st: string | null = status) => {
     const p = new URLSearchParams();
     if (st) p.set("status", st);
@@ -67,6 +69,9 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
         <div className="flex gap-2">
           <Link href="/admin/listings/pool" className="text-sm px-4 py-2 rounded border border-purple-700 text-purple-900 hover:bg-purple-50">
             Lot pool{counts.pooled ? ` (${counts.pooled})` : ""}
+            {pool.readyLots > 0 && (
+              <span className="ml-1.5 rounded bg-green-700 text-white text-xs font-bold px-1.5 py-0.5">{pool.readyLots} ready</span>
+            )}
           </Link>
           <Link href="/admin/listings/settings" className="text-sm px-4 py-2 rounded border border-brand-ink/20 hover:border-brand-ink/50">
             Writer settings
@@ -79,6 +84,27 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
           </Link>
         </div>
       </div>
+
+      {(pool.readyLots > 0 || status === "pooled") && (
+        <Link
+          href="/admin/listings/pool"
+          className="block mb-6 rounded-lg border-2 border-green-700 bg-green-50 p-3 text-sm hover:bg-green-100"
+        >
+          {pool.readyLots > 0 ? (
+            <>
+              <b>
+                {pool.readyLots} lot{pool.readyLots === 1 ? "" : "s"} ready to list in the lot pool
+              </b>
+              : {pool.readyNames.slice(0, 4).join(" · ")}
+              {pool.readyNames.length > 4 && ` · +${pool.readyNames.length - 4} more`}.{" "}
+            </>
+          ) : (
+            <b>No lot in the pool is ready yet. </b>
+          )}
+          {status === "pooled" && "This list shows the single pieces sitting in LOTPOOL; the lots they're grouped into are on the Lot pool page. "}
+          <span className="underline font-semibold">Open the Lot pool →</span>
+        </Link>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 mb-6 text-sm">
         <FilterChip href={href(table ? "table" : null, null)} label={`All (${active})`} on={!status} />

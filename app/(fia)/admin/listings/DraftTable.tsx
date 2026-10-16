@@ -339,8 +339,11 @@ export function DraftTable({ drafts, shelves, parents = [] }: { drafts: DraftSum
                   <td className="p-2 text-xs whitespace-nowrap text-brand-ink/70">
                     {STATUS_LABEL[d.status] ?? d.status}
                     {d.lotOf && (
-                      <span className="block mt-1 w-fit rounded px-1.5 py-0.5 font-bold bg-purple-700 text-white" title="Claude combined these drafts into one lot">
-                        LOT of {d.lotOf}
+                      <span
+                        className={`block mt-1 w-fit rounded px-1.5 py-0.5 font-bold text-white ${d.fromPool ? "bg-fuchsia-700" : "bg-purple-700"}`}
+                        title={d.fromPool ? "A lot built from the lot pool" : "Claude combined these drafts into one lot"}
+                      >
+                        {d.fromPool ? "POOL LOT" : "LOT"} of {d.lotOf}
                       </span>
                     )}
                   </td>

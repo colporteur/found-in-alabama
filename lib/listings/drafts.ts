@@ -69,6 +69,8 @@ export type DraftSummary = {
   storeCategoryIds: string[];
   /** Pieces combined into this lot (lib/listings/lots.ts), or null. */
   lotOf: number | null;
+  /** A lot built from the lot pool (pieces pulled from LOTPOOL / candidates). */
+  fromPool?: boolean;
 };
 
 /** Statuses whose content can still be edited by hand. */
@@ -120,6 +122,7 @@ export async function listDrafts(status: string | null, limit = 100): Promise<{
            d.weight_oz, d.ai_meta->'weight'->>'oz' AS assumed_oz, d.ebay_category_id, d.ebay_category_name,
            d.shipping_profile, d.quantity, d.condition, d.venue_prices->>'poshmark' AS poshmark_price, d.store_category_ids,
            jsonb_array_length(COALESCE(d.ai_meta->'lot'->'parts', '[]'::jsonb)) AS lot_parts,
+           (d.ai_meta->'lot' ? 'poolGroupId' OR d.ai_meta->'lot' ? 'poolMemberIds') AS from_pool,
            (SELECT count(*) FROM draft_photos p WHERE p.draft_id = d.id) AS photos,
            (SELECT p.url FROM draft_photos p WHERE p.draft_id = d.id AND p.uploaded_at IS NOT NULL
              ORDER BY p.position LIMIT 1) AS cover
@@ -157,6 +160,7 @@ export async function listDrafts(status: string | null, limit = 100): Promise<{
       poshmarkPrice: n(d.poshmark_price),
       storeCategoryIds: Array.isArray(d.store_category_ids) ? (d.store_category_ids as unknown[]).map(String) : [],
       lotOf: Number(d.lot_parts) || null,
+      fromPool: d.from_pool === true,
     })),
   };
 }
@@ -220,6 +224,10 @@ export async function loadDraft(id: string): Promise<Draft | null> {
     niftyError: s(d.nifty_error),
     niftyWarnings: (d.nifty_warnings as string[] | null) ?? [],
     lotOf: (((d.ai_meta as Record<string, unknown> | null)?.lot as { parts?: unknown[] } | undefined)?.parts ?? []).length || null,
+    fromPool: (() => {
+      const lot = (d.ai_meta as Record<string, unknown> | null)?.lot as Record<string, unknown> | undefined;
+      return !!lot && ("poolGroupId" in lot || "poolMemberIds" in lot);
+    })(),
   };
 }
 

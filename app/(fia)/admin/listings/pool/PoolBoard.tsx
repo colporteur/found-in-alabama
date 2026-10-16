@@ -104,14 +104,17 @@ const btn = BTN;
   const [price, setPrice] = useState(g.suggestedPrice != null ? g.suggestedPrice.toFixed(2) : "");
   const waiting = g.members.filter((m) => m.kind === "candidate" && !m.delisted).length;
   const postcards = g.members.filter((m) => m.isPostcard).length;
+  const candidates = g.members.filter((m) => m.kind === "candidate").length;
   return (
-    <div className="border-2 border-purple-700/40 rounded-lg p-3 bg-purple-50/40">
+    <div className={`rounded-lg p-3 ${g.ready ? "border-4 border-green-700 bg-green-50 shadow" : "border-2 border-purple-700/40 bg-purple-50/40"}`}>
       <div className="flex flex-wrap items-center gap-2 mb-2">
+        <span className={`rounded text-xs font-bold px-1.5 py-0.5 text-white ${g.ready ? "bg-green-700" : "bg-purple-700"}`}>LOT</span>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           onBlur={() => name.trim() && name !== g.name && act({ action: "group", groupId: g.id, name })}
-          className="font-semibold bg-transparent border border-transparent hover:border-brand-ink/20 rounded px-1 flex-1 min-w-[12rem]"
+          title="Click to rename this lot"
+          className="text-lg font-bold bg-transparent border border-transparent hover:border-brand-ink/20 rounded px-1 flex-1 min-w-[12rem]"
         />
         <span className="text-sm text-brand-ink/70">
           {g.members.length} piece{g.members.length === 1 ? "" : "s"} · est. {money(g.estTotal)} ·{" "}
@@ -119,8 +122,13 @@ const btn = BTN;
           {postcards > 0 && postcards < g.members.length && <> · mixed</>}
         </span>
         {g.ready && (
-          <span className="rounded bg-green-700 text-white text-xs font-bold px-1.5 py-0.5" title="3 or more pieces, or 2+ pieces worth $15 or more together — your call">
-            Ready?
+          <span className="rounded bg-green-700 text-white text-sm font-bold px-2 py-0.5" title="3 or more pieces, or 2+ pieces worth $15 or more together — your call">
+            ✓ Ready to list
+          </span>
+        )}
+        {candidates > 0 && (
+          <span className="rounded bg-amber-500 text-black text-xs font-bold px-1.5 py-0.5" title="Pieces still listed on their own; delist them everywhere before listing the lot">
+            includes {candidates} still-listed
           </span>
         )}
       </div>
@@ -197,6 +205,8 @@ export function PoolBoard({ pool }: { pool: { groups: PoolGroup[]; loose: PoolMe
   const pickedIds = Array.from(picked);
   const btn = BTN;
   const ctx: Ctx = { busy, picked, toggle, act };
+  const ready = pool.groups.filter((g) => g.ready);
+  const forming = pool.groups.filter((g) => !g.ready);
 
   return (
     <div className="space-y-8">
@@ -250,10 +260,23 @@ export function PoolBoard({ pool }: { pool: { groups: PoolGroup[]; loose: PoolMe
         </div>
       )}
 
+      {ready.length > 0 && (
+        <div className="space-y-4">
+          <h2 className="text-xl font-bold text-green-800">Ready to list ({ready.length})</h2>
+          <p className="text-sm text-brand-ink/70 -mt-2">
+            These meet the rule of thumb (3+ pieces, or 2+ worth $15 together). Check the pieces, set a price if you like, and click
+            &ldquo;List this lot now&rdquo; — the lot draft goes to Claude to write, then to your Review queue.
+          </p>
+          {ready.map((g) => (
+            <Group key={g.id} g={g} ctx={ctx} />
+          ))}
+        </div>
+      )}
+
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold">Lots being formed ({pool.groups.length})</h2>
+        <h2 className="text-lg font-semibold">Still forming ({forming.length})</h2>
         {pool.groups.length === 0 && <p className="text-sm text-brand-ink/60">None yet. Pick pieces below and choose &ldquo;+ New lot…&rdquo;.</p>}
-        {pool.groups.map((g) => (
+        {forming.map((g) => (
           <Group key={g.id} g={g} ctx={ctx} />
         ))}
       </div>
