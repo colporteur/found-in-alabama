@@ -4,7 +4,7 @@
 //
 // Combining: the first draft becomes the lot. Every part's photos move onto
 // it (rows re-pointed, nothing re-uploaded) in the order cover → each part's
-// front → the rest, up to eBay's 24. A cover is built from the fronts. The
+// front then its own back/insides, item by item, up to eBay's 24. A cover is built from the fronts. The
 // other drafts are set aside as "discarded" with combinedInto (their registry
 // items archived, like any discard), and the lot keeps one bin (the first
 // draft's — Todd: "pick one, doesn't matter which"). ai_meta.lot records the
@@ -67,14 +67,22 @@ export function frontOf(photos: P[]): P | null {
   );
 }
 
-/** Pure: lot photo order (without the cover): every part's front, then the
- *  rest part by part; whatever doesn't fit in `room` is parked. */
+/** Pure: lot photo order (without the cover), item by item — each part's
+ *  front, then that part's back/inside/details — so buyers can tell which
+ *  back goes with which front. When there isn't room for everything, every
+ *  part's front is kept first, then the other photos part by part; whatever
+ *  doesn't fit in `room` is parked. */
 export function lotOrder(parts: P[][], room: number): { keep: P[]; park: P[] } {
-  const fronts = parts.map(frontOf).filter((p): p is P => !!p);
-  const ids = new Set(fronts.map((f) => f.id));
-  const rest = parts.flatMap((ps) => [...ps].sort((a, b) => a.position - b.position).filter((p) => !ids.has(p.id)));
-  const all = [...fronts, ...rest];
-  return { keep: all.slice(0, room), park: all.slice(room) };
+  const byPart = parts.map((ps) => {
+    const sorted = [...ps].sort((a, b) => a.position - b.position);
+    const front = frontOf(sorted);
+    return front ? [front, ...sorted.filter((p) => p.id !== front.id)] : sorted;
+  });
+  // Which photos make the cut (same priority as before: fronts first).
+  const priority = [...byPart.map((ps) => ps[0]).filter((p): p is P => !!p), ...byPart.flatMap((ps) => ps.slice(1))];
+  const kept = new Set(priority.slice(0, Math.max(0, room)).map((p) => p.id));
+  const all = byPart.flat();
+  return { keep: all.filter((p) => kept.has(p.id)), park: priority.filter((p) => !kept.has(p.id)) };
 }
 
 /** Move photos to their places without tripping the (draft, position)
