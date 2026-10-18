@@ -3,7 +3,8 @@
 // on connections where Todd turned listing writing on (/admin/connect).
 // The writes are listing_save / listing_revise, which put a draft in Todd's
 // Review queue, and listing_combine_lot, which merges drafts Todd sent with
-// "combine lots" on into one lot draft; nothing here approves, sends to Nifty
+// "combine lots" on into one lot draft, and listing_add_to_lot, which adds
+// queued pieces to a lot Todd is holding open; nothing here approves, sends to Nifty
 // or publishes.
 
 import { argStr, rawContent, type ToolDef } from "./protocol";
@@ -25,6 +26,7 @@ import {
 } from "@/lib/listings/claude";
 import { CONDITIONS } from "@/lib/listings/rules";
 import { combineLot } from "@/lib/listings/lots";
+import { addToLot } from "@/lib/listings/open-lots";
 
 export function listingTools(who: string): ToolDef[] {
   const tools = buildTools(who);
@@ -136,6 +138,26 @@ function buildTools(who: string): ToolDef[] {
         const ids = Array.isArray(a.draft_ids) ? (a.draft_ids as unknown[]).map(String) : [];
         const pool = Array.isArray(a.pool_member_ids) ? (a.pool_member_ids as unknown[]).map(String) : [];
         return combineLot(ids, who, argStr(a, "reason", 600), pool);
+      },
+    },
+    {
+      name: "listing_add_to_lot",
+      title: "Add pieces to an open lot",
+      readOnly: false,
+      description:
+        "For lots Todd is holding open (listing_queue's openLots). Adds drafts from your queue that belong in that lot: their photos go in piece by piece, FIA rebuilds the cover from every piece's front, the added drafts are set aside (Todd can split the lot again), and the lot closes and comes back to your queue — then write it for all its pieces with listing_get_draft + listing_save. Only add pieces that clearly belong (same theme, series, place, maker or correspondence).",
+      inputSchema: {
+        type: "object",
+        required: ["lot_id", "draft_ids", "reason"],
+        properties: {
+          lot_id: { type: "string", description: "lotId from listing_queue's openLots" },
+          draft_ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 22, description: "Drafts from your queue to add" },
+          reason: { type: "string", description: "One or two sentences: why these belong in this lot (shown to Todd)" },
+        },
+      },
+      run: async (a) => {
+        const ids = Array.isArray(a.draft_ids) ? (a.draft_ids as unknown[]).map(String) : [];
+        return addToLot(argStr(a, "lot_id", 64) ?? "", ids, `claude:${who}`, { reason: argStr(a, "reason", 600), byClaude: true });
       },
     },
     {

@@ -24,6 +24,8 @@ export const DRAFT_STATUSES = [
   "sent_back",
   /** Queued for Claude in the Claude app to write through the FIA connector. */
   "with_claude",
+  /** A lot Todd is holding open for more pieces (lib/listings/open-lots.ts). */
+  "lot_open",
   /** Set aside in the lot pool (bin LOTPOOL) until its lot is listed. */
   "pooled",
   "discarded",

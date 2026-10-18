@@ -15,7 +15,7 @@ async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
 }
 
 /** Statuses whose photos can still change (not yet in Nifty or live). */
-export const ROTATABLE = ["ready", "review", "sent_back", "with_claude", "approved"];
+export const ROTATABLE = ["ready", "review", "sent_back", "with_claude", "approved", "lot_open"];
 
 export function nextRotation(current: number, delta: number): number {
   return (((current + delta) % 360) + 360) % 360;

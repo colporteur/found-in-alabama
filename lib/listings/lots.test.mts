@@ -77,3 +77,28 @@ test("lotOrder: a front is pulled ahead of a back that sorts first; fewer slots 
   assert.deepEqual(r.keep.map((x) => x.id), ["a1", "b1"]);
   assert.deepEqual(r.park.map((x) => x.id), ["c1", "a2", "b2", "c2"]);
 });
+
+test("open lots: an existing lot's pieces keep their own order, then new pieces follow item by item", async () => {
+  const { existingParts } = await import("./open-lots");
+  // The lot's photos now sit on the lot (positions 2..) or parked; order comes from where they were on their own drafts.
+  const lot = {
+    parts: [
+      { draftId: "a", title: "A", bin: null, photos: [{ id: "a1", position: 1 }, { id: "a2", position: 2 }] },
+      { draftId: "b", title: "B", bin: null, photos: [{ id: "b1", position: 1 }, { id: "b2", position: 2 }, { id: "gone", position: 3 }] },
+    ],
+    coverPhotoId: "c",
+    combinedAt: "",
+    combinedBy: "",
+    reason: null,
+  };
+  const found = new Map([
+    ["a1", p("a1", 4, "front", "lot")],
+    ["a2", p("a2", 5, "back", "lot")],
+    ["b1", p("b1", 2, "front", "lot")],
+    ["b2", p("b2", 1001, "back", "b")],
+  ]);
+  const parts = existingParts(lot, found);
+  assert.deepEqual(parts.map((ps) => ps.map((x) => x.id)), [["a1", "a2"], ["b1", "b2"]]);
+  const c = [p("c1", 1, "front", "c"), p("c2", 2, "back", "c")];
+  assert.deepEqual(lotOrder([...parts, c], 23).keep.map((x) => x.id), ["a1", "a2", "b1", "b2", "c1", "c2"]);
+});
