@@ -107,8 +107,17 @@ export async function claudeQueue(limit = 50) {
     ORDER BY d.created_at LIMIT ${limit}`);
   const [c] = await rows(sql`SELECT count(*)::int AS n FROM listing_drafts WHERE status = ${CLAUDE_STATUS}`);
   const anyLots = list.some((r) => r.lots === true && !Number(r.lot_parts));
+  const { openLots } = await import("./open-lots");
+  const open = list.length ? await openLots().catch(() => []) : [];
   return {
     waiting: Number(c?.n ?? 0),
+    ...(open.length
+      ? {
+          openLotsNote:
+            "Todd is holding these lots open because more pieces that belong in them are coming. Before writing, check EVERY draft in this queue (any batch, whether or not combineLots is on): when a piece clearly belongs in one of these lots (same theme, series, place, maker or correspondence as its pieces), add it with listing_add_to_lot instead of writing it on its own, and say why. Look at a lot with listing_get_draft (read only) when the titles aren't enough. Don't force it — a piece that sells well alone, or only loosely fits, stays on its own. After you add, the lot comes back to this queue: write it for all its pieces. Tell Todd in your reply which pieces went into which open lot.",
+          openLots: open.map((o) => ({ lotId: o.id, title: o.title, pieces: o.pieces, why: o.reason, openForDays: o.days })),
+        }
+      : {}),
     ...(anyLots
       ? {
           lots:
@@ -139,12 +148,17 @@ export type McpContent =
 const REVISABLE = ["review", "sent_back"];
 const claudeWrote = (d: Row) => /^claude/.test(String(d.written_by ?? ""));
 
-async function loadQueued(id: string, allowRevise = false): Promise<Row> {
+async function loadQueued(id: string, allowRevise = false, peekOpenLot = false): Promise<Row> {
   if (!UUID.test(id)) throw new Error("draft_id must be an id from listing_queue or listing_written");
   const [d] = await rows(sql`SELECT * FROM listing_drafts WHERE id = ${id}`);
   if (!d) throw new Error("No such draft");
   const st = String(d.status);
   if (st === CLAUDE_STATUS) return d;
+  // An open lot can be looked at (to judge what fits), never written.
+  if (st === "lot_open") {
+    if (peekOpenLot) return d;
+    throw new Error("Todd is holding this lot open for more pieces: add queued pieces that belong with listing_add_to_lot; it comes back to your queue to write once something is added.");
+  }
   if (allowRevise && REVISABLE.includes(st) && claudeWrote(d)) return d;
   if (!allowRevise && REVISABLE.includes(st) && claudeWrote(d))
     throw new Error("You already saved this one; change it with listing_revise (send only the fields that change).");
@@ -163,7 +177,7 @@ function routeText(d: Row, extra?: string | null): string {
 /** Everything Claude needs to write one draft: rules, facts, guides,
  *  pricing context, the store's categories and shelves, and the photos. */
 export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
-  const d = await loadQueued(id, true);
+  const d = await loadQueued(id, true, true);
   const settings = await writerSettings();
   const folderLot = folderLotOf(d.ai_meta);
   const first = (d.ai_meta as Record<string, unknown> | null)?.lot || folderLot ? 12 : Math.min(settings.maxPhotos, 8);
@@ -197,14 +211,20 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
     ? folderLotText(folderLot)
     : lot?.parts?.length
     ? `THIS IS A LOT of ${lot.parts.length} pieces you combined: ${lot.parts.map((p, i) => `${i + 1}) ${p.title ?? "item"}`).join("; ")}. ` +
-      `Photo 1 is the cover (each piece's front); then each piece's front, then backs/insides. Write ONE listing for the whole lot: ` +
+      `Photo 1 is the cover (each piece's front); then piece by piece: its front, then its own backs/insides. Write ONE listing for the whole lot: ` +
       `the title starts "Lot of ${lot.parts.length}" (or names the set), the description covers each piece in turn with its own condition, ` +
       `item specifics fit the lot as a whole, and the price is for the lot. Quantity stays 1. Never mention bins.`
     : meta.claudeLots === true && String(d.status) === CLAUDE_STATUS
       ? `COMBINE LOTS IS ON for this batch (${String(meta.claudeBatch ?? "")}): if this piece and others in the same batch sell better together (price and shared affinity make market sense), combine them with listing_combine_lot before writing; otherwise write it on its own.`
       : "";
+  const openLot =
+    String(d.status) === "lot_open"
+      ? `OPEN LOT — Todd is holding this lot open because more pieces that belong in it are on their way. Don't write or revise it now. ` +
+        `If a draft in your queue belongs here (same theme, series, place, maker or correspondence as these pieces), add it with listing_add_to_lot ` +
+        `(lot_id ${id}); the lot then comes back to your queue to rewrite for all its pieces.`
+      : "";
   const current =
-    String(d.status) !== CLAUDE_STATUS && d.title
+    String(d.status) !== CLAUDE_STATUS && String(d.status) !== "lot_open" && d.title
       ? [
           `CURRENT LISTING (you wrote it; it's in Todd's Review queue${String(d.written_by).includes("hand") ? ", and Todd has edited it by hand — keep his edits" : ""}). Change only what needs changing with listing_revise:`,
           `title: ${d.title}`,
@@ -216,6 +236,7 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
       : "";
   const text = [
     `DRAFT ${id}${d.bin_sku ? ` · bin ${d.bin_sku} (never put the bin in the listing)` : ""} · from ${d.source_label ?? d.source}`,
+    openLot,
     current,
     lotText,
     instructions ? `TODD'S INSTRUCTIONS FOR THIS ONE (true; they override everything): ${instructions}` : "",
@@ -248,7 +269,7 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
 /** More of a draft's photos, a few at a time (listing_get_photos), for
  *  drafts with more photos than listing_get_draft sends. */
 export async function claudeMorePhotos(id: string, from: number, count: number): Promise<McpContent[]> {
-  await loadQueued(id, true);
+  await loadQueued(id, true, true);
   const start = Math.max(1, Math.floor(from) || 1);
   const n = Math.max(1, Math.min(6, Math.floor(count) || 6));
   const all = await rows(sql`

@@ -244,7 +244,7 @@ export async function autoShelf(
 // default) leaves drafts that already have a bin alone. The registry item's
 // bin follows, as with a hand edit.
 
-const BIN_STATUSES = ["uploading", "ready", "review", "sent_back", "with_claude", "approved"];
+const BIN_STATUSES = ["uploading", "ready", "review", "sent_back", "with_claude", "approved", "lot_open"];
 
 export async function setBin(
   ids: string[],

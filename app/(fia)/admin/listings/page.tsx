@@ -10,6 +10,7 @@ import { DraftTable } from "./DraftTable";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 import { loadParentShelves } from "@/lib/listings/bulk";
 import { poolSummary } from "@/lib/listings/pool";
+import { openLots, OPEN_NUDGE_DAYS } from "@/lib/listings/open-lots";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +24,7 @@ const STATUS_LABEL: Record<string, string> = {
   published: "Published",
   sent_back: "Sent back",
   with_claude: "With Claude",
+  lot_open: "Open lot",
   pooled: "In lot pool",
   discarded: "Discarded",
 };
@@ -46,6 +48,7 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
     .sort((a, b) => a.path.localeCompare(b.path));
   // Shelves with subcategories: pick one and FIA's AI picks the subcategory.
   const parents = (await loadParentShelves().catch(() => [])).map((p) => ({ id: p.id, path: p.path }));
+  const open = await openLots().catch(() => []);
   const pool = await poolSummary().catch(() => ({ readyLots: 0, readyNames: [] as string[], candidates: 0 }));
   const href = (v: string | null, st: string | null = status) => {
     const p = new URLSearchParams();
@@ -104,6 +107,24 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
           {status === "pooled" && "This list shows the single pieces sitting in LOTPOOL; the lots they're grouped into are on the Lot pool page. "}
           <span className="underline font-semibold">Open the Lot pool →</span>
         </Link>
+      )}
+
+      {open.length > 0 && (
+        <div className="mb-6 rounded-lg border-2 border-teal-700 bg-teal-50 p-3 text-sm text-teal-900">
+          <b>
+            {open.length} open lot{open.length === 1 ? "" : "s"} waiting for more pieces
+          </b>{" "}
+          — Claude checks your next sends against {open.length === 1 ? "it" : "them"}:{" "}
+          {open.map((o, i) => (
+            <span key={o.id}>
+              {i ? " · " : ""}
+              <Link href={`/admin/listings/${o.id}`} className="underline">
+                {o.title.slice(0, 60)}
+              </Link>
+              {o.days >= OPEN_NUDGE_DAYS && <span className="font-semibold text-amber-800"> (open {o.days} days — close it?)</span>}
+            </span>
+          ))}
+        </div>
       )}
 
       <div className="flex flex-wrap items-center gap-2 mb-6 text-sm">

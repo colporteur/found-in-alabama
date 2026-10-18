@@ -16,6 +16,8 @@ import { LotPanel } from "./LotPanel";
 import { FolderLotPanel } from "./FolderLotPanel";
 import { folderLotOf } from "@/lib/listings/folder-lot";
 import { AddToPool } from "../pool/AddToPool";
+import { AddToOpenLot } from "./AddToOpenLot";
+import { openLots } from "@/lib/listings/open-lots";
 import { poolReady } from "@/lib/listings/pool";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
@@ -48,6 +50,7 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
         groups: (((await db.execute(sql`SELECT id, name FROM lot_groups WHERE status = 'forming' ORDER BY name`)) as { rows?: Array<{ id: string; name: string }> }).rows ?? []).map((g) => ({ id: String(g.id), name: String(g.name) })),
       }
     : null;
+  const openLotList = await openLots().catch(() => []);
   const stale =
     d.status === "generating" &&
     (!d.generationStartedAt || Date.now() - new Date(d.generationStartedAt).getTime() > 10 * 60 * 1000);
@@ -73,15 +76,24 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
 
       {(() => {
         const lot = d.aiMeta?.lot as
-          | { parts?: Array<{ draftId: string; title: string | null; bin: string | null; candidate?: { registryItemId: string } }>; reason?: string | null; poolGroupId?: string }
+          | {
+              parts?: Array<{ draftId: string; title: string | null; bin: string | null; candidate?: { registryItemId: string } }>;
+              reason?: string | null;
+              poolGroupId?: string;
+              additions?: Array<{ at: string; pieces: string[]; reason: string | null }>;
+            }
           | undefined;
+        const since = (d.aiMeta?.lotOpen as { since?: string } | undefined)?.since ?? null;
         return lot?.parts?.length ? (
           <LotPanel
             id={d.id}
             parts={lot.parts}
             reason={lot.reason ?? null}
             fromPool={!!lot.poolGroupId}
-            canSplit={["ready", "review", "sent_back", "with_claude"].includes(d.status)}
+            canSplit={["ready", "review", "sent_back", "with_claude", "lot_open"].includes(d.status)}
+            canOpen={["ready", "review", "sent_back", "with_claude"].includes(d.status)}
+            open={d.status === "lot_open" ? { since, days: since ? Math.floor((Date.now() - new Date(since).getTime()) / 86_400_000) : 0 } : null}
+            additions={lot.additions ?? []}
           />
         ) : null;
       })()}
@@ -123,6 +135,9 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
           />
         )}
         {pool && ["ready", "review", "sent_back", "with_claude"].includes(d.status) && !d.aiMeta?.lot && !d.aiMeta?.folderLot && <AddToPool draftId={d.id} groups={pool.groups} />}
+        {openLotList.length > 0 && ["ready", "review", "sent_back", "with_claude"].includes(d.status) && !d.aiMeta?.lot && !d.aiMeta?.folderLot && (
+          <AddToOpenLot draftId={d.id} lots={openLotList.map((l) => ({ id: l.id, title: l.title, pieces: l.pieces.length }))} />
+        )}
         {d.status === "pooled" && (
           <Link href="/admin/listings/pool" className="text-sm px-3 py-2 rounded border border-purple-700 text-purple-900 hover:bg-purple-50">
             In the lot pool (bin LOTPOOL) — open the Lot pool
