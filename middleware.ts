@@ -19,6 +19,17 @@ import { NextResponse } from "next/server";
 
 const { auth } = NextAuth(authConfig);
 
+/** An invoice QR (?code=TES7K3QX9) remembers the code for checkout, which
+ *  applies it automatically (lib/shop/coupons.ts — same cookie name). */
+const PROMO_COOKIE = "fia_code";
+function rememberCode(res: NextResponse, search: URLSearchParams): NextResponse {
+  const code = (search.get("code") ?? "").trim().toUpperCase();
+  if (/^(FIA|TES)[A-Z0-9]{4,12}$/.test(code)) {
+    res.cookies.set(PROMO_COOKIE, code, { maxAge: 60 * 60 * 24 * 30, path: "/", sameSite: "lax", secure: true, httpOnly: true });
+  }
+  return res;
+}
+
 /** Marks a request that middleware already rewrote into the /tes tree. */
 const TES_REWRITE_HEADER = "x-tes-rewrite";
 
@@ -65,9 +76,9 @@ export default auth((req) => {
       );
       const headers = new Headers(req.headers);
       headers.set(TES_REWRITE_HEADER, "1");
-      return NextResponse.rewrite(url, { request: { headers } });
+      return rememberCode(NextResponse.rewrite(url, { request: { headers } }), nextUrl.searchParams);
     }
-    return NextResponse.next();
+    return rememberCode(NextResponse.next(), nextUrl.searchParams);
   }
 
   // A rewritten TES request arriving on any other host (proxy hop) must
@@ -92,7 +103,7 @@ export default auth((req) => {
     return NextResponse.redirect(target, 301);
   }
 
-  return NextResponse.next();
+  return rememberCode(NextResponse.next(), nextUrl.searchParams);
 });
 
 export const config = {

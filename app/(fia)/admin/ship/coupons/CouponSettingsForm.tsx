@@ -75,6 +75,31 @@ export function CouponSettingsForm({ initial }: { initial: CouponSettings }) {
           days
         </label>
       </div>
+      <div className="space-y-2">
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={s.stockLine} onChange={(e) => setS({ ...s, stockLine: e.target.checked })} />
+          Add a stock line (&ldquo;theephemeralstate.com has over 4,300 postcards in stock today&rdquo;)
+        </label>
+        <label className="flex items-center gap-2 pl-6">
+          Use a category&apos;s count only when it has at least
+          <input
+            type="number"
+            min={1}
+            value={s.stockMin}
+            onChange={(e) => setS({ ...s, stockMin: Number(e.target.value) })}
+            className="w-20 rounded border border-brand-ink/25 px-2 py-1"
+          />
+          items; otherwise its parent&apos;s, then the whole store&apos;s.
+        </label>
+        <p className="pl-6 text-xs text-brand-ink/50">
+          Per category: the wording and whether to count from the parent are on{" "}
+          <a href="/admin/ebay/categories" className="underline">Store categories</a>.
+        </p>
+        <label className="flex items-center gap-2">
+          <input type="checkbox" checked={s.qr} onChange={(e) => setS({ ...s, qr: e.target.checked })} />
+          Add a QR code to that shelf on the site, with the code filled in at checkout
+        </label>
+      </div>
       <div>
         <p className="mb-1 text-brand-ink/70">Invoices for sales on:</p>
         <div className="flex flex-wrap gap-x-5 gap-y-1">

@@ -18,7 +18,9 @@ type ToggleField =
   | "isAlabamaRelated"
   | "isOtherBucket"
   | "isEphemeralState"
-  | "shipClass";
+  | "shipClass"
+  | "invoiceLabel"
+  | "invoiceCountLevel";
 
 interface ToggleBody {
   categoryId?: string;
@@ -44,6 +46,22 @@ export async function PATCH(req: NextRequest) {
 
   if (!categoryId || typeof categoryId !== "string") {
     return NextResponse.json({ ok: false, error: "categoryId required" }, { status: 400 });
+  }
+  // Invoice stock line (COUPON-2): wording and count level.
+  if (field === "invoiceLabel" || field === "invoiceCountLevel") {
+    if (field === "invoiceCountLevel" && value !== "self" && value !== "parent") {
+      return NextResponse.json({ ok: false, error: "invoiceCountLevel must be self or parent" }, { status: 400 });
+    }
+    const label = typeof value === "string" ? value.trim().slice(0, 60) : "";
+    try {
+      await db
+        .update(ebayStoreCategories)
+        .set(field === "invoiceLabel" ? { invoiceLabel: label || null } : { invoiceCountLevel: value as string })
+        .where(eq(ebayStoreCategories.categoryId, categoryId));
+      return NextResponse.json({ ok: true });
+    } catch (err) {
+      return NextResponse.json({ ok: false, error: (err as Error).message }, { status: 500 });
+    }
   }
   if (
     field !== "isAlabamaRelated" &&

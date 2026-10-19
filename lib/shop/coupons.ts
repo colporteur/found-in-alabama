@@ -32,6 +32,11 @@ export type CouponSettings = {
   days: number;
   /** Which venues' invoices get a code. */
   venues: Record<string, boolean>;
+  /** COUPON-2: the "N postcards in stock" line, and its minimum count. */
+  stockLine: boolean;
+  stockMin: number;
+  /** A QR code to the shelf on the site (with the code filled in). */
+  qr: boolean;
 };
 
 export const DEFAULT_COUPON_SETTINGS: CouponSettings = {
@@ -39,6 +44,9 @@ export const DEFAULT_COUPON_SETTINGS: CouponSettings = {
   percent: 20,
   days: 30,
   venues: Object.fromEntries(COUPON_VENUES.map((v) => [v, true])),
+  stockLine: true,
+  stockMin: 25,
+  qr: true,
 };
 
 /** Pure: clean settings from storage or the settings form. */
@@ -56,6 +64,9 @@ export function parseCouponSettings(raw: unknown): CouponSettings {
     percent: Math.round(num(r.percent, DEFAULT_COUPON_SETTINGS.percent, 1, 90) * 100) / 100,
     days: Math.round(num(r.days, DEFAULT_COUPON_SETTINGS.days, 1, 365)),
     venues,
+    stockLine: r.stockLine !== false,
+    stockMin: Math.round(num(r.stockMin, DEFAULT_COUPON_SETTINGS.stockMin, 1, 100000)),
+    qr: r.qr !== false,
   };
 }
 
@@ -79,9 +90,9 @@ export async function couponsReady(): Promise<boolean> {
 
 // Letters and digits only (Stripe's rule), no look-alikes (0/O, 1/I/L).
 const ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
-/** Pure: a printable code like FIA7K3QX9. */
-export function newCode(len = 6): string {
-  let s = "FIA";
+/** Pure: a printable code like FIA7K3QX9 (TES… for Ephemeral State buyers). */
+export function newCode(len = 6, prefix: "FIA" | "TES" = "FIA"): string {
+  let s = prefix;
   for (let i = 0; i < len; i++) s += ALPHABET[randomInt(ALPHABET.length)];
   return s;
 }
@@ -97,21 +108,24 @@ async function stripeCouponFor(stripe: Stripe, percent: number): Promise<string>
   return id;
 }
 
-export type IssuedCode = { code: string; percent: number; expiresAt: string };
+export type IssuedCode = { code: string; percent: number; expiresAt: string; site: "fia" | "tes" | null };
 
 /** The code for each package (made now if it has none). Packages whose venue
  *  is switched off get none. Never throws: a Stripe hiccup just means no
  *  code on that invoice. */
-export async function codesForOrders(orders: Array<{ id: string; venue: string }>): Promise<Map<string, IssuedCode>> {
+export async function codesForOrders(orders: Array<{ id: string; venue: string; site?: "fia" | "tes" }>): Promise<Map<string, IssuedCode>> {
   const out = new Map<string, IssuedCode>();
   if (!orders.length || !(await couponsReady().catch(() => false))) return out;
   const s = await couponSettings();
   if (!s.enabled) return out;
+  const [sc] = await rows(sql`SELECT count(*)::int AS n FROM information_schema.columns WHERE table_name = 'coupon_codes' AND column_name = 'site'`);
+  const siteCol = Number(sc?.n ?? 0) === 1;
+  const siteOf = (code: string): "fia" | "tes" => (code.startsWith("TES") ? "tes" : "fia");
   const have = await rows(sql`
     SELECT ship_order_id, code, percent, expires_at FROM coupon_codes
     WHERE ship_order_id IN (${sql.join(orders.map((o) => sql`${o.id}::uuid`), sql`, `)})`);
   for (const h of have) {
-    out.set(String(h.ship_order_id), { code: String(h.code), percent: Number(h.percent), expiresAt: iso(h.expires_at) });
+    out.set(String(h.ship_order_id), { code: String(h.code), percent: Number(h.percent), expiresAt: iso(h.expires_at), site: siteOf(String(h.code)) });
   }
   const need = orders.filter((o) => !out.has(o.id) && s.venues[o.venue] !== false);
   if (!need.length) return out;
@@ -124,28 +138,34 @@ export async function codesForOrders(orders: Array<{ id: string; venue: string }
     return out;
   }
   const expires = new Date(Date.now() + s.days * 86_400_000);
-  const issueOne = async (o: { id: string; venue: string }) => {
+  const issueOne = async (o: { id: string; venue: string; site?: "fia" | "tes" }) => {
+    const site = o.site ?? (o.venue === "tes" ? "tes" : "fia");
     for (let attempt = 0; attempt < 3; attempt++) {
-      const code = newCode();
+      const code = newCode(6, site === "tes" ? "TES" : "FIA");
       try {
         const promo = await stripe.promotionCodes.create({
           coupon: couponId,
           code,
           max_redemptions: 1,
           expires_at: Math.floor(expires.getTime() / 1000),
-          metadata: { shipOrderId: o.id, venue: o.venue },
+          metadata: { shipOrderId: o.id, venue: o.venue, site },
         });
-        const saved = await rows(sql`
-          INSERT INTO coupon_codes (code, percent, ship_order_id, venue, expires_at, stripe_coupon_id, stripe_promo_id)
-          VALUES (${code}, ${s.percent}::numeric, ${o.id}::uuid, ${o.venue}, ${expires.toISOString()}::timestamptz, ${couponId}, ${promo.id})
-          ON CONFLICT (ship_order_id) DO NOTHING RETURNING code`);
+        const saved = siteCol
+          ? await rows(sql`
+              INSERT INTO coupon_codes (code, percent, ship_order_id, venue, site, expires_at, stripe_coupon_id, stripe_promo_id)
+              VALUES (${code}, ${s.percent}::numeric, ${o.id}::uuid, ${o.venue}, ${site}, ${expires.toISOString()}::timestamptz, ${couponId}, ${promo.id})
+              ON CONFLICT (ship_order_id) DO NOTHING RETURNING code`)
+          : await rows(sql`
+              INSERT INTO coupon_codes (code, percent, ship_order_id, venue, expires_at, stripe_coupon_id, stripe_promo_id)
+              VALUES (${code}, ${s.percent}::numeric, ${o.id}::uuid, ${o.venue}, ${expires.toISOString()}::timestamptz, ${couponId}, ${promo.id})
+              ON CONFLICT (ship_order_id) DO NOTHING RETURNING code`);
         if (!saved.length) {
           // Another tab made one at the same moment: use that one, retire ours.
           await stripe.promotionCodes.update(promo.id, { active: false }).catch(() => {});
           const [h] = await rows(sql`SELECT code, percent, expires_at FROM coupon_codes WHERE ship_order_id = ${o.id}::uuid`);
-          if (h) out.set(o.id, { code: String(h.code), percent: Number(h.percent), expiresAt: iso(h.expires_at) });
+          if (h) out.set(o.id, { code: String(h.code), percent: Number(h.percent), expiresAt: iso(h.expires_at), site: siteOf(String(h.code)) });
         } else {
-          out.set(o.id, { code, percent: s.percent, expiresAt: expires.toISOString() });
+          out.set(o.id, { code, percent: s.percent, expiresAt: expires.toISOString(), site });
         }
         return;
       } catch (err) {
@@ -207,4 +227,32 @@ export async function recentCodes(limit = 100) {
       redeemedTotal: c.redeemed_total == null ? null : Number(c.redeemed_total),
     })),
   };
+}
+
+// ─── a code carried in from an invoice QR (?code=…) ─────────────────────────
+
+/** Cookie the middleware sets from ?code=… (both sites; 30 days). */
+export const PROMO_COOKIE = "fia_code";
+/** Pure: a code as typed/scanned, or null if it can't be one of ours. */
+export function cleanCode(raw: string | null | undefined): string | null {
+  const c = String(raw ?? "").trim().toUpperCase();
+  return /^(FIA|TES)[A-Z0-9]{4,12}$/.test(c) ? c : null;
+}
+
+/** Checkout: the Stripe promotion code id for a carried-in code, if it's
+ *  still good (active, not expired, not used). Otherwise null, and the
+ *  buyer can still type a code at checkout. */
+export async function promoForCheckout(stripe: Stripe, raw: string | null | undefined): Promise<string | null> {
+  const code = cleanCode(raw);
+  if (!code) return null;
+  try {
+    const list = await stripe.promotionCodes.list({ code, active: true, limit: 1 });
+    const p = list.data[0];
+    if (!p) return null;
+    if (p.expires_at && p.expires_at * 1000 < Date.now()) return null;
+    if (p.max_redemptions != null && p.times_redeemed >= p.max_redemptions) return null;
+    return p.id;
+  } catch {
+    return null;
+  }
 }

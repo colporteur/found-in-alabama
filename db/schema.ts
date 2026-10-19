@@ -122,6 +122,14 @@ export const ebayStoreCategories = pgTable(
     // book/magazine categories to media and plates/bottles/signs to bulky
     // in the categories admin.
     shipClass: text("ship_class").default("paper").notNull(),
+    // Invoice stock line (COUPON-2): how a buyer of this category's items is
+    // told about the rest ("over 4,300 postcards"). invoiceLabel replaces
+    // the category name in that line; invoiceCountLevel "self" counts this
+    // category (and its subcategories), "parent" starts from its parent.
+    // Either way it climbs to the parent, then the whole store, until the
+    // count reaches the minimum in the coupon settings.
+    invoiceLabel: text("invoice_label"),
+    invoiceCountLevel: text("invoice_count_level").default("self").notNull(),
     lastSyncedAt: timestamp("last_synced_at").defaultNow().notNull(),
   },
   (t) => ({
@@ -1960,6 +1968,8 @@ export const couponCodes = pgTable("coupon_codes", {
   expiresAt: timestamp("expires_at").notNull(),
   stripeCouponId: text("stripe_coupon_id"),
   stripePromoId: text("stripe_promo_id"),
+  /** Which site the code was pitched for (prefix FIA / TES); works on both. */
+  site: text("site"),
   redeemedAt: timestamp("redeemed_at"),
   /** tes_orders.id of the order that used it */
   redeemedOrderId: uuid("redeemed_order_id"),

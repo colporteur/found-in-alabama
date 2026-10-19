@@ -149,6 +149,40 @@ export default function CategoriesEditor({
     }
   }
 
+  // Invoice stock line (COUPON-2): wording and where the count starts.
+  async function saveInvoiceField(categoryId: string, field: "invoiceLabel" | "invoiceCountLevel", value: string) {
+    setSavingIds((s) => new Set(s).add(categoryId));
+    setCategories((prev) =>
+      prev.map((c) =>
+        c.categoryId === categoryId
+          ? field === "invoiceLabel"
+            ? { ...c, invoiceLabel: value.trim() || null }
+            : { ...c, invoiceCountLevel: value }
+          : c
+      )
+    );
+    try {
+      const res = await fetch("/api/admin/ebay/categories/toggle", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ categoryId, field, value }),
+      });
+      if (!res.ok) {
+        const json = (await res.json()) as { error?: string };
+        throw new Error(json.error || `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      setCategories(initial);
+      alert(`Failed to save: ${(err as Error).message}`);
+    } finally {
+      setSavingIds((s) => {
+        const next = new Set(s);
+        next.delete(categoryId);
+        return next;
+      });
+    }
+  }
+
   async function toggleFlag(
     categoryId: string,
     field: "isAlabamaRelated" | "isOtherBucket" | "isEphemeralState",
@@ -288,12 +322,15 @@ export default function CategoriesEditor({
 
           {/* Categories list */}
           <div className="bg-white border border-brand-ink/15 rounded-lg overflow-hidden">
-            <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 px-4 py-2 bg-brand-paper text-xs uppercase tracking-wider text-brand-ink/50">
+            <div className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-3 px-4 py-2 bg-brand-paper text-xs uppercase tracking-wider text-brand-ink/50">
               <div>Name</div>
               <div className="text-center">Alabama</div>
               <div className="text-center">Ephemeral</div>
               <div className="text-center">Ship</div>
               <div className="text-center">Is &ldquo;Other&rdquo;</div>
+              <div title="The stock line on invoices: how buyers of this category's items are told about the rest, and whether the count starts here or at the parent">
+                Invoice stock line
+              </div>
             </div>
             <ul className="divide-y divide-brand-ink/5">
               {filtered.length === 0 ? (
@@ -304,7 +341,7 @@ export default function CategoriesEditor({
                 filtered.map(({ cat, depth }) => (
                   <li
                     key={cat.categoryId}
-                    className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-3 px-4 py-2.5 items-center text-sm"
+                    className="grid grid-cols-[1fr_auto_auto_auto_auto_auto] gap-3 px-4 py-2.5 items-center text-sm"
                   >
                     <div
                       className="truncate"
@@ -356,6 +393,33 @@ export default function CategoriesEditor({
                       }
                       label='"Other" bucket'
                     />
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs text-brand-ink/50 w-12 text-right" title="In stock in this category and its subcategories">
+                        {cat.inStock.toLocaleString()}
+                      </span>
+                      <input
+                        key={`${cat.categoryId}:${cat.invoiceLabel ?? ""}`}
+                        defaultValue={cat.invoiceLabel ?? ""}
+                        placeholder={`items in ${cat.name}`.slice(0, 40)}
+                        onBlur={(e) => {
+                          if ((e.target.value.trim() || null) !== cat.invoiceLabel) saveInvoiceField(cat.categoryId, "invoiceLabel", e.target.value);
+                        }}
+                        aria-label="Invoice wording"
+                        title='Wording after the count, e.g. "postcards" or "University of Alabama items"'
+                        className="w-40 text-xs border border-brand-ink/15 rounded px-1.5 py-1 bg-white"
+                      />
+                      <select
+                        value={cat.invoiceCountLevel}
+                        disabled={savingIds.has(cat.categoryId) || !cat.parentCategoryId}
+                        onChange={(e) => saveInvoiceField(cat.categoryId, "invoiceCountLevel", e.target.value)}
+                        aria-label="Count from"
+                        title="Count this category, or start from its parent. Either way it moves up to the parent, then the whole store, until the count reaches the minimum set on Ship → Invoice coupons."
+                        className="text-xs border border-brand-ink/15 rounded px-1.5 py-1 bg-white disabled:opacity-40"
+                      >
+                        <option value="self">this</option>
+                        <option value="parent">parent</option>
+                      </select>
+                    </div>
                   </li>
                 ))
               )}

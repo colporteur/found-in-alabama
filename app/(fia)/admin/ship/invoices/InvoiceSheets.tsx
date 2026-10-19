@@ -29,7 +29,17 @@ export type InvoiceData = {
   /** Website orders: what an invoice code took off. */
   discount: number | null;
   /** This package's code for the next order on either site (COUPON-1). */
-  coupon: { code: string; percent: number; expires: string } | null;
+  coupon: {
+    code: string;
+    percent: number;
+    expires: string;
+    /** The site the buyer is pitched (COUPON-2); the code works on both. */
+    site?: "fia" | "tes";
+    /** "theephemeralstate.com has over 4,300 postcards in stock today" */
+    stock?: string | null;
+    /** QR code (SVG) to that shelf, with the code filled in. */
+    qrSvg?: string | null;
+  } | null;
   lines: Array<{ id: string; title: string; qty: number; price: number | null; img: string | null; sku: string | null }>;
 };
 
@@ -82,15 +92,23 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
     : null;
   const total = totalOverride ?? computed;
 
-  // The code prints only when it fits in the room left on the last label.
+  // The code prints only when it fits in the room left on the last label;
+  // when it's tight the stock line goes first and the code stays.
   const bodyRef = useRef<HTMLDivElement>(null);
   const couponRef = useRef<HTMLDivElement>(null);
-  const [fits, setFits] = useState(true);
+  const stockRef = useRef<HTMLParagraphElement>(null);
+  const [fit, setFit] = useState<"full" | "short" | "none">("full");
+  const fits = fit !== "none";
   useLayoutEffect(() => {
     if (!inv.coupon || !bodyRef.current || !couponRef.current) return;
     const measure = () => {
-      const pxPerIn = 96;
-      setFits(couponFits(bodyRef.current!.offsetHeight, couponRef.current!.offsetHeight, LABEL_CONTENT_IN * pxPerIn));
+      const label = LABEL_CONTENT_IN * 96;
+      const body = bodyRef.current!.offsetHeight;
+      const st = stockRef.current;
+      const stockH = st ? st.offsetHeight + 3 : 0;
+      const inFlow = !!st && !st.classList.contains("inv-stock-skip");
+      const base = couponRef.current!.offsetHeight - (inFlow ? stockH : 0);
+      setFit(st && couponFits(body, base + stockH, label) ? "full" : couponFits(body, base, label) ? (st ? "short" : "full") : "none");
     };
     measure();
     const imgs = Array.from(bodyRef.current.querySelectorAll("img"));
@@ -206,14 +224,31 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
       </div>
       </div>
       {inv.coupon && (
-        <div ref={couponRef} className={`inv-coupon ${fits ? "" : "inv-coupon-skip"}`}>
-          <p className="inv-coupon-head">{inv.coupon.percent}% OFF your next order</p>
-          <p className="inv-coupon-code">{inv.coupon.code}</p>
-          <p className="inv-coupon-sites">foundinalabama.com · theephemeralstate.com</p>
-          <p className="inv-coupon-fine">Enter the code at checkout · one use · good through {inv.coupon.expires}</p>
+        <div ref={couponRef} className={`inv-coupon ${fits ? "" : "inv-coupon-skip"} ${inv.coupon.qrSvg ? "inv-coupon-withqr" : ""}`}>
+          {inv.coupon.qrSvg && <div className="inv-coupon-qr" dangerouslySetInnerHTML={{ __html: inv.coupon.qrSvg }} />}
+          <div className="inv-coupon-text">
+            <p className="inv-coupon-head">{inv.coupon.percent}% OFF your next order</p>
+            <p className="inv-coupon-code">{inv.coupon.code}</p>
+            <p className="inv-coupon-sites">
+              {(() => {
+                const [main, other] = inv.coupon.site === "tes" ? ["theephemeralstate.com", "foundinalabama.com"] : ["foundinalabama.com", "theephemeralstate.com"];
+                // The stock line already names the main site.
+                return inv.coupon.stock && fit === "full" ? `Good at ${main} or ${other}` : `${main} or ${other}`;
+              })()}
+            </p>
+            {inv.coupon.stock && (
+              <p ref={stockRef} className={`inv-coupon-stock ${fit === "short" ? "inv-stock-skip" : ""}`}>
+                {inv.coupon.stock}
+              </p>
+            )}
+            <p className="inv-coupon-fine">
+              {inv.coupon.qrSvg ? "Scan, or enter the code at checkout" : "Enter the code at checkout"} · one use · good through {inv.coupon.expires}
+            </p>
+          </div>
         </div>
       )}
       {inv.coupon && !fits && <p className="no-print inv-coupon-note">No room for the coupon code on this label — it will be left off.</p>}
+      {inv.coupon && fit === "short" && <p className="no-print inv-coupon-note">Tight on room: the stock line is left off; the code still prints.</p>}
     </div>
   );
 }
@@ -336,6 +371,12 @@ const INVOICE_CSS = `
   .inv-coupon-sites { font-size: 11px; font-weight: 700; }
   .inv-coupon-fine { margin-top: 2px !important; font-size: 9.5px; }
   /* kept in the layout (invisible) so it can be re-measured after an edit */
+  .inv-coupon-withqr { display: flex; align-items: center; gap: 8px; text-align: left; }
+  .inv-coupon-withqr .inv-coupon-text { flex: 1; min-width: 0; text-align: center; }
+  .inv-coupon-qr { width: 0.85in; height: 0.85in; flex: 0 0 auto; }
+  .inv-coupon-qr svg { width: 100%; height: 100%; display: block; }
+  .inv-coupon-stock { margin-top: 3px !important; font-size: 11px; font-weight: 700; line-height: 1.25; }
+  .inv-stock-skip { position: absolute; visibility: hidden; left: 0; right: 0; }
   .inv-coupon-skip { position: absolute; left: 0.15in; right: 0.15in; visibility: hidden; }
   .inv-coupon-note { margin: 8px 0 0; font-size: 11px; color: #b00020; text-align: center; }
   @page { size: 4in 6in; margin: 0.15in; }
@@ -349,6 +390,6 @@ const INVOICE_CSS = `
     .inv-brands, .inv-saleline { break-after: avoid; }
     .inv-total, .inv-footer { break-before: avoid; }
     .inv-price, .inv-line-price { border-color: transparent !important; color: #000 !important; }
-    .inv-coupon-skip { display: none !important; }
+    .inv-coupon-skip, .inv-stock-skip { display: none !important; }
   }
 `;
