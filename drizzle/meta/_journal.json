@@ -330,6 +330,13 @@
       "when": 1792164326808,
       "tag": "0046_invoice_coupons",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1792450460013,
+      "tag": "0047_invoice_stock_pitch",
+      "breakpoints": true
     }
   ]
 }

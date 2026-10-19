@@ -5,7 +5,8 @@
 import Link from "next/link";
 import { db } from "@/db";
 import { ebayStoreCategories } from "@/db/schema";
-import { asc } from "drizzle-orm";
+import { asc, sql } from "drizzle-orm";
+import { makeCounter } from "@/lib/shop/invoice-pitch";
 import CategoriesEditor from "./CategoriesEditor";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,11 @@ export interface StoredCategory {
   isOtherBucket: boolean;
   isEphemeralState: boolean;
   shipClass: string;
+  /** Invoice stock line wording / count level (COUPON-2). */
+  invoiceLabel: string | null;
+  invoiceCountLevel: string;
+  /** In-stock items in this category and its subcategories. */
+  inStock: number;
   lastSyncedAt: string;
 }
 
@@ -28,6 +34,23 @@ export default async function CategoriesPage() {
     .from(ebayStoreCategories)
     .orderBy(asc(ebayStoreCategories.parentCategoryId), asc(ebayStoreCategories.order));
 
+  // In-stock counts per category subtree (what the invoice stock line uses).
+  const items = ((await db.execute(sql`SELECT store_category_1_id AS c1, store_category_2_id AS c2 FROM ebay_listings WHERE quantity > 0`)) as {
+    rows?: Array<{ c1: string | null; c2: string | null }>;
+  }).rows ?? [];
+  const counter = makeCounter(
+    rows.map((r) => ({
+      categoryId: r.categoryId,
+      parentCategoryId: r.parentCategoryId,
+      name: r.name,
+      isEphemeralState: r.isEphemeralState,
+      invoiceLabel: null,
+      invoiceCountLevel: "self" as const,
+    })),
+    items.map((i) => ({ cats: [i.c1, i.c2].filter((x): x is string => !!x) })),
+    "fia",
+    new Set()
+  );
   // Serialize Date → ISO string for the client component.
   const serialized: StoredCategory[] = rows.map((r) => ({
     categoryId: r.categoryId,
@@ -38,6 +61,9 @@ export default async function CategoriesPage() {
     isOtherBucket: r.isOtherBucket,
     isEphemeralState: r.isEphemeralState,
     shipClass: r.shipClass,
+    invoiceLabel: r.invoiceLabel ?? null,
+    invoiceCountLevel: r.invoiceCountLevel ?? "self",
+    inStock: counter.of(r.categoryId),
     lastSyncedAt: r.lastSyncedAt.toISOString(),
   }));
 

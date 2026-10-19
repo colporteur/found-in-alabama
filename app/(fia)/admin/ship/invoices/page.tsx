@@ -6,11 +6,15 @@
 // told FIA (eBay orders, Mercari sale emails, website orders).
 // "Pick list order" puts the labels in the same order as the pick list.
 // Each package gets a one-use code (20% by default; Ship → Invoice coupons) off a next order on
-// either website, printed big at the bottom when there's room.
+// either website, printed big at the bottom when there's room. COUPON-2: the
+// code's prefix (FIA/TES) and a stock line + QR code follow the site the
+// buyer is most likely to come back to (lib/shop/invoice-pitch.ts).
 
 import { loadShipOrders } from "@/lib/fulfillment/queue";
 import { pickOrder } from "@/lib/fulfillment/sku";
-import { codesForOrders } from "@/lib/shop/coupons";
+import { codesForOrders, couponSettings } from "@/lib/shop/coupons";
+import { choosePitch, loadPitchContext, orderLines, pickSite, type Site } from "@/lib/shop/invoice-pitch";
+import QRCode from "qrcode";
 import { InvoiceSheets, type InvoiceData } from "./InvoiceSheets";
 
 export const dynamic = "force-dynamic";
@@ -40,10 +44,32 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
   walk.forEach((x, i) => { if (!pickRank.has(x.orderId)) pickRank.set(x.orderId, i); });
   // COUPON-1: each package's code for a next order on either site (made the
   // first time its invoice is shown; reprints show the same one).
-  const codes = await codesForOrders(orders.map((o) => ({ id: o.id, venue: o.venue }))).catch((err) => {
+  const settings = await couponSettings().catch(() => null);
+  const ctx = orders.length ? await loadPitchContext().catch((err) => (console.error("[invoices] pitch context failed", err), null)) : null;
+  const lineCats = ctx ? await orderLines(orders.map((o) => o.id)).catch(() => new Map()) : new Map();
+  const picked = new Map<string, { site: Site; cat: string | null }>(
+    orders.map((o) => [o.id, ctx ? pickSite(o.venue, lineCats.get(o.id) ?? [], ctx.tesSet) : { site: o.venue === "tes" ? "tes" : "fia", cat: null }])
+  );
+  const codes = await codesForOrders(orders.map((o) => ({ id: o.id, venue: o.venue, site: picked.get(o.id)!.site }))).catch((err) => {
     console.error("[invoices] coupon codes failed", err);
     return new Map();
   });
+  // The stock line and QR code for each package that has a code.
+  const pitches = new Map<string, { text: string | null; qr: string | null; site: Site }>();
+  for (const o of orders) {
+    const c = codes.get(o.id);
+    if (!c) continue;
+    const { site, cat } = picked.get(o.id)!;
+    const p = ctx
+      ? choosePitch({ site, startCat: cat, cats: ctx.cats, counter: ctx.counters[site], tesSet: ctx.tesSet, min: settings?.stockMin ?? 25, slugOf: ctx.slugOf, code: c.code })
+      : null;
+    const url = p?.url ?? `https://${site === "tes" ? "theephemeralstate.com" : "foundinalabama.com"}/?code=${c.code}`;
+    const qr =
+      settings?.qr !== false
+        ? await QRCode.toString(url, { type: "svg", margin: 0, errorCorrectionLevel: "M" }).catch(() => null)
+        : null;
+    pitches.set(o.id, { text: settings?.stockLine !== false && p ? p.text : null, qr, site });
+  }
   const data: InvoiceData[] = orders.map((o) => {
     const website = o.venue === "tes" || o.venue === "fia";
     return {
@@ -71,6 +97,9 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
               code: c.code,
               percent: c.percent,
               expires: new Date(c.expiresAt).toLocaleDateString("en-US", { timeZone: "America/Chicago", dateStyle: "medium" }),
+              site: pitches.get(o.id)?.site ?? "fia",
+              stock: pitches.get(o.id)?.text ?? null,
+              qrSvg: pitches.get(o.id)?.qr ?? null,
             }
           : null;
       })(),

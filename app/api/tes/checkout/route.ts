@@ -8,6 +8,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { PROMO_COOKIE, promoForCheckout } from "@/lib/shop/coupons";
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
 import { tesOrders, tesOrderItems } from "@/db/schema";
@@ -70,6 +71,7 @@ export async function POST(req: NextRequest) {
   const origin = `${proto}://${host}`;
 
   const stripe = new Stripe(secretKey);
+  const carriedPromo = await promoForCheckout(stripe, req.cookies.get(PROMO_COOKIE)?.value);
 
   // Record the order first (status pending) so the webhook has a row to
   // flip even if the user closes the tab mid-payment.
@@ -101,9 +103,10 @@ export async function POST(req: NextRequest) {
   const session = await stripe.checkout.sessions.create({
     mode: "payment",
     client_reference_id: order.id,
-    // Invoice coupon codes (lib/shop/coupons.ts): Stripe shows the
-    // promotion-code box and enforces expiry and one use.
-    allow_promotion_codes: true,
+    // Invoice coupon codes (lib/shop/coupons.ts): a code carried in from an
+    // invoice QR is applied up front; otherwise Stripe shows the
+    // promotion-code box. Stripe enforces expiry and one use either way.
+    ...(carriedPromo ? { discounts: [{ promotion_code: carriedPromo }] } : { allow_promotion_codes: true }),
     line_items: lines.map((l) => ({
       quantity: l.quantity,
       price_data: {

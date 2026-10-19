@@ -59,6 +59,7 @@ export default async function CouponsPage() {
               <tr>
                 <th className="py-1 pr-4">Code</th>
                 <th className="py-1 pr-4">Off</th>
+                <th className="py-1 pr-4">Pitched</th>
                 <th className="py-1 pr-4">Invoice</th>
                 <th className="py-1 pr-4">Issued</th>
                 <th className="py-1 pr-4">Expires</th>
@@ -72,6 +73,7 @@ export default async function CouponsPage() {
                   <tr key={c.code} className="border-t border-brand-ink/10">
                     <td className="py-1 pr-4 font-mono font-semibold">{c.code}</td>
                     <td className="py-1 pr-4">{c.percent}%</td>
+                    <td className="py-1 pr-4">{c.code.startsWith("TES") ? "TES" : "FIA"}</td>
                     <td className="py-1 pr-4">{[c.venue, c.buyer].filter(Boolean).join(" · ")}</td>
                     <td className="py-1 pr-4">{fmt(c.issuedAt)}</td>
                     <td className="py-1 pr-4">{fmt(c.expiresAt)}</td>
