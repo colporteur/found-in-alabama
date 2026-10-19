@@ -113,6 +113,13 @@ export function ShipTable({ orders, tab, startDate }: { orders: ShipOrder[]; tab
       else n.add(id);
       return n;
     });
+  /** Keep this row as it is and uncheck every row below it (like Nifty's "include up to here"). */
+  const deselectBelow = (idx: number) =>
+    setSel((s) => {
+      const n = new Set(s);
+      for (const o of orders.slice(idx + 1)) n.delete(o.id);
+      return n;
+    });
 
   async function act(action: string, only?: string[]) {
     const use = only ?? ids;
@@ -204,7 +211,7 @@ export function ShipTable({ orders, tab, startDate }: { orders: ShipOrder[]; tab
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-brand-ink/60 border-b">
-              <th className="py-2 w-8"></th>
+              <th className="py-2 w-14"></th>
               <th className="py-2 w-16"></th>
               <th className="py-2">Item</th>
               <th className="py-2">Bin</th>
@@ -214,13 +221,26 @@ export function ShipTable({ orders, tab, startDate }: { orders: ShipOrder[]; tab
             </tr>
           </thead>
           <tbody>
-            {orders.map((o) => {
+            {orders.map((o, idx) => {
               const total = o.orderTotal ?? o.lines.reduce((a, l) => a + (l.price ?? 0) * l.quantity, 0);
               const img = o.lines.find((l) => l.imageUrl)?.imageUrl;
               return (
                 <tr key={o.id} className="border-b align-top hover:bg-brand-ink/5 cursor-pointer" onClick={() => toggle(o.id)}>
                   <td className="py-2">
                     <input type="checkbox" checked={sel.has(o.id)} onChange={() => toggle(o.id)} onClick={(e) => e.stopPropagation()} />
+                    {idx < orders.length - 1 && (
+                      <button
+                        type="button"
+                        title="Uncheck every package below this one"
+                        className="block mt-1 text-[10px] leading-tight text-brand-ink/50 hover:text-brand-ink underline whitespace-nowrap"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          deselectBelow(idx);
+                        }}
+                      >
+                        none below
+                      </button>
+                    )}
                   </td>
                   <td className="py-2">
                     {img ? (
