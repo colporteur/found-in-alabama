@@ -530,6 +530,62 @@ export type StorefrontSearchResult = {
 };
 
 /**
+ * Storefront cards for the given listing ids, in the given order (site
+ * search, lib/search). Same shape and sale/meta lookups as the category
+ * pages; ids that aren't in stock any more are dropped.
+ */
+export async function hydrateStorefrontItems(itemIds: string[]): Promise<StorefrontItem[]> {
+  if (!itemIds.length) return [];
+  const [rows, onSale, metaByEbayId, classRows] = await Promise.all([
+    db
+      .select({
+        itemId: ebayListings.itemId,
+        title: ebayListings.title,
+        price: ebayListings.price,
+        imageUrl: ebayListings.primaryImageUrl,
+        cat1: ebayListings.storeCategory1Id,
+        cat2: ebayListings.storeCategory2Id,
+      })
+      .from(ebayListings)
+      .where(and(inArray(ebayListings.itemId, itemIds), gt(ebayListings.quantity, 0))),
+    getOnSaleLookup(),
+    getItemMetaByEbayId(),
+    db
+      .select({ categoryId: ebayStoreCategories.categoryId, shipClass: ebayStoreCategories.shipClass })
+      .from(ebayStoreCategories),
+  ]);
+  const classByCat = new Map(classRows.map((c) => [c.categoryId, c.shipClass]));
+  const rank = { paper: 0, media: 1, bulky: 2 } as const;
+  const normClass = (v: unknown): "paper" | "media" | "bulky" => (v === "media" || v === "bulky" ? v : "paper");
+  const byId = new Map(rows.map((r) => [r.itemId, r]));
+  const out: StorefrontItem[] = [];
+  for (const id of itemIds) {
+    const r = byId.get(id);
+    if (!r) continue;
+    const sale =
+      onSale.byListingId.get(r.itemId) ??
+      (r.cat1 ? onSale.byCategoryId.get(r.cat1) : undefined) ??
+      (r.cat2 ? onSale.byCategoryId.get(r.cat2) : undefined) ??
+      null;
+    const meta = metaByEbayId.get(r.itemId);
+    const c1 = normClass(r.cat1 ? classByCat.get(r.cat1) : undefined);
+    const c2 = normClass(r.cat2 ? classByCat.get(r.cat2) : undefined);
+    out.push({
+      itemId: r.itemId,
+      title: decodeEntities(r.title),
+      price: r.price,
+      imageUrl: r.imageUrl,
+      ebayUrl: `https://www.ebay.com/itm/${r.itemId}`,
+      shipClass: rank[c1] >= rank[c2] ? c1 : c2,
+      sale,
+      haulSlug: meta?.haulSlug ?? null,
+      marketplaceLinks: meta?.marketplaceLinks ?? [],
+    });
+  }
+  return out;
+}
+
+/**
  * Search in-stock listings (TES segment when opts.segment === "tes").
  * Same item shape as getCategoryItems so the card components just work.
  */

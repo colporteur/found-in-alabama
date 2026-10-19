@@ -1,5 +1,6 @@
 import Link from "next/link";
 import FiaCartLink from "@/components/fia/FiaCartLink";
+import SearchBox from "@/components/search/SearchBox";
 
 const navLinks = [
   { href: "/shop", label: "Shop" },
@@ -23,6 +24,7 @@ export default function Header() {
           />
           <span className="sr-only">Found in Alabama</span>
         </Link>
+        <SearchBox site="fia" placeholder="Search the shop…" className="order-last sm:order-none w-full sm:w-64" />
         <nav className="flex flex-wrap items-center gap-x-5 gap-y-2 text-sm">
           {navLinks.map((link) => (
             <Link
