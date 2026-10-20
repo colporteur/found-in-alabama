@@ -265,8 +265,8 @@ export function shelfLabel(ctx: Pick<PitchContext, "cats">, id: string, count: n
 export async function shelfChoices(
   orders: Array<{ id: string; venue: string; pitchCategoryId?: string | null }>,
   min: number
-): Promise<{ perOrder: Record<string, { auto: string; options: ShelfChoice[] }>; all: ShelfChoice[] }> {
-  const perOrder: Record<string, { auto: string; options: ShelfChoice[] }> = {};
+): Promise<{ perOrder: Record<string, { auto: string; site: Site; options: ShelfChoice[] }>; all: ShelfChoice[] }> {
+  const perOrder: Record<string, { auto: string; site: Site; options: ShelfChoice[] }> = {};
   if (!orders.length) return { perOrder, all: [] };
   const ctx = await loadPitchContext();
   const lines = await orderLines(orders.map((o) => o.id));
@@ -285,7 +285,7 @@ export async function shelfChoices(
         options.push({ value: c, label: `${shelfLabel(ctx, c, ctx.counters[site].of(c))}${site === "tes" ? " · TES" : ""}` });
       }
     }
-    perOrder[o.id] = { auto: `${p.site === "tes" ? "TES" : "FIA"}: ${autoLabel}`, options };
+    perOrder[o.id] = { auto: `${p.site === "tes" ? "TES" : "FIA"}: ${autoLabel}`, site: p.site, options };
   }
   const all = ctx.cats
     .filter((c) => !c.catchAll && ctx.counters.fia.of(c.categoryId) > 0)

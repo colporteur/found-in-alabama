@@ -15,6 +15,8 @@ import { pickOrder } from "@/lib/fulfillment/sku";
 import { codesForOrders, couponSettings } from "@/lib/shop/coupons";
 import { choosePitch, loadPitchContext, orderLines, planPitch, type Site } from "@/lib/shop/invoice-pitch";
 import QRCode from "qrcode";
+import { searchPitchText, searchPitchUrl } from "@/lib/shop/invoice-search";
+import { searchCounter } from "@/lib/shop/invoice-search-server";
 import { InvoiceSheets, type InvoiceData } from "./InvoiceSheets";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +56,13 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
       ctx ? planPitch(o.venue, lineCats.get(o.id) ?? [], o.pitchCategoryId, ctx.tesSet) : { site: o.venue === "tes" ? "tes" : "fia", cat: null, exact: false },
     ])
   );
+  // COUPON-2c: a custom search Todd set wins (when it still finds something).
+  const countSearch = searchCounter();
+  const searchCounts = new Map<string, number>();
+  await Promise.all(
+    orders.filter((o) => o.pitchSearch).map(async (o) => searchCounts.set(o.id, await countSearch(o.pitchSearch!)))
+  );
+  for (const o of orders) if (o.pitchSearch && (searchCounts.get(o.id) ?? 0) > 0) picked.set(o.id, { site: o.pitchSearch.site, cat: null, exact: true });
   const codes = await codesForOrders(orders.map((o) => ({ id: o.id, venue: o.venue, site: picked.get(o.id)!.site }))).catch((err) => {
     console.error("[invoices] coupon codes failed", err);
     return new Map();
@@ -64,7 +73,10 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
     const c = codes.get(o.id);
     if (!c) continue;
     const { site, cat, exact } = picked.get(o.id)!;
-    const p = ctx
+    const sCount = o.pitchSearch ? searchCounts.get(o.id) ?? 0 : 0;
+    const p = o.pitchSearch && sCount > 0
+      ? { text: searchPitchText(o.pitchSearch, sCount), url: searchPitchUrl(o.pitchSearch, c.code) }
+      : ctx
       ? choosePitch({ site, startCat: cat, cats: ctx.cats, counter: ctx.counters[site], tesSet: ctx.tesSet, min: settings?.stockMin ?? 25, slugOf: ctx.slugOf, code: c.code, exact })
       : null;
     const url = p?.url ?? `https://${site === "tes" ? "theephemeralstate.com" : "foundinalabama.com"}/?code=${c.code}`;

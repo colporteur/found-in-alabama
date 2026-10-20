@@ -107,13 +107,27 @@ function toCand(r: Row, score: number): Cand {
   };
 }
 
-export async function searchItems(params: SearchParams): Promise<SearchResult> {
+export type SearchContext = { synonyms: string[][]; site: Awaited<ReturnType<typeof siteCats>> };
+
+/** Load once, reuse for many counts (the Ship page counts several searches). */
+export async function searchContext(site: Site): Promise<SearchContext> {
+  const [synonyms, cats] = await Promise.all([synonymGroups().catch(() => []), siteCats(site)]);
+  return { synonyms, site: cats };
+}
+
+/** How many items a search shows on the site (word and typo matches —
+ *  not the "Related" ones), for invoice stock lines. */
+export async function countSearch(params: Omit<SearchParams, "sort" | "page" | "perPage">, ctx?: SearchContext): Promise<number> {
+  return (await searchItems(params, { ctx, countOnly: true })).total;
+}
+
+export async function searchItems(params: SearchParams, opts: { ctx?: SearchContext; countOnly?: boolean } = {}): Promise<SearchResult> {
   const perPage = Math.min(96, Math.max(12, params.perPage ?? 48));
   const page = Math.max(1, Math.floor(params.page ?? 1));
   const sort: SearchSort = params.sort ?? "best";
-  const synonyms = await synonymGroups().catch(() => []);
+  const synonyms = opts.ctx?.synonyms ?? (await synonymGroups().catch(() => []));
   const parsed = parseQuery(params.q, synonyms);
-  const site = await siteCats(params.site);
+  const site = opts.ctx?.site ?? (await siteCats(params.site));
 
   // Which listings this view may show.
   const catFilter = params.categoryId ? site.subtree(params.categoryId) : null;
@@ -163,6 +177,11 @@ export async function searchItems(params: SearchParams): Promise<SearchResult> {
     const extra = fuzzy.map((r) => toCand(r, Number(r.score) * 0.5)).filter((c) => !have.has(c.id) && allowedBase(c));
     if (!found.length && extra.length) fuzzyOnly = true;
     found = [...found, ...extra];
+  }
+
+  if (opts.countOnly) {
+    const total = found.filter(inCategory).length;
+    return { items: [], total, page: 1, pages: 1, related: [], facets: [], didYouMean: null, fuzzyOnly };
   }
 
   // 3. meaning (best effort: off until the gateway has embeddings).

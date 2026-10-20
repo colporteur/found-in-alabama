@@ -1,0 +1,1 @@
+ALTER TABLE "ship_orders" ADD COLUMN "pitch_search" jsonb;

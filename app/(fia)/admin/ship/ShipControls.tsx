@@ -3,7 +3,7 @@
 // Client controls for /admin/ship: start date, sync, the package table with
 // selection and pick / invoice / combine / packed / shipped actions.
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ShipOrder, ShipTab } from "@/lib/fulfillment/queue";
 
@@ -93,9 +93,27 @@ const when = (s: string | null) =>
   s ? new Date(s.endsWith("Z") || s.includes("+") ? s : `${s}Z`).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" }) : "";
 const money = (n: number) => `$${n.toFixed(2)}`;
 
-type Shelves = { perOrder: Record<string, { auto: string; options: Array<{ value: string; label: string }> }>; all: Array<{ value: string; label: string }> } | null;
+type Shelves = {
+  perOrder: Record<string, { auto: string; site: "fia" | "tes"; options: Array<{ value: string; label: string }> }>;
+  all: Array<{ value: string; label: string }>;
+} | null;
+type PSearch = { site: "fia" | "tes"; q: string; category?: string | null; min?: number | null; max?: number | null; label?: string | null };
+type Counted = { search: PSearch; count: number };
+type Searches = { suggested: Record<string, Counted[]>; current: Record<string, Counted>; recent: Counted[] } | null;
 
-export function ShipTable({ orders, tab, startDate, shelves = null }: { orders: ShipOrder[]; tab: ShipTab; startDate: string; shelves?: Shelves }) {
+export function ShipTable({
+  orders,
+  tab,
+  startDate,
+  shelves = null,
+  searches = null,
+}: {
+  orders: ShipOrder[];
+  tab: ShipTab;
+  startDate: string;
+  shelves?: Shelves;
+  searches?: Searches;
+}) {
   const router = useRouter();
   const fresh = useMemo(
     () => new Set(orders.filter((o) => tab === "to_pick" && !o.pickPrintedAt).map((o) => o.id)),
@@ -313,12 +331,17 @@ export function ShipTable({ orders, tab, startDate, shelves = null }: { orders: 
                   {shelves && (
                     <td className="py-2 pl-4" onClick={(e) => e.stopPropagation()}>
                       <ShelfPick
+                        key={`${o.id}:${o.pitchCategoryId ?? ""}:${JSON.stringify(o.pitchSearch ?? null)}`}
                         id={o.id}
                         value={o.pitchCategoryId}
                         auto={shelves.perOrder[o.id]?.auto ?? "automatic"}
+                        site={shelves.perOrder[o.id]?.site ?? "fia"}
                         options={shelves.perOrder[o.id]?.options ?? []}
                         all={shelves.all}
                         printed={!!o.invoicePrintedAt}
+                        current={searches?.current[o.id] ?? null}
+                        suggested={searches?.suggested[o.id] ?? []}
+                        recent={searches?.recent ?? []}
                       />
                     </td>
                   )}
@@ -366,36 +389,65 @@ export function ShipTable({ orders, tab, startDate, shelves = null }: { orders: 
   );
 }
 
+const siteTag = (s: PSearch) => (s.site === "tes" ? "TES" : "FIA");
+const searchLabel = (c: Counted) =>
+  `${c.search.q || "(filters)"}${c.search.category ? " · one shelf" : ""} (${c.count.toLocaleString()}) · ${siteTag(c.search)}`;
+
 /** Invoice shelf for one package: automatic (default), one of its items'
- *  shelves, the whole store, or any other shelf. Saves on change. */
+ *  shelves, the whole store, any other shelf — or a search (suggested
+ *  place, recent, or a custom one typed / pasted here). Saves on change. */
 function ShelfPick({
   id,
   value,
   auto,
+  site,
   options,
   all,
   printed,
+  current,
+  suggested,
+  recent,
 }: {
   id: string;
   value: string | null;
   auto: string;
+  site: "fia" | "tes";
   options: Array<{ value: string; label: string }>;
   all: Array<{ value: string; label: string }>;
   printed: boolean;
+  current: Counted | null;
+  suggested: Counted[];
+  recent: Counted[];
 }) {
   const router = useRouter();
-  const [v, setV] = useState(value ?? "");
+  const [v, setV] = useState(current ? "s:current" : value ?? "");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [custom, setCustom] = useState(false);
   const own = new Set(options.map((o) => o.value));
   const others = all.filter((o) => !own.has(o.value));
+  const key = (s: PSearch) => [s.site, s.q.toLowerCase(), s.category ?? "", s.min ?? "", s.max ?? ""].join("|");
+  const curKey = current ? key(current.search) : null;
+  const sugg = suggested.filter((c) => key(c.search) !== curKey);
+  const rec = recent.filter((c) => key(c.search) !== curKey && !sugg.some((x) => key(x.search) === key(c.search))).slice(0, 6);
+
   async function save(next: string) {
+    if (next === "s:custom") {
+      setCustom(true);
+      return;
+    }
     const prev = v;
     setV(next);
     setBusy(true);
     setErr(null);
     try {
-      await post({ action: "pitch_shelf", id, choice: next || null });
+      if (next.startsWith("s:sugg:") || next.startsWith("s:rec:")) {
+        const [, kind, idx] = next.split(":");
+        const c = (kind === "sugg" ? sugg : rec)[Number(idx)];
+        await post({ action: "pitch_search", id, search: c.search });
+      } else if (next !== "s:current") {
+        await post({ action: "pitch_shelf", id, choice: next || null });
+      }
       router.refresh();
     } catch (x) {
       setV(prev);
@@ -411,9 +463,19 @@ function ShelfPick({
         disabled={busy}
         onChange={(e) => save(e.target.value)}
         className={`w-full text-xs border rounded px-1.5 py-1 bg-white ${v ? "border-brand-ink/60 font-semibold" : "border-brand-ink/15 text-brand-ink/70"}`}
-        title={printed ? "The invoice was already printed; a reprint will use the new shelf" : undefined}
+        title={printed ? "The invoice was already printed; a reprint will use the new choice" : undefined}
       >
         <option value="">Auto — {auto}</option>
+        {current && <option value="s:current">Search: {searchLabel(current)}{current.search.label ? ` — “${current.search.label}”` : ""}</option>}
+        {sugg.length > 0 && (
+          <optgroup label="Suggested place searches">
+            {sugg.map((c, i) => (
+              <option key={`sg${i}`} value={`s:sugg:${i}`}>
+                Search: {searchLabel(c)}
+              </option>
+            ))}
+          </optgroup>
+        )}
         {options.length > 0 && (
           <optgroup label="This package's shelves">
             {options.map((o) => (
@@ -424,6 +486,16 @@ function ShelfPick({
           </optgroup>
         )}
         <option value="store">Whole store</option>
+        <option value="s:custom">Custom search…</option>
+        {rec.length > 0 && (
+          <optgroup label="Recent searches">
+            {rec.map((c, i) => (
+              <option key={`rc${i}`} value={`s:rec:${i}`}>
+                Search: {searchLabel(c)}
+              </option>
+            ))}
+          </optgroup>
+        )}
         <optgroup label="Another shelf">
           {others.map((o) => (
             <option key={o.value} value={o.value}>
@@ -432,7 +504,130 @@ function ShelfPick({
           ))}
         </optgroup>
       </select>
+      {current && current.count === 0 && <p className="text-[11px] text-amber-800 mt-0.5">This search finds nothing now; the invoice uses Auto.</p>}
+      {current && current.count > 0 && current.count < 5 && <p className="text-[11px] text-amber-800 mt-0.5">Only {current.count} found.</p>}
+      {custom && (
+        <CustomSearch
+          site={current?.search.site ?? site}
+          initial={current ? current.search.q : ""}
+          initialLabel={current?.search.label ?? ""}
+          onCancel={() => setCustom(false)}
+          onSave={async (search) => {
+            setBusy(true);
+            setErr(null);
+            try {
+              await post({ action: "pitch_search", id, search });
+              setCustom(false);
+              setV("s:current");
+              router.refresh();
+            } catch (x) {
+              setErr((x as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        />
+      )}
       {err && <p className="text-[11px] text-red-700 mt-0.5">{err}</p>}
     </div>
   );
 }
+
+/** Type words or paste a search link; shows the live count and the line. */
+function CustomSearch({
+  site: startSite,
+  initial,
+  initialLabel,
+  onSave,
+  onCancel,
+}: {
+  site: "fia" | "tes";
+  initial: string;
+  initialLabel: string;
+  onSave: (s: PSearch) => void;
+  onCancel: () => void;
+}) {
+  const [input, setInput] = useState(initial);
+  const [label, setLabel] = useState(initialLabel);
+  const [site, setSite] = useState(startSite);
+  const [preview, setPreview] = useState<{ search: PSearch | null; count: number; text?: string } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const isLink = /^(https?:\/\/|www\.|foundinalabama\.com|theephemeralstate\.com)/i.test(input.trim());
+
+  useEffect(() => {
+    if (!input.trim()) {
+      setPreview(null);
+      return;
+    }
+    const t = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const res = await fetch("/api/admin/ship", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "search_count", input, site, label }),
+        });
+        const out = await res.json();
+        setPreview({ search: out.search ?? null, count: Number(out.count ?? 0), text: out.text });
+      } catch {
+        setPreview(null);
+      } finally {
+        setLoading(false);
+      }
+    }, 350);
+    return () => clearTimeout(t);
+  }, [input, site, label]);
+
+  return (
+    <div className="mt-1 rounded border border-brand-ink/30 bg-white p-2 text-xs space-y-1.5 shadow-sm">
+      <input
+        autoFocus
+        value={input}
+        onChange={(e) => setInput(e.target.value)}
+        placeholder="Words (Anniston) or a search link"
+        className="w-full border border-brand-ink/20 rounded px-1.5 py-1"
+      />
+      {!isLink && (
+        <div className="flex gap-3">
+          <label className="flex items-center gap-1">
+            <input type="radio" checked={site === "fia"} onChange={() => setSite("fia")} /> foundinalabama.com
+          </label>
+          <label className="flex items-center gap-1">
+            <input type="radio" checked={site === "tes"} onChange={() => setSite("tes")} /> TES
+          </label>
+        </div>
+      )}
+      <input
+        value={label}
+        onChange={(e) => setLabel(e.target.value)}
+        placeholder="Wording (optional), e.g. Anniston, Alabama pieces"
+        className="w-full border border-brand-ink/20 rounded px-1.5 py-1"
+      />
+      <p className={preview && preview.count > 0 && preview.count < 5 ? "text-amber-800" : "text-brand-ink/70"}>
+        {loading
+          ? "Counting…"
+          : !preview
+            ? "Type a search to see how many it finds."
+            : !preview.search
+              ? "That link isn't a search on foundinalabama.com or theephemeralstate.com."
+              : preview.count === 0
+                ? "Finds nothing right now."
+                : `${preview.text}${preview.count < 5 ? " (only a few)" : ""}`}
+      </p>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          disabled={!preview?.search || preview.count === 0}
+          onClick={() => preview?.search && onSave({ ...preview.search, label: label.trim() || null })}
+          className="px-2 py-1 rounded bg-brand-ink text-white disabled:opacity-40"
+        >
+          Use this search
+        </button>
+        <button type="button" onClick={onCancel} className="px-2 py-1 rounded border border-brand-ink/20">
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
