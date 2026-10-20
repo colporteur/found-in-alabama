@@ -1754,6 +1754,9 @@ export const shipOrders = pgTable(
     buyerFee: numeric("buyer_fee", { precision: 10, scale: 2 }),
     /** Website orders: the coupon discount taken at checkout. */
     discount: numeric("discount", { precision: 10, scale: 2 }),
+    /** Invoice stock line shelf Todd picked on the Ship page (COUPON-2b):
+     *  a store category id, "store" for the whole store, or null = automatic. */
+    pitchCategoryId: text("pitch_category_id"),
     pickPrintedAt: timestamp("pick_printed_at"),
     invoicePrintedAt: timestamp("invoice_printed_at"),
     packedAt: timestamp("packed_at"),

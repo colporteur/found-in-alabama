@@ -13,6 +13,8 @@ import {
 } from "@/lib/fulfillment/queue";
 import { ShipTable, StartForm, SyncButton } from "./ShipControls";
 import { FULFILLMENT_SCOPE, hasGrantedScope } from "@/lib/ebay/oauth";
+import { shelfChoices } from "@/lib/shop/invoice-pitch";
+import { couponSettings } from "@/lib/shop/coupons";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +59,12 @@ export default async function ShipPage({ searchParams }: { searchParams: { tab?:
   const ebayAccess = await hasGrantedScope(FULFILLMENT_SCOPE).catch(() => false);
   const tab: ShipTab = SHIP_TABS.includes(searchParams.tab as ShipTab) ? (searchParams.tab as ShipTab) : "to_pick";
   const { orders, counts } = await loadShipQueue(tab);
+  // COUPON-2b: the invoice stock line's shelf per package (automatic, or picked).
+  const coupon = await couponSettings().catch(() => null);
+  const shelves =
+    tab === "to_pick" && coupon?.enabled !== false && coupon?.stockLine !== false
+      ? await shelfChoices(orders, coupon?.stockMin ?? 25).catch((err) => (console.error("[ship] shelf choices failed", err), null))
+      : null;
 
   return (
     <section className="container-content py-12">
@@ -105,7 +113,7 @@ export default async function ShipPage({ searchParams }: { searchParams: { tab?:
         ))}
       </div>
 
-      <ShipTable orders={orders} tab={tab} startDate={settings.startDate} />
+      <ShipTable orders={orders} tab={tab} startDate={settings.startDate} shelves={shelves} />
     </section>
   );
 }

@@ -12,6 +12,7 @@ import {
   applyShipAction,
   markShippedBefore,
   saveFulfillmentSettings,
+  setPitchShelf,
   syncShipQueue,
   type ShipAction,
 } from "@/lib/fulfillment/queue";
@@ -36,6 +37,11 @@ export async function POST(req: NextRequest) {
       const s = await saveFulfillmentSettings({ startDate: body.startDate });
       const sync = await syncShipQueue();
       return NextResponse.json({ ok: true, settings: s, sync });
+    }
+    if (body.action === "pitch_shelf") {
+      const b = body as unknown as { id?: string; choice?: string | null };
+      const n = await setPitchShelf(String(b.id ?? ""), b.choice ? String(b.choice) : null, who);
+      return NextResponse.json({ ok: true, updated: n });
     }
     if (body.action === "sync") return NextResponse.json({ ok: true, sync: await syncShipQueue() });
     if (body.action === "shipped_before") {
