@@ -13,7 +13,7 @@
 import { loadShipOrders } from "@/lib/fulfillment/queue";
 import { pickOrder } from "@/lib/fulfillment/sku";
 import { codesForOrders, couponSettings } from "@/lib/shop/coupons";
-import { choosePitch, loadPitchContext, orderLines, pickSite, type Site } from "@/lib/shop/invoice-pitch";
+import { choosePitch, loadPitchContext, orderLines, planPitch, type Site } from "@/lib/shop/invoice-pitch";
 import QRCode from "qrcode";
 import { InvoiceSheets, type InvoiceData } from "./InvoiceSheets";
 
@@ -47,8 +47,12 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
   const settings = await couponSettings().catch(() => null);
   const ctx = orders.length ? await loadPitchContext().catch((err) => (console.error("[invoices] pitch context failed", err), null)) : null;
   const lineCats = ctx ? await orderLines(orders.map((o) => o.id)).catch(() => new Map()) : new Map();
-  const picked = new Map<string, { site: Site; cat: string | null }>(
-    orders.map((o) => [o.id, ctx ? pickSite(o.venue, lineCats.get(o.id) ?? [], ctx.tesSet) : { site: o.venue === "tes" ? "tes" : "fia", cat: null }])
+  // Automatic, unless Todd picked a shelf for the package on the Ship page.
+  const picked = new Map<string, { site: Site; cat: string | null; exact: boolean }>(
+    orders.map((o) => [
+      o.id,
+      ctx ? planPitch(o.venue, lineCats.get(o.id) ?? [], o.pitchCategoryId, ctx.tesSet) : { site: o.venue === "tes" ? "tes" : "fia", cat: null, exact: false },
+    ])
   );
   const codes = await codesForOrders(orders.map((o) => ({ id: o.id, venue: o.venue, site: picked.get(o.id)!.site }))).catch((err) => {
     console.error("[invoices] coupon codes failed", err);
@@ -59,9 +63,9 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
   for (const o of orders) {
     const c = codes.get(o.id);
     if (!c) continue;
-    const { site, cat } = picked.get(o.id)!;
+    const { site, cat, exact } = picked.get(o.id)!;
     const p = ctx
-      ? choosePitch({ site, startCat: cat, cats: ctx.cats, counter: ctx.counters[site], tesSet: ctx.tesSet, min: settings?.stockMin ?? 25, slugOf: ctx.slugOf, code: c.code })
+      ? choosePitch({ site, startCat: cat, cats: ctx.cats, counter: ctx.counters[site], tesSet: ctx.tesSet, min: settings?.stockMin ?? 25, slugOf: ctx.slugOf, code: c.code, exact })
       : null;
     const url = p?.url ?? `https://${site === "tes" ? "theephemeralstate.com" : "foundinalabama.com"}/?code=${c.code}`;
     const qr =

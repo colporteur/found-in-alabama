@@ -408,6 +408,8 @@ export type ShipOrder = {
   buyerFee: number | null;
   /** Website orders: what an invoice code took off the items. */
   discount: number | null;
+  /** Invoice stock line shelf Todd picked (category id, "store"), or null = automatic. */
+  pitchCategoryId: string | null;
   pickPrintedAt: string | null;
   invoicePrintedAt: string | null;
   packedAt: string | null;
@@ -435,6 +437,7 @@ function toOrder(r: Row): ShipOrder {
     salesTax: r.sales_tax == null ? null : Number(r.sales_tax),
     buyerFee: r.buyer_fee == null ? null : Number(r.buyer_fee),
     discount: r.discount == null ? null : Number(r.discount),
+    pitchCategoryId: (r.pitch_category_id as string | null | undefined) ?? null,
     pickPrintedAt: iso(r.pick_printed_at),
     invoicePrintedAt: iso(r.invoice_printed_at),
     packedAt: iso(r.packed_at),
@@ -508,6 +511,15 @@ export async function loadShipOrders(ids: string[]): Promise<ShipOrder[]> {
 
 export const SHIP_ACTIONS = ["pick_printed", "invoice_printed", "packed", "shipped", "reopen", "cancel", "combine"] as const;
 export type ShipAction = (typeof SHIP_ACTIONS)[number];
+
+/** COUPON-2b: the shelf for one package's invoice stock line — a store
+ *  category id, "store" (whole store), or null/"" for automatic. */
+export async function setPitchShelf(id: string, choice: string | null, who: string): Promise<number> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("Bad package id");
+  const v = !choice ? null : choice === "store" ? "store" : /^\d{1,20}$/.test(choice) ? choice : undefined;
+  if (v === undefined) throw new Error("Pick a shelf from the list");
+  return exec(sql`UPDATE ship_orders SET pitch_category_id = ${v}, updated_at = now(), updated_by = ${who} WHERE id = ${id}::uuid`);
+}
 
 export async function applyShipAction(ids: string[], action: ShipAction, who: string): Promise<number> {
   const clean = ids.filter((id) => /^[0-9a-f-]{36}$/i.test(id)).slice(0, 500);

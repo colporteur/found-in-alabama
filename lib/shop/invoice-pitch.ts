@@ -103,11 +103,18 @@ export function choosePitch(opts: {
   min: number;
   slugOf: (site: Site, id: string) => string | null;
   code?: string | null;
+  /** Todd picked this shelf on the Ship page: use it as is (no parent
+   *  setting, no minimum) — or the whole store when startCat is null. */
+  exact?: boolean;
 }): Pitch {
   const { site, cats, counter, tesSet, min } = opts;
   const byId = new Map(cats.map((c) => [c.categoryId, c]));
   const onSite = (id: string) => site === "fia" || tesSet.has(id);
   let cur: string | null = opts.startCat && byId.has(opts.startCat) ? opts.startCat : null;
+  if (opts.exact) {
+    const pick = cur && onSite(cur) && counter.of(cur) > 0 ? byId.get(cur)! : null;
+    return pitchText(site, pick, counter, opts.slugOf, opts.code);
+  }
   if (cur && byId.get(cur)!.invoiceCountLevel === "parent") {
     const p = byId.get(cur)!.parentCategoryId;
     if (p && byId.has(p) && onSite(p)) cur = p;
@@ -120,8 +127,18 @@ export function choosePitch(opts: {
     }
     cur = byId.get(cur)?.parentCategoryId ?? null;
   }
+  return pitchText(site, chosen, counter, opts.slugOf, opts.code);
+}
+
+function pitchText(
+  site: Site,
+  chosen: PitchCat | null,
+  counter: { total: number; of: (id: string) => number },
+  slugOf: (site: Site, id: string) => string | null,
+  code?: string | null
+): Pitch {
   const domain = SITE_DOMAIN[site];
-  const q = opts.code ? `?code=${encodeURIComponent(opts.code)}` : "";
+  const q = code ? `?code=${encodeURIComponent(code)}` : "";
   if (!chosen) {
     const count = counter.total;
     return { site, count, categoryId: null, text: `${domain} has ${stockNumber(count)} items in stock today`, url: `https://${domain}/${q}` };
@@ -131,7 +148,7 @@ export function choosePitch(opts: {
   const text = label
     ? `${domain} has ${stockNumber(count)} ${label} in stock today`
     : `${domain} has ${stockNumber(count)} items in ${decode(chosen.name)} in stock today`;
-  const slug = opts.slugOf(site, chosen.categoryId);
+  const slug = slugOf(site, chosen.categoryId);
   return { site, count, categoryId: chosen.categoryId, text, url: `https://${domain}/${slug ? `shop/${slug}` : ""}${q}` };
 }
 
@@ -208,4 +225,74 @@ export async function orderLines(orderIds: string[]): Promise<Map<string, PitchL
     out.set(k, arr);
   }
   return out;
+}
+
+// ─── Todd's pick on the Ship page (COUPON-2b) ───────────────────────────────
+
+/** Pure: the site and starting shelf for a package — automatic, or the
+ *  shelf Todd picked ("store" = the whole store). A picked shelf flagged
+ *  Ephemeral State pitches TES; any other pitches FIA. */
+export function planPitch(
+  venue: string,
+  lines: PitchLine[],
+  choice: string | null | undefined,
+  tesSet: Set<string>
+): { site: Site; cat: string | null; exact: boolean } {
+  const auto = pickSite(venue, lines, tesSet);
+  if (!choice) return { ...auto, exact: false };
+  if (choice === "store") return { site: auto.site, cat: null, exact: true };
+  return { site: tesSet.has(choice) ? "tes" : "fia", cat: choice, exact: true };
+}
+
+export type ShelfChoice = { value: string; label: string };
+
+/** Pure: shelf labels "Parent › Child (1,234)" for a site's counts. */
+export function shelfLabel(ctx: Pick<PitchContext, "cats">, id: string, count: number): string {
+  const byId = new Map(ctx.cats.map((c) => [c.categoryId, c]));
+  const names: string[] = [];
+  let cur: string | null = id;
+  for (let hops = 0; cur && hops < 6; hops++) {
+    const c = byId.get(cur);
+    if (!c) break;
+    names.unshift(decode(c.name));
+    cur = c.parentCategoryId;
+  }
+  return `${names.join(" › ") || id} (${count.toLocaleString("en-US")})`;
+}
+
+/** For the Ship page: per package, what "Automatic" would print and the
+ *  shelves its items sit on; plus every shelf (for "another shelf"). */
+export async function shelfChoices(
+  orders: Array<{ id: string; venue: string; pitchCategoryId?: string | null }>,
+  min: number
+): Promise<{ perOrder: Record<string, { auto: string; options: ShelfChoice[] }>; all: ShelfChoice[] }> {
+  const perOrder: Record<string, { auto: string; options: ShelfChoice[] }> = {};
+  if (!orders.length) return { perOrder, all: [] };
+  const ctx = await loadPitchContext();
+  const lines = await orderLines(orders.map((o) => o.id));
+  for (const o of orders) {
+    const ls = lines.get(o.id) ?? [];
+    const plan = planPitch(o.venue, ls, null, ctx.tesSet);
+    const p = choosePitch({ site: plan.site, startCat: plan.cat, cats: ctx.cats, counter: ctx.counters[plan.site], tesSet: ctx.tesSet, min, slugOf: ctx.slugOf });
+    const autoLabel = p.categoryId ? shelfLabel(ctx, p.categoryId, p.count) : `whole store (${p.count.toLocaleString("en-US")})`;
+    const seen = new Set<string>();
+    const options: ShelfChoice[] = [];
+    for (const l of [...ls].sort((a, b) => (b.price ?? 0) - (a.price ?? 0))) {
+      for (const c of l.cats) {
+        if (seen.has(c)) continue;
+        seen.add(c);
+        const site: Site = ctx.tesSet.has(c) ? "tes" : "fia";
+        options.push({ value: c, label: `${shelfLabel(ctx, c, ctx.counters[site].of(c))}${site === "tes" ? " · TES" : ""}` });
+      }
+    }
+    perOrder[o.id] = { auto: `${p.site === "tes" ? "TES" : "FIA"}: ${autoLabel}`, options };
+  }
+  const all = ctx.cats
+    .filter((c) => !c.catchAll && ctx.counters.fia.of(c.categoryId) > 0)
+    .map((c) => {
+      const site: Site = ctx.tesSet.has(c.categoryId) ? "tes" : "fia";
+      return { value: c.categoryId, label: `${shelfLabel(ctx, c.categoryId, ctx.counters[site].of(c.categoryId))}${site === "tes" ? " · TES" : ""}` };
+    })
+    .sort((a, b) => a.label.localeCompare(b.label));
+  return { perOrder, all };
 }

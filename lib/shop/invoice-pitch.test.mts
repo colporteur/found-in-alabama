@@ -92,3 +92,19 @@ test("catch-all categories are never named", () => {
   const p = choosePitch({ site: "fia", startCat: "oth", cats: c2, counter: makeCounter(c2, its, "fia", tesSet), tesSet, min: 25, slugOf: () => null });
   assert.equal(p.categoryId, null);
 });
+
+test("Todd's pick: planPitch and exact shelves", async () => {
+  const { planPitch, shelfLabel } = await import("./invoice-pitch");
+  const lines = [{ price: 20, cats: ["ua"] }, { price: 9, cats: ["pcal"] }];
+  assert.deepEqual(planPitch("ebay", lines, null, tesSet), { site: "fia", cat: "ua", exact: false });
+  assert.deepEqual(planPitch("ebay", lines, "pcal", tesSet), { site: "tes", cat: "pcal", exact: true });
+  assert.deepEqual(planPitch("ebay", lines, "store", tesSet), { site: "fia", cat: null, exact: true });
+  const tes = makeCounter(cats, items, "tes", tesSet);
+  // exact: Alabama postcards (10) even though it's under the minimum
+  const p = choosePitch({ site: "tes", startCat: "pcal", cats, counter: tes, tesSet, min: 25, slugOf: () => null, exact: true });
+  assert.equal(p.categoryId, "pcal");
+  assert.equal(p.text, "theephemeralstate.com has 10 items in Alabama in stock today");
+  const s = choosePitch({ site: "fia", startCat: null, cats, counter: makeCounter(cats, items, "fia", tesSet), tesSet, min: 25, slugOf: () => null, exact: true });
+  assert.equal(s.categoryId, null);
+  assert.equal(shelfLabel({ cats }, "pcal", 10), "Postcards › Alabama (10)");
+});

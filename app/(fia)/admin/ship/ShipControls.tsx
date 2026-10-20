@@ -93,7 +93,9 @@ const when = (s: string | null) =>
   s ? new Date(s.endsWith("Z") || s.includes("+") ? s : `${s}Z`).toLocaleString("en-US", { dateStyle: "short", timeStyle: "short" }) : "";
 const money = (n: number) => `$${n.toFixed(2)}`;
 
-export function ShipTable({ orders, tab, startDate }: { orders: ShipOrder[]; tab: ShipTab; startDate: string }) {
+type Shelves = { perOrder: Record<string, { auto: string; options: Array<{ value: string; label: string }> }>; all: Array<{ value: string; label: string }> } | null;
+
+export function ShipTable({ orders, tab, startDate, shelves = null }: { orders: ShipOrder[]; tab: ShipTab; startDate: string; shelves?: Shelves }) {
   const router = useRouter();
   const fresh = useMemo(
     () => new Set(orders.filter((o) => tab === "to_pick" && !o.pickPrintedAt).map((o) => o.id)),
@@ -218,6 +220,11 @@ export function ShipTable({ orders, tab, startDate }: { orders: ShipOrder[]; tab
               <th className="py-2">Venue</th>
               <th className="py-2">Sold</th>
               <th className="py-2 text-right">Price</th>
+              {shelves && (
+                <th className="py-2 pl-4" title="Which shelf the invoice's stock line counts (“theephemeralstate.com has over 4,300 postcards…”). Automatic unless you pick one.">
+                  Invoice shelf
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -303,6 +310,18 @@ export function ShipTable({ orders, tab, startDate }: { orders: ShipOrder[]; tab
                   <td className="py-2 whitespace-nowrap">{VENUE[o.venue] ?? o.venue}</td>
                   <td className="py-2 whitespace-nowrap">{when(o.soldAt)}</td>
                   <td className="py-2 text-right whitespace-nowrap">{total > 0 ? money(total) : ""}</td>
+                  {shelves && (
+                    <td className="py-2 pl-4" onClick={(e) => e.stopPropagation()}>
+                      <ShelfPick
+                        id={o.id}
+                        value={o.pitchCategoryId}
+                        auto={shelves.perOrder[o.id]?.auto ?? "automatic"}
+                        options={shelves.perOrder[o.id]?.options ?? []}
+                        all={shelves.all}
+                        printed={!!o.invoicePrintedAt}
+                      />
+                    </td>
+                  )}
                 </tr>
               );
             })}
@@ -343,6 +362,77 @@ export function ShipTable({ orders, tab, startDate }: { orders: ShipOrder[]; tab
           </button>
         </form>
       )}
+    </div>
+  );
+}
+
+/** Invoice shelf for one package: automatic (default), one of its items'
+ *  shelves, the whole store, or any other shelf. Saves on change. */
+function ShelfPick({
+  id,
+  value,
+  auto,
+  options,
+  all,
+  printed,
+}: {
+  id: string;
+  value: string | null;
+  auto: string;
+  options: Array<{ value: string; label: string }>;
+  all: Array<{ value: string; label: string }>;
+  printed: boolean;
+}) {
+  const router = useRouter();
+  const [v, setV] = useState(value ?? "");
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const own = new Set(options.map((o) => o.value));
+  const others = all.filter((o) => !own.has(o.value));
+  async function save(next: string) {
+    const prev = v;
+    setV(next);
+    setBusy(true);
+    setErr(null);
+    try {
+      await post({ action: "pitch_shelf", id, choice: next || null });
+      router.refresh();
+    } catch (x) {
+      setV(prev);
+      setErr((x as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="min-w-[12rem] max-w-[18rem]">
+      <select
+        value={v}
+        disabled={busy}
+        onChange={(e) => save(e.target.value)}
+        className={`w-full text-xs border rounded px-1.5 py-1 bg-white ${v ? "border-brand-ink/60 font-semibold" : "border-brand-ink/15 text-brand-ink/70"}`}
+        title={printed ? "The invoice was already printed; a reprint will use the new shelf" : undefined}
+      >
+        <option value="">Auto — {auto}</option>
+        {options.length > 0 && (
+          <optgroup label="This package's shelves">
+            {options.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </optgroup>
+        )}
+        <option value="store">Whole store</option>
+        <optgroup label="Another shelf">
+          {others.map((o) => (
+            <option key={o.value} value={o.value}>
+              {o.label}
+            </option>
+          ))}
+        </optgroup>
+      </select>
+      {err && <p className="text-[11px] text-red-700 mt-0.5">{err}</p>}
     </div>
   );
 }
