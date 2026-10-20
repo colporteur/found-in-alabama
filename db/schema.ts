@@ -1757,6 +1757,9 @@ export const shipOrders = pgTable(
     /** Invoice stock line shelf Todd picked on the Ship page (COUPON-2b):
      *  a store category id, "store" for the whole store, or null = automatic. */
     pitchCategoryId: text("pitch_category_id"),
+    /** COUPON-2c: a custom search for the stock line instead of a shelf —
+     *  { site, q, category?, min?, max?, label? }. Wins over pitchCategoryId. */
+    pitchSearch: jsonb("pitch_search").$type<{ site: "fia" | "tes"; q: string; category?: string | null; min?: number | null; max?: number | null; label?: string | null }>(),
     pickPrintedAt: timestamp("pick_printed_at"),
     invoicePrintedAt: timestamp("invoice_printed_at"),
     packedAt: timestamp("packed_at"),

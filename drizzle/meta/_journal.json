@@ -351,6 +351,13 @@
       "when": 1792501835766,
       "tag": "0049_invoice_shelf_pick",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1792505933169,
+      "tag": "0050_invoice_custom_search",
+      "breakpoints": true
     }
   ]
 }

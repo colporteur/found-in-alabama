@@ -15,6 +15,7 @@
 // syncShipQueue() is idempotent; it runs on page load and after each
 // sales-sync.
 
+import { cleanPitchSearch, type PitchSearch } from "@/lib/shop/invoice-search";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { fetchEbayOrdersSince, type EbayOrder } from "@/lib/ebay/orders";
@@ -410,6 +411,8 @@ export type ShipOrder = {
   discount: number | null;
   /** Invoice stock line shelf Todd picked (category id, "store"), or null = automatic. */
   pitchCategoryId: string | null;
+  /** A custom search for the stock line (wins over pitchCategoryId). */
+  pitchSearch: PitchSearch | null;
   pickPrintedAt: string | null;
   invoicePrintedAt: string | null;
   packedAt: string | null;
@@ -438,6 +441,7 @@ function toOrder(r: Row): ShipOrder {
     buyerFee: r.buyer_fee == null ? null : Number(r.buyer_fee),
     discount: r.discount == null ? null : Number(r.discount),
     pitchCategoryId: (r.pitch_category_id as string | null | undefined) ?? null,
+    pitchSearch: cleanPitchSearch(r.pitch_search),
     pickPrintedAt: iso(r.pick_printed_at),
     invoicePrintedAt: iso(r.invoice_printed_at),
     packedAt: iso(r.packed_at),
@@ -518,7 +522,15 @@ export async function setPitchShelf(id: string, choice: string | null, who: stri
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("Bad package id");
   const v = !choice ? null : choice === "store" ? "store" : /^\d{1,20}$/.test(choice) ? choice : undefined;
   if (v === undefined) throw new Error("Pick a shelf from the list");
-  return exec(sql`UPDATE ship_orders SET pitch_category_id = ${v}, updated_at = now(), updated_by = ${who} WHERE id = ${id}::uuid`);
+  return exec(sql`UPDATE ship_orders SET pitch_category_id = ${v}, pitch_search = NULL, updated_at = now(), updated_by = ${who} WHERE id = ${id}::uuid`);
+}
+
+/** COUPON-2c: a custom search for one package's stock line. */
+export async function setPitchSearch(id: string, search: unknown, who: string): Promise<number> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("Bad package id");
+  const ps = cleanPitchSearch(search);
+  if (!ps) throw new Error("That search is empty");
+  return exec(sql`UPDATE ship_orders SET pitch_search = ${JSON.stringify(ps)}::jsonb, pitch_category_id = NULL, updated_at = now(), updated_by = ${who} WHERE id = ${id}::uuid`);
 }
 
 export async function applyShipAction(ids: string[], action: ShipAction, who: string): Promise<number> {

@@ -7,12 +7,15 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
+import { parseSearchInput, searchPitchText } from "@/lib/shop/invoice-search";
+import { searchCounter } from "@/lib/shop/invoice-search-server";
 import {
   SHIP_ACTIONS,
   applyShipAction,
   markShippedBefore,
   saveFulfillmentSettings,
   setPitchShelf,
+  setPitchSearch,
   syncShipQueue,
   type ShipAction,
 } from "@/lib/fulfillment/queue";
@@ -37,6 +40,20 @@ export async function POST(req: NextRequest) {
       const s = await saveFulfillmentSettings({ startDate: body.startDate });
       const sync = await syncShipQueue();
       return NextResponse.json({ ok: true, settings: s, sync });
+    }
+    if (body.action === "pitch_search") {
+      const b = body as unknown as { id?: string; search?: unknown };
+      const n = await setPitchSearch(String(b.id ?? ""), b.search, who);
+      return NextResponse.json({ ok: true, updated: n });
+    }
+    if (body.action === "search_count") {
+      // Live preview for "Custom search…": what it is, how many, the line.
+      const b = body as unknown as { input?: string; site?: string; label?: string };
+      const ps = parseSearchInput(String(b.input ?? ""), b.site === "tes" ? "tes" : "fia");
+      if (!ps) return NextResponse.json({ ok: true, search: null, count: 0 });
+      if (b.label?.trim()) ps.label = b.label.trim().slice(0, 60);
+      const count = await searchCounter()(ps);
+      return NextResponse.json({ ok: true, search: ps, count, text: searchPitchText(ps, count) });
     }
     if (body.action === "pitch_shelf") {
       const b = body as unknown as { id?: string; choice?: string | null };
