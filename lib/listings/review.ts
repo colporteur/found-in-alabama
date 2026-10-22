@@ -38,6 +38,8 @@ export async function approveDrafts(ids: string[], who: string): Promise<Approve
       out.skipped.push({ id, reason: `status is ${d.status}` });
       continue;
     }
+    const { hasOpenFix } = await import("./fixes");
+    if (await hasOpenFix(id)) { out.skipped.push({ id, reason: "Claude is still fixing it" }); continue; }
     const gaps = approvalGaps(d);
     if (gaps.length) { out.skipped.push({ id, reason: `missing ${gaps.join(", ")}` }); continue; }
     const done = await rows(sql`

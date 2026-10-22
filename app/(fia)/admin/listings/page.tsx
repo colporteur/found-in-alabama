@@ -10,6 +10,7 @@ import { DraftTable } from "./DraftTable";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 import { loadParentShelves } from "@/lib/listings/bulk";
 import { poolSummary } from "@/lib/listings/pool";
+import { fixCounts } from "@/lib/listings/fixes";
 import { openLots, OPEN_NUDGE_DAYS } from "@/lib/listings/open-lots";
 
 export const dynamic = "force-dynamic";
@@ -40,7 +41,11 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
       </section>
     );
   }
-  const status = searchParams.status && STATUS_LABEL[searchParams.status] ? searchParams.status : null;
+  const status =
+    searchParams.status && (STATUS_LABEL[searchParams.status] || searchParams.status === "fix_open" || searchParams.status === "fix_done")
+      ? searchParams.status
+      : null;
+  const fixes = await fixCounts().catch(() => ({ open: 0, done: 0 }));
   const table = searchParams.view === "table";
   const { drafts, counts } = await listDrafts(status, table ? 300 : 100);
   const shelves = (await buildCategoryOptions().catch(() => []))
@@ -129,6 +134,12 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
 
       <div className="flex flex-wrap items-center gap-2 mb-6 text-sm">
         <FilterChip href={href(table ? "table" : null, null)} label={`All (${active})`} on={!status} />
+        {fixes.open > 0 && (
+          <FilterChip href={href(table ? "table" : null, "fix_open")} label={`Fix requested (${fixes.open})`} on={status === "fix_open"} />
+        )}
+        {fixes.done > 0 && (
+          <FilterChip href={href(table ? "table" : null, "fix_done")} label={`Fixed — check (${fixes.done})`} on={status === "fix_done"} />
+        )}
         {Object.keys(STATUS_LABEL).map((k) =>
           counts[k] ? (
             <FilterChip key={k} href={href(table ? "table" : null, k)} label={`${STATUS_LABEL[k]} (${counts[k]})`} on={status === k} />

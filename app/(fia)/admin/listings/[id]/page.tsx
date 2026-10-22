@@ -22,6 +22,8 @@ import { poolReady } from "@/lib/listings/pool";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { MarkListed } from "./MarkListed";
+import { FixPanel } from "./FixPanel";
+import { FIXABLE, fixesForDraft } from "@/lib/listings/fixes";
 import { EbayPublishPanel } from "./EbayPublishPanel";
 import { ebayPublishEnabled } from "@/lib/ebay/publish";
 import { ROTATABLE } from "@/lib/listings/photos";
@@ -42,6 +44,7 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
     ? { cost: await itemCost(d.registryItemId), hauls: await listAcquisitions(100) }
     : null;
   const next = await nextReviewId(d.id).catch(() => ({ id: null, left: 0 }));
+  const fixes = await fixesForDraft(d.id).catch(() => []);
   const ebayDone = (d.aiMeta?.ebayPublish as { itemId?: string } | undefined)?.itemId ?? null;
   const ebayPilot = d.status === "approved" && !d.niftyItemId && (await ebayPublishEnabled().catch(() => false));
   // Lot pool: forming lots for "Send to lot pool", and whether this draft is in it.
@@ -166,6 +169,8 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
           </dl>
         </div>
       )}
+
+      <FixPanel id={d.id} fixes={fixes} canAsk={FIXABLE.includes(d.status) && !!d.title} />
 
       <WriterPanel
         id={d.id}

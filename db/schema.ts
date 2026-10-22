@@ -1980,3 +1980,34 @@ export const couponCodes = pgTable("coupon_codes", {
   /** tes_orders.id of the order that used it */
   redeemedOrderId: uuid("redeemed_order_id"),
 });
+
+// ── Fix requests (FIX-1) ────────────────────────────────────────────────────
+// Todd asks Claude to fix a written draft (one, or a batch with one note)
+// before approving it. `before` is the draft as it was when he asked, so a
+// fix can be undone; Claude's `summary` says what it changed.
+export const listingFixes = pgTable(
+  "listing_fixes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    draftId: uuid("draft_id")
+      .notNull()
+      .references(() => listingDrafts.id, { onDelete: "cascade" }),
+    /** Same id on every fix made by one batch request. */
+    groupId: uuid("group_id"),
+    note: text("note").notNull(),
+    topics: text("topics").array().default(sql`'{}'::text[]`).notNull(),
+    /** open → done (Claude) → accepted | undone; or cancelled */
+    status: text("status").default("open").notNull(),
+    before: jsonb("before").notNull(),
+    summary: text("summary"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    createdBy: text("created_by"),
+    doneAt: timestamp("done_at"),
+    doneBy: text("done_by"),
+    resolvedAt: timestamp("resolved_at"),
+  },
+  (t) => ({
+    draftIdx: index("listing_fixes_draft_idx").on(t.draftId),
+    statusIdx: index("listing_fixes_status_idx").on(t.status),
+  })
+);

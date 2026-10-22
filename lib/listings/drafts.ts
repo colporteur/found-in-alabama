@@ -71,6 +71,8 @@ export type DraftSummary = {
   storeCategoryIds: string[];
   /** Pieces combined into this lot (lib/listings/lots.ts), or null. */
   lotOf: number | null;
+  /** FIX-1: a fix request waiting for Claude ("open") or done and not yet checked ("done"). */
+  fixState?: "open" | "done" | null;
   /** A lot built from the lot pool (pieces pulled from LOTPOOL / candidates). */
   fromPool?: boolean;
 };
@@ -117,9 +119,24 @@ export async function listDrafts(status: string | null, limit = 100): Promise<{
   drafts: DraftSummary[];
   counts: Record<string, number>;
 }> {
-  const filter = status ? sql`WHERE d.status = ${status}` : sql`WHERE d.status <> 'discarded'`;
+  // FIX-1: open / finished fix requests (only once the table exists).
+  const { fixesReady } = await import("./fixes");
+  const fixesOn = await fixesReady().catch(() => false);
+  const fixCol = fixesOn
+    ? sql`(SELECT CASE WHEN bool_or(f.status = 'open') THEN 'open' WHEN bool_or(f.status = 'done') THEN 'done' END
+           FROM listing_fixes f WHERE f.draft_id = d.id AND f.status IN ('open', 'done')) AS fix_state,`
+    : sql`NULL::text AS fix_state,`;
+  const filter =
+    status === "fix_open" || status === "fix_done"
+      ? fixesOn
+        ? sql`WHERE EXISTS (SELECT 1 FROM listing_fixes f WHERE f.draft_id = d.id AND f.status = ${status === "fix_open" ? "open" : "done"})`
+        : sql`WHERE false`
+      : status
+        ? sql`WHERE d.status = ${status}`
+        : sql`WHERE d.status <> 'discarded'`;
   const found = await rows(sql`
     SELECT d.id, d.status, d.source, d.source_label, d.title, d.title_hint, d.bin_sku, d.price, d.created_at,
+           ${fixCol}
            d.written_by, d.generation_error, d.ai_meta->>'confidence' AS confidence, d.ai_meta->>'tier' AS tier,
            d.weight_oz, d.ai_meta->'weight'->>'oz' AS assumed_oz, d.ebay_category_id, d.ebay_category_name,
            d.shipping_profile, d.quantity, d.condition, d.venue_prices->>'poshmark' AS poshmark_price, d.store_category_ids,
@@ -163,6 +180,7 @@ export async function listDrafts(status: string | null, limit = 100): Promise<{
       storeCategoryIds: Array.isArray(d.store_category_ids) ? (d.store_category_ids as unknown[]).map(String) : [],
       lotOf: Number(d.lot_parts) || null,
       fromPool: d.from_pool === true,
+      fixState: d.fix_state === "open" || d.fix_state === "done" ? (d.fix_state as "open" | "done") : null,
     })),
   };
 }

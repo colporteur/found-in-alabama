@@ -14,6 +14,9 @@ import { MinPriceControl } from "./MinPriceControl";
 import { BinControl } from "./BinControl";
 import { ShelfControl } from "./ShelfControl";
 import { ApproveControl } from "./ApproveControl";
+import { FixRequest } from "./FixRequest";
+
+const FIXABLE_STATUS = new Set(["review", "sent_back", "approved"]);
 
 const EDITABLE = new Set(["uploading", "ready", "review", "sent_back"]);
 const STATUS_LABEL: Record<string, string> = {
@@ -197,6 +200,13 @@ export function DraftTable({ drafts, shelves, parents = [] }: { drafts: DraftSum
         <ApproveControl drafts={drafts} picked={picked} onDone={() => setPicked(new Set())} />
       </div>
       <div className="mb-4">
+        <FixRequest
+          compact
+          ids={drafts.filter((d) => picked.has(d.id) && FIXABLE_STATUS.has(d.status) && !!d.title).map((d) => d.id)}
+          onDone={() => setPicked(new Set())}
+        />
+      </div>
+      <div className="mb-4">
         <MinPriceControl selected={Array.from(picked).filter((id) => editableIds.includes(id))} shown={editableIds} />
       </div>
       <div className="mb-4">
@@ -346,6 +356,15 @@ export function DraftTable({ drafts, shelves, parents = [] }: { drafts: DraftSum
                       >
                         {d.fromPool ? "POOL LOT" : "LOT"} of {d.lotOf}
                       </span>
+                    )}
+                    {d.fixState && (
+                      <a
+                        href={`/admin/listings/${d.id}`}
+                        className={`block mt-1 w-fit rounded px-1.5 py-0.5 font-bold text-white ${d.fixState === "open" ? "bg-orange-600" : "bg-green-700"}`}
+                        title={d.fixState === "open" ? "Waiting for Claude to fix it" : "Claude fixed it — check the before/after"}
+                      >
+                        {d.fixState === "open" ? "FIX REQUESTED" : "FIXED — CHECK"}
+                      </a>
                     )}
                   </td>
                   <td className="p-2 whitespace-nowrap">
