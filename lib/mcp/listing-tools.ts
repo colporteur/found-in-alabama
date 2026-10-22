@@ -27,6 +27,8 @@ import {
 import { CONDITIONS } from "@/lib/listings/rules";
 import { combineLot } from "@/lib/listings/lots";
 import { addToLot } from "@/lib/listings/open-lots";
+import { completeFixes, fixPhotos, fixQueue, hasOpenFix } from "@/lib/listings/fixes";
+import { updateDraft } from "@/lib/listings/drafts";
 
 export function listingTools(who: string): ToolDef[] {
   const tools = buildTools(who);
@@ -222,7 +224,7 @@ function buildTools(who: string): ToolDef[] {
       title: "Revise a listing you wrote",
       readOnly: false,
       description:
-        "Change a draft you already saved that is still in Review (e.g. trim words from a description, fix a title, change the price or specifics). Send only the fields that change; everything else — including any edits Todd made by hand — stays. The same rules run again (cleanup, .87 prices, specifics fitted to the category). Use listing_get_draft first to see the current text.",
+        "Change a draft you already saved that is still in Review — or any written draft Todd asked you to fix (listing_fixes) — e.g. trim words from a description, fix a title, change the price, condition, category, shelves or specifics. Send only the fields that change; everything else — including any edits Todd made by hand — stays. The same rules run again (cleanup, .87 prices, specifics fitted to the category). Use listing_get_draft first to see the current text.",
       inputSchema: { type: "object", required: ["draft_id"], properties: {} as Record<string, unknown> },
       run: async (a) => {
         const id = argStr(a, "draft_id", 40) ?? "";
@@ -230,6 +232,84 @@ function buildTools(who: string): ToolDef[] {
         void _drop;
         if (!Object.keys(changes).length) throw new Error("Send at least one field to change.");
         return reviseClaudeWrite(id, changes, who);
+      },
+    },
+    {
+      name: "listing_fixes",
+      title: "Todd's fix requests",
+      description:
+        "Drafts Todd asked you to fix after you wrote them (before he approves). Each request has his note and the drafts it's for (one note can cover a batch). Work these before new drafts: listing_get_draft, change only what he asked (listing_revise, listing_fix_photos, listing_fix_details), then listing_fix_done with a one-line summary.",
+      inputSchema: { type: "object", properties: {} },
+      run: async () => ({ requests: await fixQueue() }),
+    },
+    {
+      name: "listing_fix_photos",
+      title: "Fix a draft's photos",
+      readOnly: false,
+      description:
+        "For a draft Todd asked you to fix: reorder its photos (order = current photo positions in the order you want; any left out keep their order after them), turn photos (rotate: [{position, turn: 90 clockwise | -90 | 180}]), or take photos off (remove: positions). Turns and removals use the positions as they are BEFORE the reorder. Photos end up numbered 1…n.",
+      inputSchema: {
+        type: "object",
+        required: ["draft_id"],
+        properties: {
+          draft_id: { type: "string" },
+          order: { type: "array", items: { type: "number" } },
+          rotate: { type: "array", items: { type: "object", properties: { position: { type: "number" }, turn: { type: "number" } } } },
+          remove: { type: "array", items: { type: "number" } },
+        },
+      },
+      run: async (a) =>
+        fixPhotos(argStr(a, "draft_id", 40) ?? "", {
+          order: Array.isArray(a.order) ? (a.order as unknown[]).map(Number) : undefined,
+          rotate: Array.isArray(a.rotate) ? (a.rotate as Array<{ position: number; turn: number }>) : undefined,
+          remove: Array.isArray(a.remove) ? (a.remove as unknown[]).map(Number) : undefined,
+        }),
+    },
+    {
+      name: "listing_fix_details",
+      title: "Fix a draft's bin, quantity, weight or shipping",
+      readOnly: false,
+      description:
+        "For a draft Todd asked you to fix: change the bin/SKU, quantity, package weight (ounces) or eBay shipping profile name. Send only what changes.",
+      inputSchema: {
+        type: "object",
+        required: ["draft_id"],
+        properties: {
+          draft_id: { type: "string" },
+          bin_sku: { type: "string" },
+          quantity: { type: "number" },
+          weight_oz: { type: "number" },
+          shipping_profile: { type: "string" },
+        },
+      },
+      run: async (a) => {
+        const id = argStr(a, "draft_id", 40) ?? "";
+        if (!(await hasOpenFix(id))) throw new Error("Only for a draft Todd asked you to fix (see listing_fixes).");
+        const edit: Record<string, unknown> = {};
+        if (typeof a.bin_sku === "string") edit.binSku = a.bin_sku.trim().slice(0, 60) || null;
+        if (a.quantity != null) edit.quantity = Math.max(1, Math.min(999, Math.round(Number(a.quantity)) || 1));
+        if (a.weight_oz != null) edit.weightOz = Math.max(0.1, Math.min(2000, Number(a.weight_oz) || 0)) || null;
+        if (typeof a.shipping_profile === "string") edit.shippingProfile = a.shipping_profile.trim().slice(0, 120) || null;
+        if (!Object.keys(edit).length) throw new Error("Send at least one of bin_sku, quantity, weight_oz, shipping_profile.");
+        const r = await updateDraft(id, edit);
+        if (!r.ok) throw new Error(r.error ?? "Not saved");
+        return { ok: true, changed: Object.keys(edit) };
+      },
+    },
+    {
+      name: "listing_fix_done",
+      title: "Finish a fix request",
+      readOnly: false,
+      description:
+        "Finish Todd's fix request(s) on one draft with a one-line summary of what you changed (or why it didn't apply to this draft). The draft stays in Review; Todd sees a before/after and can accept or undo.",
+      inputSchema: {
+        type: "object",
+        required: ["draft_id", "summary"],
+        properties: { draft_id: { type: "string" }, summary: { type: "string" } },
+      },
+      run: async (a) => {
+        const n = await completeFixes(argStr(a, "draft_id", 40) ?? "", argStr(a, "summary", 1000) ?? "", `claude:${who}`);
+        return { ok: true, finished: n, note: "Done — it's back in Todd's Review queue with your summary." };
       },
     },
     {

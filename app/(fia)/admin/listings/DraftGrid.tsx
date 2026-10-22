@@ -13,6 +13,9 @@ import { MinPriceControl } from "./MinPriceControl";
 import { BinControl } from "./BinControl";
 import { ShelfControl } from "./ShelfControl";
 import { ApproveControl } from "./ApproveControl";
+import { FixRequest } from "./FixRequest";
+
+const FIXABLE_STATUS = new Set(["review", "sent_back", "approved"]);
 
 const PICKABLE = new Set(["ready", "review", "sent_back", "uploading"]);
 const SELECTABLE = new Set([...Array.from(PICKABLE), "approved"]);
@@ -211,6 +214,13 @@ export function DraftGrid({
       <div className="mb-3">
         <ApproveControl drafts={drafts} picked={picked} onDone={() => setPicked(new Set())} />
       </div>
+      <div className="mb-3">
+        <FixRequest
+          compact
+          ids={drafts.filter((d) => picked.has(d.id) && FIXABLE_STATUS.has(d.status) && !!d.title).map((d) => d.id)}
+          onDone={() => setPicked(new Set())}
+        />
+      </div>
       <div className="mb-6">
         <MinPriceControl selected={Array.from(picked)} shown={drafts.filter((d) => PICKABLE.has(d.status)).map((d) => d.id)} />
       </div>
@@ -243,6 +253,14 @@ export function DraftGrid({
                   title={d.fromPool ? "A lot built from the lot pool — pieces pulled from LOTPOOL (and any still-listed candidates)" : "Claude combined these drafts into one lot — give it a careful look"}
                 >
                   {d.fromPool ? "POOL LOT" : "LOT"} of {d.lotOf}
+                </span>
+              )}
+              {d.fixState && (
+                <span
+                  className={`absolute top-9 left-2 z-10 rounded px-1.5 py-0.5 text-xs font-bold text-white ${d.fixState === "open" ? "bg-orange-600" : "bg-green-700"}`}
+                  title={d.fixState === "open" ? "Waiting for Claude to fix it" : "Claude fixed it — check the before/after on its page"}
+                >
+                  {d.fixState === "open" ? "FIX REQUESTED" : "FIXED — CHECK"}
                 </span>
               )}
               {d.confidence != null && (

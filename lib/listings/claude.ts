@@ -109,7 +109,16 @@ export async function claudeQueue(limit = 50) {
   const anyLots = list.some((r) => r.lots === true && !Number(r.lot_parts));
   const { openLots } = await import("./open-lots");
   const open = list.length ? await openLots().catch(() => []) : [];
+  const { fixQueue } = await import("./fixes");
+  const fixes = await fixQueue().catch(() => []);
   return {
+    ...(fixes.length
+      ? {
+          fixesNote:
+            "DO THESE FIRST: Todd asked you to fix drafts you (or FIA) already wrote. For each draft: listing_get_draft (it shows his note and the current listing), make ONLY the change he asked for with listing_revise / listing_fix_photos / listing_fix_details, then listing_fix_done with a one-line summary. A note given for several drafts applies to each one where it fits — say so in the summary when it didn't apply to one. These drafts stay in Todd's Review queue; he checks a before/after.",
+          fixes,
+        }
+      : {}),
     waiting: Number(c?.n ?? 0),
     ...(open.length
       ? {
@@ -160,6 +169,11 @@ async function loadQueued(id: string, allowRevise = false, peekOpenLot = false):
     throw new Error("Todd is holding this lot open for more pieces: add queued pieces that belong with listing_add_to_lot; it comes back to your queue to write once something is added.");
   }
   if (allowRevise && REVISABLE.includes(st) && claudeWrote(d)) return d;
+  // FIX-1: Todd asked for a fix — Claude may change it whoever wrote it.
+  if (allowRevise && REVISABLE.includes(st)) {
+    const { hasOpenFix } = await import("./fixes");
+    if (await hasOpenFix(id)) return d;
+  }
   if (!allowRevise && REVISABLE.includes(st) && claudeWrote(d))
     throw new Error("You already saved this one; change it with listing_revise (send only the fields that change).");
   if (allowRevise && REVISABLE.includes(st))
@@ -223,10 +237,19 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
         `If a draft in your queue belongs here (same theme, series, place, maker or correspondence as these pieces), add it with listing_add_to_lot ` +
         `(lot_id ${id}); the lot then comes back to your queue to rewrite for all its pieces.`
       : "";
+  const { openFixNotes } = await import("./fixes");
+  const fixNotes = String(d.status) !== CLAUDE_STATUS ? await openFixNotes(id).catch(() => []) : [];
+  const fixText = fixNotes.length
+    ? [
+        `FIX REQUESTED BY TODD (do this; change nothing else):`,
+        ...fixNotes.map((f) => `- ${f.note}${f.topics.length ? ` [about: ${f.topics.join(", ")}]` : ""}${f.batch > 1 ? ` (one note for ${f.batch} drafts — apply it here only where it fits this item)` : ""}`),
+        `Tools: listing_revise (text, price, condition, category, shelves, specifics — send only what changes), listing_fix_photos (order / turn / remove; photo positions as numbered below), listing_fix_details (bin/SKU, quantity, weight, shipping profile). Then ALWAYS finish with listing_fix_done and a one-line summary of what you changed (or why nothing needed to). Todd sees a before/after and can undo it.`,
+      ].join("\n")
+    : "";
   const current =
     String(d.status) !== CLAUDE_STATUS && String(d.status) !== "lot_open" && d.title
       ? [
-          `CURRENT LISTING (you wrote it; it's in Todd's Review queue${String(d.written_by).includes("hand") ? ", and Todd has edited it by hand — keep his edits" : ""}). Change only what needs changing with listing_revise:`,
+          `CURRENT LISTING (${claudeWrote(d) ? "you wrote it" : "FIA's writer or Todd wrote it"}; it's in Todd's Review queue${String(d.written_by).includes("hand") ? ", and Todd has edited it by hand — keep his edits" : ""}). Change only what needs changing with listing_revise:`,
           `title: ${d.title}`,
           `price: ${d.price ?? "—"} · condition: ${d.condition ?? "—"}${d.condition_note ? ` (${d.condition_note})` : ""}`,
           `eBay category: ${d.ebay_category_id ?? "—"} ${d.ebay_category_name ?? ""} · shelves: ${JSON.stringify(d.store_category_ids ?? [])}`,
@@ -237,6 +260,7 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
   const text = [
     `DRAFT ${id}${d.bin_sku ? ` · bin ${d.bin_sku} (never put the bin in the listing)` : ""} · from ${d.source_label ?? d.source}`,
     openLot,
+    fixText,
     current,
     lotText,
     instructions ? `TODD'S INSTRUCTIONS FOR THIS ONE (true; they override everything): ${instructions}` : "",
