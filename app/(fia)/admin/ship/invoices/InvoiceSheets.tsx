@@ -71,7 +71,7 @@ function Brand({ which }: { which: "fia" | "tes" }) {
   ) : (
     <div className="inv-brand inv-brand-tes">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/tes/logo.png" alt="" className="inv-logo inv-logo-tes" />
+      <img src="/tes/invoice-logo.png" alt="" className="inv-logo inv-logo-tes" />
       <div>
         <p className="inv-brand-name">The Ephemeral State</p>
         <p className="inv-brand-site">theephemeralstate.com</p>
@@ -343,7 +343,8 @@ const INVOICE_CSS = `
   .inv-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .inv-brands:not(.inv-brands-single) .inv-brand-fia { flex-direction: row-reverse; text-align: right; }
   .inv-logo { width: 0.55in; height: 0.55in; object-fit: contain; filter: grayscale(1); flex: 0 0 auto; }
-  .inv-logo-tes { width: 0.8in; filter: grayscale(1) contrast(1.35); }
+  /* Black line art made for the thermal printer (public/tes/invoice-logo.png). */
+  .inv-logo-tes { width: 0.95in; height: 0.65in; filter: none; }
   .inv-brand-name { margin: 0; font-size: 12px; font-weight: 700; line-height: 1.2; }
   .inv-brand-site { margin: 2px 0 0; font-size: 10px; }
   .inv-saleline { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: 11px; overflow-wrap: anywhere; }
