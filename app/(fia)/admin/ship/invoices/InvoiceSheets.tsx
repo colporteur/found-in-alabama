@@ -345,6 +345,12 @@ const INVOICE_CSS = `
   .inv-logo { width: 0.55in; height: 0.55in; object-fit: contain; filter: grayscale(1); flex: 0 0 auto; }
   /* Black line art made for the thermal printer (public/tes/invoice-logo.png). */
   .inv-logo-tes { width: 0.95in; height: 0.65in; filter: none; }
+  /* Both brands side by side: a slightly smaller TES logo, tighter logo gaps
+     and a clear gutter between the two web addresses. */
+  .inv-brands:not(.inv-brands-single) { gap: 0.22in; }
+  .inv-brands:not(.inv-brands-single) .inv-brand { gap: 5px; }
+  .inv-brands:not(.inv-brands-single) .inv-logo-tes { width: 0.8in; height: 0.55in; }
+  .inv-brands:not(.inv-brands-single) .inv-brand-site { font-size: 9px; white-space: nowrap; }
   .inv-brand-name { margin: 0; font-size: 12px; font-weight: 700; line-height: 1.2; }
   .inv-brand-site { margin: 2px 0 0; font-size: 10px; }
   .inv-saleline { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: 11px; overflow-wrap: anywhere; }
