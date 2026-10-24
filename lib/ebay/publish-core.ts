@@ -116,6 +116,22 @@ export function isCardSingle(categoryId: string | null | undefined): boolean {
   return CARD_SINGLE_CATEGORIES.includes(String(categoryId ?? ""));
 }
 
+/** Todd's eBay shipping policies for single cards (Oct 23, 2026): eBay
+ *  Standard Envelope for cards up to $20 (eBay's own limit for it), and
+ *  calculated Ground Advantage / Priority above that. */
+export const CARD_SHIPPING = {
+  maxEnvelopePrice: 20,
+  envelopePolicyId: "254457129020",
+  calculatedPolicyId: "254457062020",
+};
+
+/** Pure: which shipping policy a single card at this price uses. */
+export function cardShippingPolicy(price: number): { id: string; kind: ShipKind } {
+  return price <= CARD_SHIPPING.maxEnvelopePrice
+    ? { id: CARD_SHIPPING.envelopePolicyId, kind: "envelope" }
+    : { id: CARD_SHIPPING.calculatedPolicyId, kind: "calculated" };
+}
+
 export const UNGRADED = ["Near Mint or Better", "Excellent", "Very Good", "Poor"] as const;
 export type UngradedCondition = (typeof UNGRADED)[number];
 

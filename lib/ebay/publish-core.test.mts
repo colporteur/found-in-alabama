@@ -168,3 +168,10 @@ test("buildItem sends card descriptors and drops clashing specifics", () => {
   assert.deepEqual(item.ItemSpecifics.NameValueList.map((n: any) => n.Name), ["Sport"]);
   assert.equal(item.ConditionDescription, "Ungraded.");
 });
+
+import { cardShippingPolicy } from "./publish-core.ts";
+test("card shipping policy by price", () => {
+  assert.deepEqual(cardShippingPolicy(5.87), { id: "254457129020", kind: "envelope" });
+  assert.deepEqual(cardShippingPolicy(20), { id: "254457129020", kind: "envelope" });
+  assert.deepEqual(cardShippingPolicy(20.87), { id: "254457062020", kind: "calculated" });
+});

@@ -9,12 +9,16 @@ import { TemplatesForm } from "./TemplatesForm";
 import { niftyTemplates, DEFAULT_TEMPLATES, TEMPLATE_LABELS } from "@/lib/listings/nifty";
 import { ebaySettings } from "@/lib/ebay/publish-settings";
 import { EbayPublishSwitch } from "./EbayPublishSwitch";
+import { CardShippingFix } from "./CardShippingFix";
+import { cardShippingMismatches } from "@/lib/ebay/publish";
+import { CARD_SHIPPING } from "@/lib/ebay/publish-core";
 
 export const dynamic = "force-dynamic";
 
 export default async function WriterSettingsPage() {
   const s = await writerSettings();
   const templates = await niftyTemplates();
+  const cardFixes = await cardShippingMismatches().catch(() => []);
   const ebay = await ebaySettings().catch(() => ({ enabled: false, cardsDirect: true }));
   return (
     <section className="container-content py-12 max-w-3xl">
@@ -61,6 +65,13 @@ export default async function WriterSettingsPage() {
       <EbayPublishSwitch initial={ebay.cardsDirect} field="cardsDirect">
         Send single trading cards <strong>straight to eBay</strong> instead of Nifty
       </EbayPublishSwitch>
+      <p className="text-sm text-brand-ink/70 mt-4">
+        Shipping: cards up to ${CARD_SHIPPING.maxEnvelopePrice} (eBay&apos;s limit for it) go on your eBay Standard Envelope policy (
+        {CARD_SHIPPING.envelopePolicyId}); cards over ${CARD_SHIPPING.maxEnvelopePrice} on your calculated Ground Advantage / Priority
+        policy ({CARD_SHIPPING.calculatedPolicyId}). Returns, payment, location and package size come from your newest listing on that
+        policy.
+      </p>
+      <CardShippingFix list={cardFixes.map((f) => ({ itemId: f.itemId, title: f.title, price: f.price }))} />
     </section>
   );
 }
