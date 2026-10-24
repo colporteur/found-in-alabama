@@ -94,7 +94,7 @@ export async function allowLotsFromChat(ids: string[], who: string): Promise<{ a
     SELECT id FROM listing_drafts
     WHERE id IN (${sql.join(clean.map((id) => sql`${id}::uuid`), sql`, `)})
       AND status IN (${CLAUDE_STATUS}, 'review') AND NOT (ai_meta ? 'lot')`);
-  const r = await sendToClaude(ok.map((x) => String(x.id)), `${who} (Todd asked in chat)`, null, true);
+  const r = await sendToClaude(ok.map((x) => String(x.id)), `${who} (lots allowed in chat)`, null, true);
   const [b] = r.sent
     ? await rows(sql`SELECT ai_meta->>'claudeBatch' AS batch FROM listing_drafts WHERE id = ${String(ok[0].id)}::uuid`)
     : [];
@@ -635,7 +635,7 @@ export async function claudePool() {
 export async function claudePoolAdd(id: string, a: Record<string, unknown>, who: string) {
   const d = await loadQueued(id, false);
   if (((d.ai_meta ?? {}) as Record<string, unknown>).claudeLots !== true)
-    throw new Error("Todd didn't turn on lots for this draft. If Todd has said in this chat to combine them, call listing_allow_lots first; otherwise write it on its own.");
+    throw new Error("Todd didn't turn on lots for this draft. If Todd asks you to combine them, call listing_allow_lots first; otherwise write it on its own.");
   const { poolDraft } = await import("./pool");
   const str = (k: string, max: number) => (typeof a[k] === "string" ? String(a[k]).trim().slice(0, max) || null : null);
   const est = Number(a.est_value_usd);

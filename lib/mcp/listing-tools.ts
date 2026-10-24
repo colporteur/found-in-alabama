@@ -145,24 +145,26 @@ function buildTools(who: string): ToolDef[] {
     },
     {
       name: "listing_allow_lots",
-      title: "Turn on lot combining (Todd asked)",
+      title: "Allow combining queued drafts into lots",
       readOnly: false,
       description:
-        "ONLY when Todd has said in this conversation that these drafts may be combined into lots (e.g. he forgot to tick \"combine lots\" when he sent them). Turns combineLots on for the given drafts — waiting for Claude, or written and still in Review — and puts them in one new batch, so listing_combine_lot and listing_pool_add work on them. Nothing is approved or published, and Todd can split a lot again. Never call it on your own initiative.",
+        "Lets listing_combine_lot and listing_pool_add work on drafts that were sent without \"combine lots\": sets combineLots on the given drafts (waiting in the queue, or written and still in Review) and gives them one shared batch. Use it when Todd asks you to combine drafts into lots. It only changes how the drafts are grouped for writing — nothing is approved, published or listed, and any lot can be split again on its page.",
       inputSchema: {
         type: "object",
-        required: ["draft_ids", "todd_said"],
+        required: ["draft_ids"],
         properties: {
-          draft_ids: { type: "array", items: { type: "string" }, description: "Draft ids from listing_queue / listing_written" },
-          todd_said: { type: "string", description: "Todd's words in this chat that allow it (quote him briefly)" },
+          draft_ids: { type: "array", items: { type: "string" }, description: "Draft ids from listing_queue or listing_written" },
         },
       },
       run: async (a) => {
         const ids = Array.isArray(a.draft_ids) ? (a.draft_ids as unknown[]).map(String) : [];
-        const said = argStr(a, "todd_said", 300);
-        if (!said) throw new Error("Quote what Todd said that allows combining these.");
         const r = await allowLotsFromChat(ids, who);
-        return { ...r, note: r.allowed ? "Done. Re-read listing_queue: these now show combineLots: true in one batch." : "None of those drafts can be changed (they must be waiting for Claude or in Review, and not already a lot)." };
+        return {
+          ...r,
+          note: r.allowed
+            ? "Done. listing_queue now shows these with combineLots: true in one batch."
+            : "None of those drafts could be changed (they must be waiting in the queue or in Review, and not already a lot).",
+        };
       },
     },
     {

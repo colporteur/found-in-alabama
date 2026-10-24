@@ -165,7 +165,7 @@ export async function combineLot(
     if (String(d.status) !== CLAUDE_STATUS) throw new Error(`Draft ${d.id} isn't waiting for Claude, so it can't go in a lot.`);
     if (meta(d).claudeLots !== true)
       throw new Error(
-        `Todd didn't turn on "combine lots" for draft ${d.id}. If Todd has said in this chat to combine these, call listing_allow_lots with their ids first; otherwise write it on its own.`
+        `Todd didn't turn on "combine lots" for draft ${d.id}. If Todd asks you to combine these, call listing_allow_lots with their ids first; otherwise write it on its own.`
       );
     if (meta(d).lot) throw new Error(`Draft ${d.id} is already a lot.`);
   }
