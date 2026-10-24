@@ -11,6 +11,7 @@ import {
   tableToText,
   textToTable,
   type FiaShipSettings,
+  serviceShortLabel,
 } from "@/lib/fia/shipping";
 
 const fmt = (n: number) => `$${n.toFixed(2)}`;
@@ -63,6 +64,12 @@ export default function FiaShopEditor({
   const [fbPaper, setFbPaper] = useState(String(s0.fallbackOz.paper));
   const [fbMedia, setFbMedia] = useState(String(s0.fallbackOz.media));
   const [fbBulky, setFbBulky] = useState(String(s0.fallbackOz.bulky));
+  const [envPrice, setEnvPrice] = useState(String(s0.envelopePrice));
+  const [flatPrice, setFlatPrice] = useState(String(s0.flatPrice));
+  const [mailAdd, setMailAdd] = useState(String(s0.mailAdditional));
+  const [maxEnv, setMaxEnv] = useState(String(s0.maxEnvelopeUnits));
+  const [maxFlat, setMaxFlat] = useState(String(s0.maxFlatUnits));
+  const [mailCap, setMailCap] = useState(String(s0.mailMaxSubtotal));
   const [ground, setGround] = useState(tableToText(s0.groundTable));
   const [media, setMedia] = useState(tableToText(s0.mediaTable));
   const [busy, setBusy] = useState(false);
@@ -85,8 +92,14 @@ export default function FiaShopEditor({
         media: Number(fbMedia) || defaults.fallbackOz.media,
         bulky: Number(fbBulky) || defaults.fallbackOz.bulky,
       },
+      envelopePrice: Number(envPrice) || 0,
+      flatPrice: Number(flatPrice) || 0,
+      mailAdditional: Number(mailAdd) || 0,
+      maxEnvelopeUnits: Math.max(0, Math.floor(Number(maxEnv) || 0)),
+      maxFlatUnits: Math.max(0, Math.floor(Number(maxFlat) || 0)),
+      mailMaxSubtotal: Number(mailCap) || 0,
     }),
-    [ground, media, handling, freeAt, maxLb, maxSide, credit, fbPaper, fbMedia, fbBulky, defaults]
+    [ground, media, handling, freeAt, maxLb, maxSide, credit, fbPaper, fbMedia, fbBulky, envPrice, flatPrice, mailAdd, maxEnv, maxFlat, mailCap, defaults]
   );
 
   const test = quoteFiaShipping(
@@ -176,6 +189,22 @@ export default function FiaShopEditor({
         </div>
 
         <div>
+          <p className="text-sm font-medium">Stamped mail (no tracking)</p>
+          <p className="text-xs text-brand-ink/55 mb-2">
+            When every item in the cart can go by mail: eBay Standard Envelope pieces in an envelope, measured flat paper
+            $20 or less (fits a 12×15 flat) in a stamped flat. Bigger carts, or carts over the cap, use the tables below.
+          </p>
+          <div className="grid sm:grid-cols-3 gap-4">
+            <Field label="Envelope, first item ($)" value={envPrice} onChange={setEnvPrice} />
+            <Field label="Flat, first item ($)" value={flatPrice} onChange={setFlatPrice} />
+            <Field label="Each extra item ($)" value={mailAdd} onChange={setMailAdd} />
+            <Field label="Most items in an envelope" value={maxEnv} onChange={setMaxEnv} step="1" />
+            <Field label="Most items in a flat" value={maxFlat} onChange={setMaxFlat} step="1" />
+            <Field label="Mail only up to ($)" hint="Cart subtotal; 0 = no cap" value={mailCap} onChange={setMailCap} step="1" />
+          </div>
+        </div>
+
+        <div>
           <p className="text-sm font-medium">Weight when eBay has none (oz)</p>
           <p className="text-xs text-brand-ink/55 mb-2">
             By the store category&rsquo;s ship class (set on the categories admin).
@@ -228,7 +257,7 @@ export default function FiaShopEditor({
           </label>
           <p className="text-sm pb-2">
             {test.ok
-              ? `→ ${fmt(test.shipping)} (${test.service === "media" ? "Media Mail" : "Ground Advantage"})`
+              ? `→ ${fmt(test.shipping)} (${serviceShortLabel(test.service)})`
               : `→ ${test.error}`}
           </p>
         </div>

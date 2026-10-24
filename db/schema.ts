@@ -201,6 +201,18 @@ export const ebayListings = pgTable(
     pkgWidthIn: numeric("pkg_width_in", { precision: 6, scale: 2 }),
     pkgDepthIn: numeric("pkg_depth_in", { precision: 6, scale: 2 }),
     pkgIrregular: boolean("pkg_irregular"),
+    // Mail facts (SHIP-2, lib/shipping/mail.ts), refreshed by the
+    // search-index cron — NOT by the eBay sync, which leaves them alone.
+    // mailSize "6x4" (long × short, inches) and where it came from:
+    // "measured" (FIA draft), "title" ("8x10 photo") or "format" (postcard,
+    // cabinet card, trading card…). mailSeFit: fits an eBay Standard
+    // Envelope. stampOk: flat paper ≤ $20 that fits a USPS large envelope,
+    // so FIA/TES can mail it with stamps instead of a parcel.
+    mailSize: text("mail_size"),
+    mailSizeSource: text("mail_size_source"),
+    mailSeFit: boolean("mail_se_fit"),
+    stampOk: boolean("stamp_ok"),
+    mailCheckedAt: timestamp("mail_checked_at"),
   },
   (t) => ({
     storeCat1Idx: index("ebay_listings_store_cat1_idx").on(t.storeCategory1Id),
@@ -758,6 +770,7 @@ export const ENHANCE_OPS = [
   "price_wiggle", // Autorun — random ±cents around a stored anchor. No AI.
   "store_category", // Redistribute — set store category slots. No AI.
   "supply_reprice", // P5 — live supply snapshot -> raise/lower/hold. No AI.
+  "shipping_policy", // SHIP-2 — move to another shipping policy (Standard Envelope). No AI.
 ] as const;
 export type EnhanceOp = (typeof ENHANCE_OPS)[number];
 

@@ -11,7 +11,7 @@ test("a given weight always wins", () => {
 });
 
 test("postcards are 1 oz envelope; booklets 1 lb media", () => {
-  assert.deepEqual(planWeight({ ...base, kind: "postcard" }), { oz: 1, source: "assumed", reason: "postcard", profile: "envelope" });
+  assert.deepEqual(planWeight({ ...base, kind: "postcard" }), { oz: 1, source: "assumed", reason: "postcard", profile: "envelope", envelopeFit: true });
   const b = planWeight({ ...base, kind: "ephemera", title: "Vtg Souvenir Program 1952 Talladega" });
   assert.equal(b.oz, 16);
   assert.equal(b.profile, "media");
@@ -37,4 +37,13 @@ test("helpers", () => {
   assert.deepEqual(lbOz(20), { lb: 1, oz: 4 });
   assert.deepEqual(lbOz(12), { lb: 0, oz: 12 });
   assert.deepEqual(lbOz(16), { lb: 1, oz: 0 });
+});
+
+test("SHIP-2: envelope fit for small paper, cards and postcard lots", () => {
+  assert.equal(planWeight({ ...base, kind: "trading_card", sizeInches: "3.6x2.6in" }).envelopeFit, true);
+  assert.equal(planWeight({ ...base, kind: "photograph", sizeInches: "10x8in" }).envelopeFit, false);
+  assert.equal(planWeight({ ...base, kind: "photograph", sizeInches: null }).envelopeFit, null);
+  const lot = planWeight({ ...base, kind: "postcard", title: "Lot of 10 Antique Postcards" });
+  assert.equal(lot.profile, "calculated");
+  assert.equal(lot.envelopeFit, false);
 });

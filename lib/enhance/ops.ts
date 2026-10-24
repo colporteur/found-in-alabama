@@ -38,6 +38,7 @@ import {
   parseRepriceConfig,
   decideReprice,
 } from "@/lib/enhance/supply";
+import { envelopePackage, liveShipping, reviseShippingPolicy } from "@/lib/ebay/shipping-policy";
 import {
   resolveGuideForJob,
   guideSection,
@@ -1349,6 +1350,38 @@ const supplyRepriceHandler: OpHandler = {
   },
 };
 
+// ─── shipping_policy (SHIP-2) ────────────────────────────────────────────────
+//
+// Moves a listing onto another eBay shipping policy. Config:
+//   policyId: string   — target shipping policy id
+//   envelope?: boolean — also set Standard Envelope package details (1 oz,
+//                        copied from Todd's newest envelope listing)
+//   maxPrice?: number  — skip listings priced above this (eBay's $20 cap)
+// Snapshot: the old policy id and package details, for rollback.
+
+const shippingPolicyHandler: OpHandler = {
+  estimateCostPerJob: () => 0,
+  async run(job, batch) {
+    const cfg = batch.config ?? {};
+    const policyId = typeof cfg.policyId === "string" && /^\d+$/.test(cfg.policyId) ? cfg.policyId : null;
+    if (!policyId) return { status: "failed", errorMessage: "Invalid shipping_policy config — need { policyId }" };
+    const live = await liveShipping(job.ebayItemId);
+    if (!live) return { status: "failed", errorMessage: "GetItem returned no item" };
+    if (live.status && live.status !== "Active") {
+      return { status: "skipped", result: { reason: `Listing status is ${live.status}, not Active` } };
+    }
+    const before = { shippingProfileId: live.profileId, pkg: live.pkg };
+    if (live.profileId === policyId) return { status: "skipped", before, result: { reason: "Already on that shipping policy" } };
+    const maxPrice = typeof cfg.maxPrice === "number" ? cfg.maxPrice : null;
+    if (maxPrice != null && live.price != null && live.price > maxPrice) {
+      return { status: "skipped", before, result: { reason: `Price $${live.price.toFixed(2)} is over $${maxPrice}` } };
+    }
+    const pkg = cfg.envelope === true ? await envelopePackage() : null;
+    await reviseShippingPolicy(job.ebayItemId, policyId, pkg);
+    return { status: "completed", before, after: { shippingProfileId: policyId, ...(pkg ? { pkg } : {}) } };
+  },
+};
+
 // ─── Registry ─────────────────────────────────────────────────────────────────
 
 export const OP_HANDLERS: Partial<Record<EnhanceOp, OpHandler>> = {
@@ -1361,6 +1394,7 @@ export const OP_HANDLERS: Partial<Record<EnhanceOp, OpHandler>> = {
   price_research: priceResearchHandler,
   store_category: storeCategoryHandler,
   supply_reprice: supplyRepriceHandler,
+  shipping_policy: shippingPolicyHandler,
 };
 
 export function getOpHandler(op: string): OpHandler | undefined {

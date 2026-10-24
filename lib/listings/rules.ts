@@ -429,18 +429,59 @@ export function applyPriceRules(p: PriceInput): PriceResult {
 
 export type ShippingProfile = "envelope" | "calculated" | "media";
 
+/** SHIP-2: the draft's shipping profile and weight together. A Standard
+ *  Envelope piece gets 1 oz instead of the rigid-mailer guess. */
+export function planDraftShipping(
+  weight: WeightPlanLike,
+  i: { price: number | null; categoryPath: string | null; kind: string }
+): { weight: WeightPlanLike; ship: { profile: ShippingProfile; reason: string } | null } {
+  const assumed = weight.source === "assumed";
+  const suggested =
+    i.price != null
+      ? suggestShipping({ price: i.price, categoryPath: i.categoryPath, kind: i.kind, weightOz: weight.oz, fitsEnvelope: weight.envelopeFit, weightAssumed: assumed })
+      : null;
+  const ship =
+    assumed && weight.profile === "media"
+      ? { profile: "media" as const, reason: weight.reason }
+      : assumed && weight.profile === "envelope" && suggested?.profile !== "calculated"
+        ? { profile: "envelope" as const, reason: weight.reason }
+        : suggested;
+  const w =
+    ship?.profile === "envelope" && assumed && (weight.oz == null || weight.oz > 1)
+      ? { ...weight, oz: 1, reason: `${weight.reason}; 1 oz in a Standard Envelope`, profile: "envelope" as const }
+      : weight;
+  return { weight: w, ship };
+}
+
+type WeightPlanLike = {
+  oz: number | null;
+  source: "given" | "assumed" | "none";
+  reason: string;
+  profile: "envelope" | "calculated" | "media" | null;
+  envelopeFit?: boolean | null;
+};
+
 export function suggestShipping(i: {
   price: number;
   categoryPath: string | null;
   kind: string;
   weightOz: number | null;
+  /** SHIP-2: fits a Standard Envelope (null/undefined = unknown). */
+  fitsEnvelope?: boolean | null;
+  /** The weight is FIA's rigid-mailer guess, not Todd's scale. */
+  weightAssumed?: boolean;
 }): { profile: ShippingProfile; reason: string } {
   const path = (i.categoryPath ?? "").toLowerCase();
   if (/^(books|music|movies)/.test(path) || ["book", "magazine", "record"].includes(i.kind)) {
     return { profile: "media", reason: "books & media" };
   }
   if (i.price <= ESE_MAX_PRICE && eseEligible(i.categoryPath)) {
-    if (i.weightOz != null && i.weightOz > 3.5) return { profile: "calculated", reason: "over 3.5 oz" };
+    if (i.fitsEnvelope === false) return { profile: "calculated", reason: "too big for a Standard Envelope (6⅛×11½ in)" };
+    // An assumed 4–12 oz is a rigid mailer; a piece that fits the envelope
+    // weighs about an ounce in it.
+    if (i.weightOz != null && i.weightOz > 3.5 && !(i.weightAssumed && i.fitsEnvelope)) {
+      return { profile: "calculated", reason: "over 3.5 oz" };
+    }
     return { profile: "envelope", reason: "envelope-eligible category, $20 or less" };
   }
   if (i.price > ESE_MAX_PRICE) return { profile: "calculated", reason: "over $20" };

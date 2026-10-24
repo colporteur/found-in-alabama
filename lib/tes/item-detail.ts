@@ -18,8 +18,7 @@ import {
   getTesDiscountPercent,
 } from "@/lib/tes/discount";
 import {
-  maxShipClass,
-  normalizeShipClass,
+  itemShipClass,
   type ShipClass,
 } from "@/lib/tes/shipping";
 
@@ -117,11 +116,11 @@ export async function getTesItemDetail(
   if (!Number.isFinite(price)) return null;
 
   const classByCat = new Map(cats.map((c) => [c.categoryId, c.shipClass]));
-  const c1 = normalizeShipClass(
-    row.storeCategory1Id ? classByCat.get(row.storeCategory1Id) : undefined
-  );
-  const c2 = normalizeShipClass(
-    row.storeCategory2Id ? classByCat.get(row.storeCategory2Id) : undefined
+  // How it mails when known (envelope / stamped flat), else its shelves.
+  const shipClass = itemShipClass(
+    row.storeCategory1Id ? classByCat.get(row.storeCategory1Id) : undefined,
+    row.storeCategory2Id ? classByCat.get(row.storeCategory2Id) : undefined,
+    { services: row.shippingServices, stampOk: row.stampOk }
   );
 
   const badge =
@@ -168,7 +167,7 @@ export async function getTesItemDetail(
     saleEndsAt: saleWins && badge ? badge.endsAt : null,
     images,
     descriptionHtml: description,
-    shipClass: maxShipClass(c1, c2),
+    shipClass,
     quantity: row.quantity ?? 0,
     ebayUrl: `https://www.ebay.com/itm/${row.itemId}`,
   };

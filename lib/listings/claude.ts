@@ -34,6 +34,7 @@ import {
   rankCategories,
   rankStoreCategories,
   suggestShipping,
+  planDraftShipping,
   CONDITIONS,
   type Identification,
 } from "./rules";
@@ -468,7 +469,7 @@ export async function saveClaudeWrite(
   if (!cat) flags.push("No eBay category from the store's list — pick one before approving");
 
   const facts = (d.facts ?? {}) as Record<string, unknown>;
-  const weight = planWeight({
+  const weightPlan = planWeight({
     givenOz: d.weight_oz != null ? Number(d.weight_oz) : null,
     kind: ident?.kind ?? null,
     title: out.title,
@@ -476,15 +477,15 @@ export async function saveClaudeWrite(
     sizeInches: (facts.size_inches as string | null) ?? null,
     source: String(d.source ?? ""),
   });
-  const suggested = priced
-    ? suggestShipping({ price: priced.price, categoryPath: cat?.path ?? out.ebayCategorySuggestion, kind: ident?.kind ?? "other", weightOz: weight.oz })
-    : null;
-  const ship =
-    weight.source === "assumed" && weight.profile === "media"
-      ? { profile: "media" as const, reason: weight.reason }
-      : weight.source === "assumed" && weight.profile === "envelope" && suggested?.profile !== "calculated"
-        ? { profile: "envelope" as const, reason: weight.reason }
-        : suggested;
+  // SHIP-2: profile and weight together (a piece that fits a Standard
+  // Envelope goes envelope at 1 oz when its category allows it).
+  const planned = planDraftShipping(weightPlan, {
+    price: priced ? priced.price : null,
+    categoryPath: cat?.path ?? out.ebayCategorySuggestion,
+    kind: ident?.kind ?? "other",
+  });
+  const weight = planned.weight;
+  const ship = planned.ship;
   if (weight.source === "none") flags.push("No weight: not paper, so nothing was assumed — weigh it (Nifty would keep its template's weight).");
 
   const prevMeta = (d.ai_meta ?? {}) as Record<string, unknown>;

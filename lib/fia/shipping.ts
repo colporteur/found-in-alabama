@@ -13,6 +13,15 @@
 //   3. price = the first rate-table row whose maxOz covers the weight,
 //      plus a per-order handling amount; free above an optional threshold.
 //
+// SHIP-2 (Oct 24, 2026): mailable carts skip the weight table. When every
+// item is an envelope piece (its eBay listing uses Standard Envelope) or a
+// stamped-flat piece (flat paper ≤ $20 that fits a 12×15 flat, ebay_listings
+// .stamp_ok), the order goes First-Class Mail with stamps:
+//   all envelope pieces, ≤ maxEnvelopeUnits → envelopePrice
+//   otherwise ≤ maxFlatUnits               → flatPrice
+//   + mailAdditional for each unit after the first
+// Over mailMaxSubtotal (untracked mail) or too many pieces → the weight table.
+//
 // Items heavier or bigger than the caps are eBay-only (no Add to cart).
 // Items without an eBay weight use a per-ship-class fallback weight and
 // are flagged "estimated" so the admin coverage report can find them.
@@ -21,7 +30,9 @@
 // same code runs in the quote API and at checkout.
 
 export type ShipClass = "paper" | "media" | "bulky";
-export type ShipService = "media" | "ground";
+export type ShipService = "envelope" | "flat" | "media" | "ground";
+/** How one item can go by mail with stamps (null = parcel only). */
+export type MailClass = "envelope" | "flat" | null;
 
 export type RateRow = { maxOz: number; price: number };
 
@@ -42,6 +53,16 @@ export type FiaShipSettings = {
   combineCreditOz: number;
   /** Weight used when eBay has none for a listing, by ship class. */
   fallbackOz: Record<ShipClass, number>;
+  /** Stamped envelope (Standard Envelope pieces), first unit. */
+  envelopePrice: number;
+  /** Stamped 12×15 flat with a stiffener, first unit. */
+  flatPrice: number;
+  /** Each further unit in an envelope or flat. */
+  mailAdditional: number;
+  maxEnvelopeUnits: number;
+  maxFlatUnits: number;
+  /** Mail goes untracked: carts over this subtotal ship as parcels. 0 = no cap. */
+  mailMaxSubtotal: number;
 };
 
 // Starter tables. Media Mail = the 2026 USPS retail prices (the same
@@ -90,6 +111,12 @@ export const DEFAULT_FIA_SHIP_SETTINGS: FiaShipSettings = {
   maxItemSideIn: 24,
   combineCreditOz: 2,
   fallbackOz: { paper: 3, media: 24, bulky: 40 },
+  envelopePrice: 1.99,
+  flatPrice: 2.49,
+  mailAdditional: 0.25,
+  maxEnvelopeUnits: 3,
+  maxFlatUnits: 10,
+  mailMaxSubtotal: 50,
 };
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
@@ -129,6 +156,12 @@ export function normalizeFiaShipSettings(v: unknown): FiaShipSettings {
       media: num(fb.media, d.fallbackOz.media, 0.1),
       bulky: num(fb.bulky, d.fallbackOz.bulky, 0.1),
     },
+    envelopePrice: round2(num(o.envelopePrice, d.envelopePrice)),
+    flatPrice: round2(num(o.flatPrice, d.flatPrice)),
+    mailAdditional: round2(num(o.mailAdditional, d.mailAdditional)),
+    maxEnvelopeUnits: Math.floor(num(o.maxEnvelopeUnits, d.maxEnvelopeUnits, 0)),
+    maxFlatUnits: Math.floor(num(o.maxFlatUnits, d.maxFlatUnits, 0)),
+    mailMaxSubtotal: round2(num(o.mailMaxSubtotal, d.mailMaxSubtotal)),
   };
 }
 
@@ -143,6 +176,8 @@ export type FiaShipItem = {
   shipClass: ShipClass;
   /** The eBay listing offers USPS Media Mail. */
   mediaEligible: boolean;
+  /** Can go with stamps: "envelope" (eBay Standard Envelope piece) or "flat". */
+  mail?: MailClass;
 };
 
 /** eBay ShippingService codes that mean Media Mail (e.g. "USPSMedia"). */
@@ -242,6 +277,31 @@ export function quoteFiaShipping(
 
   const combined = Math.max(heaviest, total - s.combineCreditOz * (units - 1));
   const weightOz = round2(combined);
+
+  // Stamped mail when every piece can go that way (SHIP-2).
+  const live = lines.filter((l) => Math.floor(l.quantity) > 0);
+  const allMail = live.every((l) => l.mail === "envelope" || l.mail === "flat");
+  const underCap = s.mailMaxSubtotal <= 0 || subtotal <= s.mailMaxSubtotal;
+  if (allMail && underCap) {
+    const allEnvelope = live.every((l) => l.mail === "envelope");
+    const mailService: ShipService | null =
+      allEnvelope && units <= s.maxEnvelopeUnits ? "envelope" : units <= s.maxFlatUnits ? "flat" : null;
+    if (mailService) {
+      const base = (mailService === "envelope" ? s.envelopePrice : s.flatPrice) + s.mailAdditional * (units - 1);
+      const free = s.freeAt > 0 && subtotal >= s.freeAt;
+      return {
+        ok: true,
+        subtotal,
+        shipping: free ? 0 : round2(base),
+        free,
+        service: mailService,
+        weightOz,
+        estimatedUnits,
+        freeAt: s.freeAt,
+        remainingForFree: s.freeAt > 0 && !free ? round2(s.freeAt - subtotal) : 0,
+      };
+    }
+  }
   const service: ShipService = allMedia ? "media" : "ground";
   const table = service === "media" ? s.mediaTable : s.groundTable;
   const base = lookup(table, weightOz);
@@ -270,8 +330,17 @@ export function quoteFiaShipping(
   };
 }
 
+/** Admin wording: what to do with the package. */
+export function serviceShortLabel(service: string | null | undefined): string {
+  if (service === "envelope") return "STAMP IT — envelope";
+  if (service === "flat") return "STAMP IT — 12×15 flat";
+  return service === "media" ? "Media Mail" : "Ground Advantage";
+}
+
 /** Shopper-facing label for the service. */
 export function serviceLabel(service: ShipService): string {
+  if (service === "envelope") return "USPS First-Class Mail envelope (no tracking)";
+  if (service === "flat") return "USPS First-Class Mail flat envelope (no tracking)";
   return service === "media" ? "USPS Media Mail" : "USPS Ground Advantage";
 }
 

@@ -9,13 +9,23 @@
 //
 // Pure module — no server imports — so the client cart can compute the
 // same numbers the server verifies at checkout.
+//
+// SHIP-2 (Oct 24, 2026): an item's class comes from how it actually mails
+// when FIA knows, and from its store shelves otherwise (itemShipClass):
+//   eBay Standard Envelope listing        → paper (envelope rate)
+//   flat paper ≤ $20 that fits a 12×15 flat → flat (stamped large envelope)
+//   anything else                          → the heaviest of its two shelves
+// The cheaper of the mail class and the shelf class wins, so a shelf marked
+// bulky for its other items (Alabama Interest) no longer makes a baseball
+// card pay the box rate.
 
-export type ShipClass = "paper" | "media" | "bulky";
+export type ShipClass = "paper" | "flat" | "media" | "bulky";
 
 export const SHIP_CLASS_RANK: Record<ShipClass, number> = {
   paper: 0,
-  media: 1,
-  bulky: 2,
+  flat: 1,
+  media: 2,
+  bulky: 3,
 };
 
 export const SHIP_SCHEDULE: Record<
@@ -23,12 +33,28 @@ export const SHIP_SCHEDULE: Record<
   { label: string; first: number; additional: number; freeAt: number }
 > = {
   paper: { label: "Paper", first: 1.99, additional: 0.25, freeAt: 25 },
+  flat: { label: "Flat mail", first: 2.49, additional: 0.25, freeAt: 25 },
   media: { label: "Books & media", first: 4.99, additional: 1.99, freeAt: 50 },
   bulky: { label: "Bulky", first: 8.99, additional: 2.99, freeAt: 75 },
 };
 
 export function normalizeShipClass(v: unknown): ShipClass {
-  return v === "media" || v === "bulky" ? v : "paper";
+  return v === "flat" || v === "media" || v === "bulky" ? v : "paper";
+}
+
+/** eBay ShippingService codes include Standard Envelope. */
+export function isStandardEnvelope(services: unknown): boolean {
+  return Array.isArray(services) && services.some((c) => /StandardEnvelope/i.test(String(c)));
+}
+
+/** One item's class: how it mails (when known) or its shelves. */
+export function itemShipClass(shelf1: unknown, shelf2: unknown, mail: { services?: unknown; stampOk?: boolean | null }): ShipClass {
+  const a = normalizeShipClass(shelf1);
+  const b = normalizeShipClass(shelf2);
+  const shelf = maxShipClass(a, b);
+  if (isStandardEnvelope(mail.services)) return "paper";
+  if (mail.stampOk && SHIP_CLASS_RANK[shelf] > SHIP_CLASS_RANK.flat) return "flat";
+  return shelf;
 }
 
 /** The heavier of two classes (bulky > media > paper). */

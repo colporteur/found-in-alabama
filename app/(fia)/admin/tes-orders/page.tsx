@@ -7,6 +7,7 @@
 // extension works the paid/pending rows automatically; this page is
 // where the leftovers land.
 
+import { serviceShortLabel } from "@/lib/fia/shipping";
 import Link from "next/link";
 import { desc, eq, inArray, isNull, isNotNull, notInArray, and, sql } from "drizzle-orm";
 import { db } from "@/db";
@@ -283,7 +284,7 @@ export default async function TesOrdersPage() {
                     <strong>Total ${o.total}</strong> ·{" "}
                     <span className="text-brand-ink/50">
                       {o.source === "fia"
-                        ? `${o.shipService === "media" ? "Media Mail" : "Ground Advantage"} · ${o.packageWeightOz ?? "?"} oz`
+                        ? `${serviceShortLabel(o.shipService)} · ${o.packageWeightOz ?? "?"} oz`
                         : o.governingShipClass}
                     </span>
                   </p>

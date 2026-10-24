@@ -200,7 +200,8 @@ export default function CartView() {
                   <span>
                     Shipping
                     <span className="block text-xs text-brand-ink/50">
-                      {quote.serviceLabel} · {(quote.weightOz / 16).toFixed(1)} lb
+                      {quote.serviceLabel}
+                      {!/envelope/i.test(quote.serviceLabel) && <> · {(quote.weightOz / 16).toFixed(1)} lb</>}
                     </span>
                   </span>
                   <span className="tabular-nums">

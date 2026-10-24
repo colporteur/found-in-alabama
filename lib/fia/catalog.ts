@@ -8,6 +8,7 @@ import { ebayListings, ebayStoreCategories } from "@/db/schema";
 import { getOnSaleLookup } from "@/lib/ebay/active-sales";
 import { decodeEntities } from "@/lib/ebay/entities";
 import { bestDiscountPercent, discountedPrice } from "@/lib/tes/discount";
+import { isStandardEnvelope } from "@/lib/tes/shipping";
 import { getFiaDiscountPercent, getFiaShipSettings } from "@/lib/fia/settings";
 import {
   directSaleCheck,
@@ -33,6 +34,7 @@ export const fiaListingColumns = {
   pkgWidthIn: ebayListings.pkgWidthIn,
   pkgDepthIn: ebayListings.pkgDepthIn,
   shippingServices: ebayListings.shippingServices,
+  stampOk: ebayListings.stampOk,
 };
 
 export type FiaListingRow = {
@@ -49,6 +51,7 @@ export type FiaListingRow = {
   pkgWidthIn: string | null;
   pkgDepthIn: string | null;
   shippingServices: unknown;
+  stampOk: boolean | null;
 };
 
 export type FiaPricingContext = {
@@ -132,6 +135,9 @@ export function fiaItemFacts(
     depthIn: n(r.pkgDepthIn),
     shipClass,
     mediaEligible: isMediaService(r.shippingServices),
+    // SHIP-2: Standard Envelope listings mail as envelopes; measured flat
+    // paper ≤ $20 as a stamped flat.
+    mail: isStandardEnvelope(r.shippingServices) ? "envelope" : r.stampOk ? "flat" : null,
   };
   const check = directSaleCheck(ship, ctx.settings);
 
