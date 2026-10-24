@@ -41,6 +41,7 @@ function fakeApi() {
       },
       { marketplace: "Mercari", category: { id: "merc-cat" }, attributeValues: [{ type: "enum-attribute-values", id: "label", values: [] }, { type: "enum-attribute-values", id: "color", values: [] }] },
       { marketplace: "Poshmark", category: { id: "posh-cat" }, attributeValues: [{ type: "enum-attribute-values", id: "size", values: [] }] },
+      { marketplace: "Etsy", category: { id: "etsy-cat" }, attributeValues: [] },
     ],
   };
   let saved = null;
@@ -106,6 +107,7 @@ test("builds a full Nifty draft and only ever calls saveAsDraftV2", async () => 
   assert.equal(eb.attributeValues.find((v) => v.id === "city").values[0].type, "taxonomy-enum-free-solo");
   assert.deepEqual(eb.attributeValues.find((v) => v.id === "store").values.map((v) => v.id), ["s-uuid-1", "s-uuid-2"]);
   assert.equal(p.marketplaceListings.find((l) => l.marketplace === "Poshmark").price, 15);
+  assert.equal(p.marketplaceListings.find((l) => l.marketplace === "Etsy"), undefined, "Etsy is never drafted");
   const merc = p.marketplaceListings.find((l) => l.marketplace === "Mercari");
   assert.deepEqual(merc.attributeValues.map((v) => v.id), ["label"]); // color dropped
   assert.ok(out.warnings.some((w) => /Bogus/.test(w)));
