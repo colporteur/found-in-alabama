@@ -520,7 +520,7 @@ export type ShipAction = (typeof SHIP_ACTIONS)[number];
  *  category id, "store" (whole store), or null/"" for automatic. */
 export async function setPitchShelf(id: string, choice: string | null, who: string): Promise<number> {
   if (!/^[0-9a-f-]{36}$/i.test(id)) throw new Error("Bad package id");
-  const v = !choice ? null : choice === "store" ? "store" : /^\d{1,20}$/.test(choice) ? choice : undefined;
+  const v = !choice ? null : choice === "store" ? "store" : /^(?:(?:fia|tes):)?\d{1,20}$/.test(choice) ? choice : undefined;
   if (v === undefined) throw new Error("Pick a shelf from the list");
   return exec(sql`UPDATE ship_orders SET pitch_category_id = ${v}, pitch_search = NULL, updated_at = now(), updated_by = ${who} WHERE id = ${id}::uuid`);
 }

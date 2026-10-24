@@ -99,6 +99,8 @@ test("Todd's pick: planPitch and exact shelves", async () => {
   assert.deepEqual(planPitch("ebay", lines, null, tesSet), { site: "fia", cat: "ua", exact: false });
   assert.deepEqual(planPitch("ebay", lines, "pcal", tesSet), { site: "tes", cat: "pcal", exact: true });
   assert.deepEqual(planPitch("ebay", lines, "store", tesSet), { site: "fia", cat: null, exact: true });
+  // a TES shelf pitched for foundinalabama.com
+  assert.deepEqual(planPitch("ebay", lines, "fia:pcal", tesSet), { site: "fia", cat: "pcal", exact: true });
   const tes = makeCounter(cats, items, "tes", tesSet);
   // exact: Alabama postcards (10) even though it's under the minimum
   const p = choosePitch({ site: "tes", startCat: "pcal", cats, counter: tes, tesSet, min: 25, slugOf: () => null, exact: true });
