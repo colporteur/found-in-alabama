@@ -12,6 +12,8 @@ import { loadParentShelves } from "@/lib/listings/bulk";
 import { poolSummary } from "@/lib/listings/pool";
 import { fixCounts } from "@/lib/listings/fixes";
 import { openLots, OPEN_NUDGE_DAYS } from "@/lib/listings/open-lots";
+import { ebayRoad } from "@/lib/ebay/publish";
+import { EbayRoadBox } from "./EbayRoadBox";
 
 export const dynamic = "force-dynamic";
 
@@ -54,6 +56,7 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
   // Shelves with subcategories: pick one and FIA's AI picks the subcategory.
   const parents = (await loadParentShelves().catch(() => [])).map((p) => ({ id: p.id, path: p.path }));
   const open = await openLots().catch(() => []);
+  const road = await ebayRoad().catch(() => ({ approved: [], fromNifty: [] }));
   const pool = await poolSummary().catch(() => ({ readyLots: 0, readyNames: [] as string[], candidates: 0 }));
   const href = (v: string | null, st: string | null = status) => {
     const p = new URLSearchParams();
@@ -113,6 +116,8 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
           <span className="underline font-semibold">Open the Lot pool →</span>
         </Link>
       )}
+
+      {(road.approved.length > 0 || road.fromNifty.length > 0) && <EbayRoadBox approved={road.approved} fromNifty={road.fromNifty} />}
 
       {open.length > 0 && (
         <div className="mb-6 rounded-lg border-2 border-teal-700 bg-teal-50 p-3 text-sm text-teal-900">

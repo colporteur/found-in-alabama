@@ -15,6 +15,7 @@
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { planWeight } from "./weight";
+import { ebayRoadSql, ebaySettings } from "@/lib/ebay/publish-settings";
 
 type Row = Record<string, unknown>;
 async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
@@ -130,11 +131,13 @@ export type NiftyQueueItem = {
 /** Approved drafts not yet in Nifty, oldest first. */
 export async function niftyQueue(limit = 300): Promise<NiftyQueueItem[]> {
   const templates = await niftyTemplates();
+  // Drafts taking the straight-to-eBay road (single cards by default) stay out.
+  const road = ebayRoadSql(await ebaySettings());
   const found = await rows(sql`
     SELECT d.*, (SELECT json_agg(p.url ORDER BY p.position) FROM draft_photos p
                  WHERE p.draft_id = d.id AND p.uploaded_at IS NOT NULL) AS photo_urls
     FROM listing_drafts d
-    WHERE d.status = 'approved' AND d.nifty_item_id IS NULL
+    WHERE d.status = 'approved' AND d.nifty_item_id IS NULL AND NOT ${road}
     ORDER BY d.approved_at NULLS LAST, d.created_at
     LIMIT ${limit}`);
   return found.map((d) => queueItemFromRow(d, templates));
