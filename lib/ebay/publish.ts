@@ -29,6 +29,7 @@ import { draftRoute, ebaySettings, saveEbaySettings, type PublishRoute } from ".
 import {
   buildItem,
   CARD_SINGLE_CATEGORIES,
+  cardShippingPolicy,
   cardConditionFields,
   cardConditionLabel,
   cleanCardCondition,
@@ -67,14 +68,17 @@ export async function setEbayPublishEnabled(on: boolean): Promise<void> {
 
 const str = (v: unknown) => (v == null || v === "" ? null : String(v));
 
-async function referenceListing(kind: ShipKind): Promise<Reference> {
+/** The newest live listing using the given kind of shipping policy — or,
+ *  with `policyId`, that exact policy (single cards). */
+async function referenceListing(kind: ShipKind, policyId?: string): Promise<Reference> {
   const recent = await rows(sql`
     SELECT item_id, shipping_profile_id, shipping_profile_name, pkg_length_in, pkg_width_in, pkg_depth_in, pkg_irregular
     FROM ebay_listings
     WHERE quantity > 0 AND shipping_profile_id IS NOT NULL AND start_time IS NOT NULL
+      ${policyId ? sql`AND shipping_profile_id = ${policyId}` : sql``}
     ORDER BY start_time DESC LIMIT 400`);
-  const ref = recent.find((r) => policyMatches(kind, r.shipping_profile_name as string | null));
-  if (!ref) throw new Error(`No live eBay listing uses a ${kind} shipping policy to copy settings from`);
+  const ref = policyId ? recent[0] : recent.find((r) => policyMatches(kind, r.shipping_profile_name as string | null));
+  if (!ref) throw new Error(policyId ? `No live eBay listing uses shipping policy ${policyId} to copy settings from` : `No live eBay listing uses a ${kind} shipping policy to copy settings from`);
   const res = await tradingCall("GetItem", { ItemID: String(ref.item_id), DetailLevel: "ReturnAll", IncludeItemSpecifics: false });
   const it = ((res as { Item?: Row }).Item ?? {}) as Row;
   const sp = (it.SellerProfiles ?? {}) as Record<string, Row | undefined>;
@@ -151,8 +155,12 @@ async function build(draftId: string): Promise<Built> {
   const okStatus = q.status === "approved" || (q.status === "in_nifty" && isCard);
   if (!okStatus) throw new Error(`Only approved drafts can go to eBay (this one is ${q.status.replace("_", " ")})`);
   if (!q.ebayCategoryId) throw new Error("Pick an eBay category first");
-  const kind = shipKind(q.shippingProfile);
-  const ref = await referenceListing(kind);
+  // Single cards: Standard Envelope up to $20, calculated above (Todd's
+  // policies, CARD_SHIPPING). Everything else: the draft's shipping kind.
+  const ebayPrice = Number(q.venuePrices?.ebay ?? q.price);
+  const cardShip = isCard ? cardShippingPolicy(ebayPrice) : null;
+  const kind = cardShip?.kind ?? shipKind(q.shippingProfile);
+  const ref = await referenceListing(kind, cardShip?.id);
   let conditionId: string;
   let descriptors: Array<Record<string, string>> | null = null;
   let card: CardCondition | null = null;
@@ -400,4 +408,66 @@ export async function setDraftCardCondition(draftId: string, value: unknown): Pr
     UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('cardCondition', ${JSON.stringify(c)}::jsonb), updated_at = now()
     WHERE id = ${draftId}::uuid`);
   return c;
+}
+
+// ─── single cards: put FIA-listed cards on the right shipping policy ────────
+
+export type CardShipFix = { itemId: string; title: string; price: number; from: string | null; to: string };
+
+/** Live single cards FIA listed whose shipping policy isn't the one their
+ *  price calls for (CARD_SHIPPING). */
+export async function cardShippingMismatches(): Promise<CardShipFix[]> {
+  const found = await rows(sql`
+    SELECT e.item_id, e.title, e.price, e.shipping_profile_id
+    FROM listing_drafts d JOIN ebay_listings e ON e.item_id = d.ai_meta->'ebayPublish'->>'itemId'
+    WHERE e.quantity > 0 AND COALESCE(d.ebay_category_id, '') IN (${sql.join(CARD_SINGLE_CATEGORIES.map((c) => sql`${c}`), sql`, `)})
+    ORDER BY e.price`);
+  return found
+    .map((r) => ({
+      itemId: String(r.item_id),
+      title: String(r.title ?? "").replace(/&amp;/g, "&").replace(/&apos;|&#39;/g, "'"),
+      price: Number(r.price),
+      from: (r.shipping_profile_id as string | null) ?? null,
+      to: cardShippingPolicy(Number(r.price)).id,
+    }))
+    .filter((r) => Number.isFinite(r.price) && r.from !== r.to);
+}
+
+/** Revise those listings onto the right policy (and that policy's package
+ *  size, keeping each listing's weight). Pressed by Todd on the settings
+ *  page. The old policy id is kept on the draft (ai_meta.shippingFix). */
+export async function fixCardShipping(who: string): Promise<{ fixed: CardShipFix[]; failed: Array<CardShipFix & { error: string }> }> {
+  const list = await cardShippingMismatches();
+  const refs = new Map<string, Reference>();
+  const fixed: CardShipFix[] = [];
+  const failed: Array<CardShipFix & { error: string }> = [];
+  for (const f of list) {
+    try {
+      const ship = cardShippingPolicy(f.price);
+      if (!refs.has(ship.id)) refs.set(ship.id, await referenceListing(ship.kind, ship.id));
+      const ref = refs.get(ship.id)!;
+      const [w] = await rows(sql`SELECT pkg_weight_oz FROM ebay_listings WHERE item_id = ${f.itemId}`);
+      const pkg: Row = { ...(ref.pkg ?? {}) };
+      const oz = Number(w?.pkg_weight_oz ?? 0) > 0 ? Number(w?.pkg_weight_oz) : 1;
+      pkg.WeightMajor = { "@_unit": "lbs", "#text": String(Math.floor(oz / 16)) };
+      pkg.WeightMinor = { "@_unit": "oz", "#text": String(Math.ceil(oz % 16)) };
+      await tradingCall("ReviseFixedPriceItem", {
+        Item: { ItemID: f.itemId, SellerProfiles: { SellerShippingProfile: { ShippingProfileID: ship.id } }, ShippingPackageDetails: pkg },
+      });
+      await db.execute(sql`
+        UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('shippingFix',
+          jsonb_build_object('from', ${f.from}::text, 'to', ${ship.id}::text, 'at', now()::text, 'by', ${who}::text))
+        WHERE ai_meta->'ebayPublish'->>'itemId' = ${f.itemId}`);
+      try {
+        const got = (await tradingCall("GetItem", { ItemID: f.itemId, DetailLevel: "ReturnAll", IncludeItemSpecifics: false })) as Row;
+        if (got.Item) await upsertListingFromItem(got.Item);
+      } catch {
+        /* the 15-minute sync catches up */
+      }
+      fixed.push(f);
+    } catch (err) {
+      failed.push({ ...f, error: (err as Error).message });
+    }
+  }
+  return { fixed, failed };
 }
