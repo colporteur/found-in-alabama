@@ -205,8 +205,16 @@ async function niftyBridgeSend(draft, options) {
   }
 
   // ── 3. eBay listing: fixed settings + our specifics + store categories ──
+  // Venues never to draft on, even if the template item is still on them
+  // (Todd's Etsy shop is suspended; Nifty won't let a disconnected venue be
+  // unticked in the draft editor, so it must never get into the draft).
+  const SKIP_VENUES = new Set(["etsy"]);
   const listings = [];
   for (const m of tpl.marketplaceListings || []) {
+    if (SKIP_VENUES.has(String(m.marketplace || "").toLowerCase())) {
+      warnings.push(`Template is on ${m.marketplace}; left ${m.marketplace} off this draft`);
+      continue;
+    }
     const isEbay = m.marketplace === "eBay";
     const categoryId = isEbay && ebayCategory ? ebayCategory.id : m.category && m.category.id;
     const tax = await taxonomy(m.marketplace, categoryId);
