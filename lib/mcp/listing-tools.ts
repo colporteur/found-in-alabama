@@ -23,6 +23,7 @@ import {
   claudeWritten,
   reviseClaudeWrite,
   saveClaudeWrite,
+  allowLotsFromChat,
 } from "@/lib/listings/claude";
 import { CONDITIONS } from "@/lib/listings/rules";
 import { combineLot } from "@/lib/listings/lots";
@@ -140,6 +141,28 @@ function buildTools(who: string): ToolDef[] {
         const ids = Array.isArray(a.draft_ids) ? (a.draft_ids as unknown[]).map(String) : [];
         const pool = Array.isArray(a.pool_member_ids) ? (a.pool_member_ids as unknown[]).map(String) : [];
         return combineLot(ids, who, argStr(a, "reason", 600), pool);
+      },
+    },
+    {
+      name: "listing_allow_lots",
+      title: "Turn on lot combining (Todd asked)",
+      readOnly: false,
+      description:
+        "ONLY when Todd has said in this conversation that these drafts may be combined into lots (e.g. he forgot to tick \"combine lots\" when he sent them). Turns combineLots on for the given drafts — waiting for Claude, or written and still in Review — and puts them in one new batch, so listing_combine_lot and listing_pool_add work on them. Nothing is approved or published, and Todd can split a lot again. Never call it on your own initiative.",
+      inputSchema: {
+        type: "object",
+        required: ["draft_ids", "todd_said"],
+        properties: {
+          draft_ids: { type: "array", items: { type: "string" }, description: "Draft ids from listing_queue / listing_written" },
+          todd_said: { type: "string", description: "Todd's words in this chat that allow it (quote him briefly)" },
+        },
+      },
+      run: async (a) => {
+        const ids = Array.isArray(a.draft_ids) ? (a.draft_ids as unknown[]).map(String) : [];
+        const said = argStr(a, "todd_said", 300);
+        if (!said) throw new Error("Quote what Todd said that allows combining these.");
+        const r = await allowLotsFromChat(ids, who);
+        return { ...r, note: r.allowed ? "Done. Re-read listing_queue: these now show combineLots: true in one batch." : "None of those drafts can be changed (they must be waiting for Claude or in Review, and not already a lot)." };
       },
     },
     {

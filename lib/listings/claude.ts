@@ -54,7 +54,10 @@ export const CLAUDE_STATUS = "with_claude";
 
 /** Send drafts to Claude. A note becomes Claude's instructions for them.
  *  Everything sent in one go is one batch; with `lots` on, Claude may
- *  combine drafts of that batch into lots (lib/listings/lots.ts). */
+ *  combine drafts of that batch into lots (lib/listings/lots.ts).
+ *  Drafts already waiting for Claude can be sent again (e.g. to turn
+ *  "combine lots" on after forgetting it): they join the new batch and keep
+ *  their earlier note unless a new one is given. */
 export async function sendToClaude(
   ids: string[],
   who: string,
@@ -68,15 +71,34 @@ export async function sendToClaude(
   const done = await rows(sql`
     UPDATE listing_drafts
     SET status = ${CLAUDE_STATUS},
-        review_note = COALESCE(${n}, CASE WHEN status = 'sent_back' THEN review_note END),
+        review_note = COALESCE(${n}, CASE WHEN status IN ('sent_back', ${CLAUDE_STATUS}) THEN review_note END),
         generation_error = NULL, updated_at = now(),
         ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('claudeQueuedAt', now(), 'claudeQueuedBy', ${who}::text,
                                                                      'claudeBatch', ${batch}::text, 'claudeLots', ${lots}::boolean)
     WHERE id IN (${sql.join(clean.map((id) => sql`${id}::uuid`), sql`, `)})
-      AND status IN ('ready', 'review', 'sent_back')
+      AND status IN ('ready', 'review', 'sent_back', ${CLAUDE_STATUS})
+      AND NOT (status = ${CLAUDE_STATUS} AND ai_meta ? 'lot')
       AND NOT EXISTS (SELECT 1 FROM draft_photos p WHERE p.draft_id = listing_drafts.id AND p.uploaded_at IS NULL)
     RETURNING id`);
   return { sent: done.length, skipped: clean.length - done.length };
+}
+
+/** Todd said in the Claude chat to combine these after all: turn "combine
+ *  lots" on for drafts waiting for Claude (or written and still in Review),
+ *  as one batch. Nothing is approved or published; a lot can be split again
+ *  from its page. */
+export async function allowLotsFromChat(ids: string[], who: string): Promise<{ allowed: number; skipped: number; batch: string | null }> {
+  const clean = Array.from(new Set(ids.filter((id) => UUID.test(id)))).slice(0, 200);
+  if (!clean.length) return { allowed: 0, skipped: 0, batch: null };
+  const ok = await rows(sql`
+    SELECT id FROM listing_drafts
+    WHERE id IN (${sql.join(clean.map((id) => sql`${id}::uuid`), sql`, `)})
+      AND status IN (${CLAUDE_STATUS}, 'review') AND NOT (ai_meta ? 'lot')`);
+  const r = await sendToClaude(ok.map((x) => String(x.id)), `${who} (Todd asked in chat)`, null, true);
+  const [b] = r.sent
+    ? await rows(sql`SELECT ai_meta->>'claudeBatch' AS batch FROM listing_drafts WHERE id = ${String(ok[0].id)}::uuid`)
+    : [];
+  return { allowed: r.sent, skipped: clean.length - r.sent, batch: (b?.batch as string | null) ?? null };
 }
 
 /** Take a draft back from Claude's queue (to Ready, or Review if written). */
@@ -613,7 +635,7 @@ export async function claudePool() {
 export async function claudePoolAdd(id: string, a: Record<string, unknown>, who: string) {
   const d = await loadQueued(id, false);
   if (((d.ai_meta ?? {}) as Record<string, unknown>).claudeLots !== true)
-    throw new Error("Todd didn't turn on lots for this draft; write it on its own.");
+    throw new Error("Todd didn't turn on lots for this draft. If Todd has said in this chat to combine them, call listing_allow_lots first; otherwise write it on its own.");
   const { poolDraft } = await import("./pool");
   const str = (k: string, max: number) => (typeof a[k] === "string" ? String(a[k]).trim().slice(0, max) || null : null);
   const est = Number(a.est_value_usd);

@@ -72,7 +72,10 @@ export function DraftGrid({
 
   /** Drafts picked on the page that the writer / Claude can take. */
   const pickedToWrite = drafts.filter((d) => picked.has(d.id) && (d.status === "ready" || d.status === "sent_back")).map((d) => d.id);
-  const pickedForClaude = drafts.filter((d) => picked.has(d.id) && ["ready", "review", "sent_back"].includes(d.status)).map((d) => d.id);
+  const pickedForClaude = drafts
+    .filter((d) => picked.has(d.id) && ["ready", "review", "sent_back", "with_claude"].includes(d.status) && !(d.status === "with_claude" && d.lotOf))
+    .map((d) => d.id);
+  const pickedWaiting = drafts.filter((d) => picked.has(d.id) && d.status === "with_claude").length;
 
   async function writeAll(only?: string[]) {
     setMsg(null);
@@ -162,7 +165,7 @@ export function DraftGrid({
             onClick={() => sendReadyToClaude(pickedForClaude)}
             className={`${btn} border border-brand-earth text-brand-earth hover:bg-brand-earth/10`}
           >
-            Send selected to Claude ({pickedForClaude.length})
+            {pickedWaiting === pickedForClaude.length ? "Send again to Claude" : "Send selected to Claude"} ({pickedForClaude.length})
           </button>
         )}
         {readyCount > 0 && !run && (
@@ -242,7 +245,7 @@ export function DraftGrid({
                 picked.has(d.id) ? "border-green-800 ring-2 ring-green-800/30" : "border-brand-ink/15"
               }`}
             >
-              {SELECTABLE.has(d.status) && (
+              {(SELECTABLE.has(d.status) || (d.status === "with_claude" && !d.lotOf)) && (
                 <label className="absolute top-2 left-2 z-10 bg-white/90 rounded px-1.5 py-1 flex items-center gap-1 text-xs">
                   <input type="checkbox" checked={picked.has(d.id)} onChange={() => toggle(d.id)} /> pick
                 </label>
