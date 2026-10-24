@@ -16,6 +16,7 @@
 //   stays untouched. (ReviseItem replaces the whole container, so we
 //   write the full remaining set.)
 
+import { reviseShippingPolicy } from "@/lib/ebay/shipping-policy";
 import { db, ebayListings, enhanceBatches, enhanceJobs } from "@/db";
 import { and, eq, gte, notInArray, sql } from "drizzle-orm";
 import {
@@ -83,6 +84,11 @@ export function rollbackEligibility(
       }
       return { ok: true };
     }
+    case "shipping_policy":
+      if (typeof before.shippingProfileId !== "string" || !before.shippingProfileId) {
+        return { ok: false, reason: "No prior shipping policy to restore" };
+      }
+      return { ok: true };
     case "item_specifics": {
       const after = job.after ?? {};
       if (!after.specifics || typeof after.specifics !== "object") {
@@ -188,6 +194,12 @@ export async function rollbackJob(
           .where(eq(ebayListings.itemId, job.ebayItemId));
       } else if (op === "description_remix") {
         await reviseItemDescription(job.ebayItemId, before.description as string);
+      } else if (op === "shipping_policy") {
+        await reviseShippingPolicy(
+          job.ebayItemId,
+          before.shippingProfileId as string,
+          before.pkg && typeof before.pkg === "object" ? (before.pkg as Record<string, unknown>) : null
+        );
       } else if (op === "store_category") {
         const cat1 = before.category1Id as string;
         const cat2 =

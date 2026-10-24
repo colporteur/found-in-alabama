@@ -24,8 +24,7 @@ import { loadTesCategories, tesQualifyingSet } from "@/lib/tes/item-detail";
 import { plainTextFromHtml } from "@/lib/tes/sanitize";
 import {
   SHIP_SCHEDULE,
-  maxShipClass,
-  normalizeShipClass,
+  itemShipClass,
 } from "@/lib/tes/shipping";
 
 export const runtime = "nodejs";
@@ -69,6 +68,8 @@ export async function GET() {
             imageUrls: ebayListings.imageUrls,
             storeCategory1Id: ebayListings.storeCategory1Id,
             storeCategory2Id: ebayListings.storeCategory2Id,
+            shippingServices: ebayListings.shippingServices,
+            stampOk: ebayListings.stampOk,
           })
           .from(ebayListings)
           .where(
@@ -124,17 +125,10 @@ export async function GET() {
     const pct = bestDiscountPercent(flatPct, badge?.discountPercent);
     const salePrice = pct > 0 ? discountedPrice(price, pct) : null;
 
-    const shipClass = maxShipClass(
-      normalizeShipClass(
-        row.storeCategory1Id
-          ? classByCat.get(row.storeCategory1Id)
-          : undefined
-      ),
-      normalizeShipClass(
-        row.storeCategory2Id
-          ? classByCat.get(row.storeCategory2Id)
-          : undefined
-      )
+    const shipClass = itemShipClass(
+      row.storeCategory1Id ? classByCat.get(row.storeCategory1Id) : undefined,
+      row.storeCategory2Id ? classByCat.get(row.storeCategory2Id) : undefined,
+      { services: row.shippingServices, stampOk: row.stampOk }
     );
     const shipPrice = SHIP_SCHEDULE[shipClass].first;
 

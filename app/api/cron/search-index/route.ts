@@ -1,12 +1,14 @@
 // GET /api/cron/search-index — keeps site search current (SEARCH-1):
 // rebuilds index rows whose listing text changed, drops sold/ended
 // listings, refreshes the "Did you mean" vocabulary, then embeds changed
-// listings for meaning search within the time left.
+// listings for meaning search within the time left. Also refreshes the
+// listings' mail facts (SHIP-2, lib/shipping/mail-refresh.ts).
 // Auth: CRON_SECRET bearer (Vercel cron) or a signed-in admin.
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { embedPending, refreshSearchIndex, searchReady } from "@/lib/search/index";
+import { mailFactsReady, refreshMailFacts } from "@/lib/shipping/mail-refresh";
 
 export const runtime = "nodejs";
 export const maxDuration = 300;
@@ -25,9 +27,11 @@ export async function GET(req: NextRequest) {
   if (!(await searchReady())) return NextResponse.json({ skipped: "run the migration (0048) first" });
   try {
     const refreshed = await refreshSearchIndex();
-    const embedded = await embedPending(200_000);
-    console.log(`[search-index] ${JSON.stringify({ refreshed, embedded })}`);
-    return NextResponse.json({ refreshed, embedded });
+    // Mail facts for the sites' envelope / stamped-flat shipping (SHIP-2).
+    const mail = (await mailFactsReady()) ? await refreshMailFacts().catch((e) => ({ error: (e as Error).message })) : { skipped: "migration 0052" };
+    const embedded = await embedPending(180_000);
+    console.log(`[search-index] ${JSON.stringify({ refreshed, mail, embedded })}`);
+    return NextResponse.json({ refreshed, mail, embedded });
   } catch (err) {
     return NextResponse.json({ error: (err as Error).message }, { status: 500 });
   }

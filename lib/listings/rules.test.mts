@@ -15,6 +15,7 @@ import {
   pickTier,
   rankCategories,
   suggestShipping,
+  planDraftShipping,
   DEFAULT_WRITER_SETTINGS,
   type Identification,
 } from "./rules";
@@ -218,4 +219,18 @@ test("phone numbers never reach a listing", async () => {
     assert.equal(r.text, keep, keep);
     assert.equal(r.removed.length, 0, keep);
   }
+});
+
+test("SHIP-2: planDraftShipping puts small cards and photos in an envelope at 1 oz", () => {
+  const cards = "Sports Mem, Cards & Fan Shop > Sports Trading Cards > Trading Card Singles";
+  const photos = "Collectibles > Photographic Images > Photographs";
+  const w = { oz: 4, source: "assumed" as const, reason: "paper up to 6×9 in", profile: "calculated" as const, envelopeFit: true };
+  const card = planDraftShipping(w, { price: 5.87, categoryPath: cards, kind: "trading_card" });
+  assert.equal(card.ship?.profile, "envelope");
+  assert.equal(card.weight.oz, 1);
+  assert.equal(planDraftShipping(w, { price: 7.87, categoryPath: photos, kind: "photograph" }).ship?.profile, "envelope");
+  assert.equal(planDraftShipping({ ...w, oz: 8, envelopeFit: false }, { price: 7.87, categoryPath: photos, kind: "photograph" }).ship?.profile, "calculated");
+  assert.equal(planDraftShipping(w, { price: 24.87, categoryPath: photos, kind: "photograph" }).ship?.profile, "calculated");
+  // Todd's own weight over 3.5 oz still wins
+  assert.equal(planDraftShipping({ ...w, oz: 5, source: "given" }, { price: 7.87, categoryPath: photos, kind: "photograph" }).ship?.profile, "calculated");
 });

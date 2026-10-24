@@ -37,16 +37,19 @@ export type PackagePreset = {
 export const PACKAGE_PRESETS: Record<ShipClass, PackagePreset> = {
   // Rigid 6×9 mailer with a board sandwich.
   paper: { label: "Rigid mailer", baseOz: 3, addOz: 0.5, lengthIn: 9, widthIn: 6, heightIn: 0.5 },
+  // SHIP-2: a stamped 12×15 flat with a stiffener. Usually mailed with
+  // stamps, not a Pirate Ship label; the preset is for when it isn't.
+  flat: { label: "Flat envelope", baseOz: 3, addOz: 0.5, lengthIn: 15, widthIn: 12, heightIn: 0.5 },
   // Book box / padded mailer.
   media: { label: "Book box", baseOz: 16, addOz: 8, lengthIn: 10, widthIn: 8, heightIn: 2 },
   // Small box.
   bulky: { label: "Small box", baseOz: 32, addOz: 16, lengthIn: 12, widthIn: 10, heightIn: 4 },
 };
 
-const RANK: Record<ShipClass, number> = { paper: 0, media: 1, bulky: 2 };
+const RANK: Record<ShipClass, number> = { paper: 0, flat: 1, media: 2, bulky: 3 };
 
 function normClass(v: unknown): ShipClass {
-  return v === "media" || v === "bulky" ? v : "paper";
+  return v === "flat" || v === "media" || v === "bulky" ? v : "paper";
 }
 
 export type PackageEstimate = {

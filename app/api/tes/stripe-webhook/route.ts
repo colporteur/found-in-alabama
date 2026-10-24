@@ -8,6 +8,7 @@
 // packing/delist summary. checkout.session.expired marks the order
 // canceled so pending rows don't accumulate.
 
+import { serviceShortLabel } from "@/lib/fia/shipping";
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { recordRedemption } from "@/lib/shop/coupons";
@@ -58,8 +59,8 @@ async function notifyTodd(orderId: string): Promise<void> {
     const siteTag = isFia ? "FIA" : "TES";
     const siteName = isFia ? "Found in Alabama" : "Ephemeral State";
     const shipNote = isFia
-      ? `${order.shipService === "media" ? "Media Mail" : "Ground Advantage"}, ${order.packageWeightOz ?? "?"} oz quoted`
-      : `ship class: ${order.governingShipClass}`;
+      ? `${serviceShortLabel(order.shipService)}, ${order.packageWeightOz ?? "?"} oz quoted`
+      : `ship class: ${order.governingShipClass}${order.governingShipClass === "flat" ? " (stamped 12×15 flat)" : ""}`;
 
     const rows = items
       .map(

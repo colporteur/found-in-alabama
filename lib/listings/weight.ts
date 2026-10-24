@@ -9,6 +9,8 @@
 //      the draft is flagged "weigh it".
 // Pure; tested in weight.test.mts.
 
+import { pieceCount } from "@/lib/shipping/mail";
+
 export type WeightSource = "given" | "assumed" | "none";
 
 export type WeightPlan = {
@@ -17,7 +19,14 @@ export type WeightPlan = {
   reason: string;
   /** Shipping profile this weight implies, when it decides one. */
   profile: "envelope" | "calculated" | "media" | null;
+  /** SHIP-2: the piece fits an eBay Standard Envelope (≤ 6×11¼ in, flat
+   *  paper); null = size unknown. The 4/8/12 oz weights are a rigid mailer
+   *  — in an envelope it weighs about 1 oz (see suggestShipping). */
+  envelopeFit?: boolean | null;
 };
+
+/** Standard formats that always fit a Standard Envelope. */
+const ENVELOPE_KINDS = new Set(["postcard", "trading_card", "greeting_card"]);
 
 const PAPER_KINDS = new Set(["ephemera", "photograph", "document", "map", "greeting_card", "trading_card", "artwork"]);
 const BOOKLET_RE = /\b(booklets?|magazines?|catalog(ue)?s?|pamphlets?|programs?|yearbooks?|annuals?|manuals?|comics?|books?|hymnals?|almanacs?|directory|directories)\b/i;
@@ -44,21 +53,31 @@ export function planWeight(i: {
   }
   const kind = (i.kind ?? "").toLowerCase();
   const text = `${i.title ?? ""} ${i.identification ?? ""}`;
-  if (kind === "postcard") return { oz: 1, source: "assumed", reason: "postcard", profile: "envelope" };
+  // eBay Standard Envelope piece limits: 3 postcards, 24 raw cards.
+  const pieces = pieceCount(i.title ?? "");
+  if (kind === "postcard" && pieces <= 3) return { oz: 1, source: "assumed", reason: "postcard", profile: "envelope", envelopeFit: true };
   if (kind === "book" || kind === "magazine" || BOOKLET_RE.test(text)) {
     return { oz: 16, source: "assumed", reason: "booklet / magazine / book: 1 lb Media Mail", profile: "media" };
   }
   const size = parseSize(i.sizeInches);
   // Scanroom only scans flat paper, so its items count as paper unless the
   // identification says it's an object or a record.
-  const paper = PAPER_KINDS.has(kind) || (i.source === "scanroom" && kind !== "other" && kind !== "record");
+  const paper = PAPER_KINDS.has(kind) || kind === "postcard" || (i.source === "scanroom" && kind !== "other" && kind !== "record");
   if (paper) {
     const [long, short] = size ?? [0, 0];
-    if (size && long <= 9 && short <= 6) return { oz: 4, source: "assumed", reason: `paper up to 6×9 in (${long}×${short})`, profile: "calculated" };
-    if (size && long <= 12.5 && short <= 9.5) return { oz: 8, source: "assumed", reason: `paper up to 9×12 in (${long}×${short})`, profile: "calculated" };
-    return { oz: 12, source: "assumed", reason: size ? `large paper (${long}×${short} in)` : "paper, size unknown", profile: "calculated" };
+    const tooMany = pieces > (kind === "trading_card" ? 24 : kind === "postcard" ? 3 : 5);
+    const envelopeFit = tooMany ? false : size ? long <= 11.25 && short <= 6 : ENVELOPE_KINDS.has(kind) ? true : null;
+    const plan = paperWeight(size, long, short);
+    return { ...plan, envelopeFit };
   }
   return { oz: null, source: "none", reason: "not paper — weigh it", profile: null };
+}
+
+/** Rigid-mailer weight for flat paper, by size. */
+function paperWeight(size: [number, number] | null, long: number, short: number): WeightPlan {
+  if (size && long <= 9 && short <= 6) return { oz: 4, source: "assumed", reason: `paper up to 6×9 in (${long}×${short})`, profile: "calculated" };
+  if (size && long <= 12.5 && short <= 9.5) return { oz: 8, source: "assumed", reason: `paper up to 9×12 in (${long}×${short})`, profile: "calculated" };
+  return { oz: 12, source: "assumed", reason: size ? `large paper (${long}×${short} in)` : "paper, size unknown", profile: "calculated" };
 }
 
 /** 20 oz → { lb: 1, oz: 4 } (Nifty's "Package weight" is lb + oz). */

@@ -16,6 +16,7 @@ import { db } from "@/db";
 import { ebayListings, ebayStoreCategories, items } from "@/db/schema";
 import { getOnSaleLookup, type SaleBadge } from "@/lib/ebay/active-sales";
 import { ebayItemIdFromUrl } from "@/lib/ebay/store-url";
+import { itemShipClass, type ShipClass } from "@/lib/tes/shipping";
 
 /** Other marketplaces we cross-link to (eBay is the card's main link). */
 export const OTHER_MARKETPLACES: { key: string; label: string }[] = [
@@ -393,7 +394,7 @@ export type StorefrontItem = {
   imageUrl: string | null;
   ebayUrl: string;
   /** TES cart shipping class (heaviest of the item's store categories). */
-  shipClass: "paper" | "media" | "bulky";
+  shipClass: ShipClass;
   sale: SaleBadge | null;
   /** Journal post slug when this item came from a documented haul. */
   haulSlug: string | null;
@@ -457,6 +458,8 @@ export async function getCategoryItems(
       imageUrl: ebayListings.primaryImageUrl,
       cat1: ebayListings.storeCategory1Id,
       cat2: ebayListings.storeCategory2Id,
+        shipServices: ebayListings.shippingServices,
+        stampOk: ebayListings.stampOk,
     })
     .from(ebayListings)
     .where(
@@ -484,9 +487,6 @@ export async function getCategoryItems(
   const classByCat = new Map(
     classRows.map((c) => [c.categoryId, c.shipClass])
   );
-  const rank = { paper: 0, media: 1, bulky: 2 } as const;
-  const norm = (v: unknown): "paper" | "media" | "bulky" =>
-    v === "media" || v === "bulky" ? v : "paper";
   return rows.map((r) => {
     const sale =
       onSale.byListingId.get(r.itemId) ??
@@ -494,9 +494,7 @@ export async function getCategoryItems(
       (r.cat2 ? onSale.byCategoryId.get(r.cat2) : undefined) ??
       null;
     const meta = metaByEbayId.get(r.itemId);
-    const c1 = norm(r.cat1 ? classByCat.get(r.cat1) : undefined);
-    const c2 = norm(r.cat2 ? classByCat.get(r.cat2) : undefined);
-    const shipClass = rank[c1] >= rank[c2] ? c1 : c2;
+    const shipClass = itemShipClass(r.cat1 ? classByCat.get(r.cat1) : undefined, r.cat2 ? classByCat.get(r.cat2) : undefined, { services: r.shipServices, stampOk: r.stampOk });
     return {
       itemId: r.itemId,
       title: r.title,
@@ -545,6 +543,8 @@ export async function hydrateStorefrontItems(itemIds: string[]): Promise<Storefr
         imageUrl: ebayListings.primaryImageUrl,
         cat1: ebayListings.storeCategory1Id,
         cat2: ebayListings.storeCategory2Id,
+        shipServices: ebayListings.shippingServices,
+        stampOk: ebayListings.stampOk,
       })
       .from(ebayListings)
       .where(and(inArray(ebayListings.itemId, itemIds), gt(ebayListings.quantity, 0))),
@@ -555,8 +555,6 @@ export async function hydrateStorefrontItems(itemIds: string[]): Promise<Storefr
       .from(ebayStoreCategories),
   ]);
   const classByCat = new Map(classRows.map((c) => [c.categoryId, c.shipClass]));
-  const rank = { paper: 0, media: 1, bulky: 2 } as const;
-  const normClass = (v: unknown): "paper" | "media" | "bulky" => (v === "media" || v === "bulky" ? v : "paper");
   const byId = new Map(rows.map((r) => [r.itemId, r]));
   const out: StorefrontItem[] = [];
   for (const id of itemIds) {
@@ -568,15 +566,14 @@ export async function hydrateStorefrontItems(itemIds: string[]): Promise<Storefr
       (r.cat2 ? onSale.byCategoryId.get(r.cat2) : undefined) ??
       null;
     const meta = metaByEbayId.get(r.itemId);
-    const c1 = normClass(r.cat1 ? classByCat.get(r.cat1) : undefined);
-    const c2 = normClass(r.cat2 ? classByCat.get(r.cat2) : undefined);
+    const shipClass = itemShipClass(r.cat1 ? classByCat.get(r.cat1) : undefined, r.cat2 ? classByCat.get(r.cat2) : undefined, { services: r.shipServices, stampOk: r.stampOk });
     out.push({
       itemId: r.itemId,
       title: decodeEntities(r.title),
       price: r.price,
       imageUrl: r.imageUrl,
       ebayUrl: `https://www.ebay.com/itm/${r.itemId}`,
-      shipClass: rank[c1] >= rank[c2] ? c1 : c2,
+      shipClass,
       sale,
       haulSlug: meta?.haulSlug ?? null,
       marketplaceLinks: meta?.marketplaceLinks ?? [],
@@ -649,6 +646,8 @@ export async function searchStorefrontItems(
         imageUrl: ebayListings.primaryImageUrl,
         cat1: ebayListings.storeCategory1Id,
         cat2: ebayListings.storeCategory2Id,
+        shipServices: ebayListings.shippingServices,
+        stampOk: ebayListings.stampOk,
       })
       .from(ebayListings)
       .where(where)
@@ -669,9 +668,6 @@ export async function searchStorefrontItems(
   ]);
 
   const classByCat = new Map(classRows.map((c) => [c.categoryId, c.shipClass]));
-  const rank = { paper: 0, media: 1, bulky: 2 } as const;
-  const normClass = (v: unknown): "paper" | "media" | "bulky" =>
-    v === "media" || v === "bulky" ? v : "paper";
 
   return {
     total,
@@ -682,15 +678,14 @@ export async function searchStorefrontItems(
         (r.cat2 ? onSale.byCategoryId.get(r.cat2) : undefined) ??
         null;
       const meta = metaByEbayId.get(r.itemId);
-      const c1 = normClass(r.cat1 ? classByCat.get(r.cat1) : undefined);
-      const c2 = normClass(r.cat2 ? classByCat.get(r.cat2) : undefined);
+    const shipClass = itemShipClass(r.cat1 ? classByCat.get(r.cat1) : undefined, r.cat2 ? classByCat.get(r.cat2) : undefined, { services: r.shipServices, stampOk: r.stampOk });
       return {
         itemId: r.itemId,
         title: decodeEntities(r.title),
         price: r.price,
         imageUrl: r.imageUrl,
         ebayUrl: `https://www.ebay.com/itm/${r.itemId}`,
-        shipClass: rank[c1] >= rank[c2] ? c1 : c2,
+        shipClass,
         sale,
         haulSlug: meta?.haulSlug ?? null,
         marketplaceLinks: meta?.marketplaceLinks ?? [],

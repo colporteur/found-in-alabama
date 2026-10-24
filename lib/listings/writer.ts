@@ -40,6 +40,7 @@ import {
   rankCategories,
   rankStoreCategories,
   suggestShipping,
+  planDraftShipping,
   CONDITIONS,
   type CategoryOption,
   type Identification,
@@ -563,7 +564,7 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
 
     // Weight: Todd's (intake / typed) wins; otherwise the rules assume one
     // (postcard 1 oz, booklet 1 lb media, paper 4/8/12 oz by size).
-    const weight = planWeight({
+    const weightPlan = planWeight({
       givenOz: d.weight_oz != null ? Number(d.weight_oz) : null,
       kind: ident?.kind ?? null,
       title: out.title,
@@ -571,17 +572,15 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
       sizeInches: ((d.facts ?? {}) as Record<string, unknown>).size_inches as string | null ?? null,
       source: String(d.source ?? ""),
     });
-    const suggested = priced
-      ? suggestShipping({ price: priced.price, categoryPath: cat?.path ?? out.ebayCategorySuggestion, kind: ident?.kind ?? "other", weightOz: weight.oz })
-      : null;
-    // A media-mail booklet or a 1 oz postcard decides the profile outright;
-    // otherwise the usual rules (price, category, weight > 3.5 oz).
-    const ship =
-      weight.source === "assumed" && weight.profile === "media"
-        ? { profile: "media" as const, reason: weight.reason }
-        : weight.source === "assumed" && weight.profile === "envelope" && suggested?.profile !== "calculated"
-          ? { profile: "envelope" as const, reason: weight.reason }
-          : suggested;
+    // SHIP-2: profile and weight together (a piece that fits a Standard
+    // Envelope goes envelope at 1 oz when its category allows it).
+    const planned = planDraftShipping(weightPlan, {
+      price: priced ? priced.price : null,
+      categoryPath: cat?.path ?? out.ebayCategorySuggestion,
+      kind: ident?.kind ?? "other",
+    });
+    const weight = planned.weight;
+    const ship = planned.ship;
     if (weight.source === "none") specFlags.push("No weight: not paper, so nothing was assumed — weigh it (Nifty would keep its template's weight).");
 
     const aiMeta = {

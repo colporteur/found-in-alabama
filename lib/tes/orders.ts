@@ -13,8 +13,7 @@ import {
   getTesDiscountPercent,
 } from "@/lib/tes/discount";
 import {
-  maxShipClass,
-  normalizeShipClass,
+  itemShipClass,
   quoteShipping,
   type ShipClass,
   type ShippingQuote,
@@ -81,6 +80,8 @@ export async function resolveCart(
         imageUrl: ebayListings.primaryImageUrl,
         cat1: ebayListings.storeCategory1Id,
         cat2: ebayListings.storeCategory2Id,
+        shipServices: ebayListings.shippingServices,
+        stampOk: ebayListings.stampOk,
       })
       .from(ebayListings)
       .where(inArray(ebayListings.itemId, ids)),
@@ -117,8 +118,11 @@ export async function resolveCart(
       null;
     const pct = bestDiscountPercent(flatPct, badge?.discountPercent);
     const unitPrice = discountedPrice(price, pct);
-    const c1 = normalizeShipClass(r.cat1 ? classByCat.get(r.cat1) : undefined);
-    const c2 = normalizeShipClass(r.cat2 ? classByCat.get(r.cat2) : undefined);
+    // How it mails when known (envelope / stamped flat), else its shelves.
+    const shipClass = itemShipClass(r.cat1 ? classByCat.get(r.cat1) : undefined, r.cat2 ? classByCat.get(r.cat2) : undefined, {
+      services: r.shipServices,
+      stampOk: r.stampOk,
+    });
     resolved.push({
       itemId: r.itemId,
       title: r.title,
@@ -126,7 +130,7 @@ export async function resolveCart(
       imageUrl: r.imageUrl,
       unitPrice,
       quantity: line.quantity,
-      shipClass: maxShipClass(c1, c2),
+      shipClass,
     });
   }
 
