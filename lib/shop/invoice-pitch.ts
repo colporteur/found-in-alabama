@@ -241,10 +241,28 @@ export function planPitch(
   const auto = pickSite(venue, lines, tesSet);
   if (!choice) return { ...auto, exact: false };
   if (choice === "store") return { site: auto.site, cat: null, exact: true };
+  // "fia:<id>" / "tes:<id>": the shelf counted on that site (a TES shelf
+  // like Postcards can be pitched for foundinalabama.com too).
+  const m = /^(fia|tes):(.+)$/.exec(choice);
+  if (m) return { site: m[1] === "tes" && tesSet.has(m[2]) ? "tes" : "fia", cat: m[2], exact: true };
   return { site: tesSet.has(choice) ? "tes" : "fia", cat: choice, exact: true };
 }
 
 export type ShelfChoice = { value: string; label: string };
+
+/** Pure: menu entries for one shelf. A shelf with subshelves says so and
+ *  counts all of them; a TES shelf is offered for TES and, as "fia:<id>",
+ *  for foundinalabama.com (which counts every listing on it). */
+export function shelfOptions(ctx: Pick<PitchContext, "cats" | "tesSet" | "counters">, id: string, hasKids: boolean): ShelfChoice[] {
+  const all = hasKids ? " — all subshelves" : "";
+  if (ctx.tesSet.has(id)) {
+    return [
+      { value: id, label: `${shelfLabel(ctx, id, ctx.counters.tes.of(id))}${all} · TES` },
+      { value: `fia:${id}`, label: `${shelfLabel(ctx, id, ctx.counters.fia.of(id))}${all} · FIA` },
+    ];
+  }
+  return [{ value: id, label: `${shelfLabel(ctx, id, ctx.counters.fia.of(id))}${all}` }];
+}
 
 /** Pure: shelf labels "Parent › Child (1,234)" for a site's counts. */
 export function shelfLabel(ctx: Pick<PitchContext, "cats">, id: string, count: number): string {
@@ -277,22 +295,30 @@ export async function shelfChoices(
     const autoLabel = p.categoryId ? shelfLabel(ctx, p.categoryId, p.count) : `whole store (${p.count.toLocaleString("en-US")})`;
     const seen = new Set<string>();
     const options: ShelfChoice[] = [];
+    const parentOf = new Map(ctx.cats.map((c) => [c.categoryId, c.parentCategoryId]));
+    const kids = new Set(ctx.cats.map((c) => c.parentCategoryId).filter(Boolean) as string[]);
+    const add = (c: string) => {
+      if (seen.has(c)) return;
+      seen.add(c);
+      options.push(...shelfOptions(ctx, c, kids.has(c)));
+    };
     for (const l of [...ls].sort((a, b) => (b.price ?? 0) - (a.price ?? 0))) {
       for (const c of l.cats) {
-        if (seen.has(c)) continue;
-        seen.add(c);
-        const site: Site = ctx.tesSet.has(c) ? "tes" : "fia";
-        options.push({ value: c, label: `${shelfLabel(ctx, c, ctx.counters[site].of(c))}${site === "tes" ? " · TES" : ""}` });
+        add(c);
+        // …and the shelves above it ("all Postcards", not just one subshelf).
+        let p = parentOf.get(c) ?? null;
+        for (let hops = 0; p && hops < 6; hops++) {
+          add(p);
+          p = parentOf.get(p) ?? null;
+        }
       }
     }
     perOrder[o.id] = { auto: `${p.site === "tes" ? "TES" : "FIA"}: ${autoLabel}`, site: p.site, options };
   }
+  const parents = new Set(ctx.cats.map((c) => c.parentCategoryId).filter(Boolean) as string[]);
   const all = ctx.cats
     .filter((c) => !c.catchAll && ctx.counters.fia.of(c.categoryId) > 0)
-    .map((c) => {
-      const site: Site = ctx.tesSet.has(c.categoryId) ? "tes" : "fia";
-      return { value: c.categoryId, label: `${shelfLabel(ctx, c.categoryId, ctx.counters[site].of(c.categoryId))}${site === "tes" ? " · TES" : ""}` };
-    })
+    .flatMap((c) => shelfOptions(ctx, c.categoryId, parents.has(c.categoryId)))
     .sort((a, b) => a.label.localeCompare(b.label));
   return { perOrder, all };
 }
