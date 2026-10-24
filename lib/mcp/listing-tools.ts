@@ -326,7 +326,11 @@ function buildTools(who: string): ToolDef[] {
           title: { type: "string", description: "≤ 80 characters; aim for 70–80" },
           description: { type: "string", description: "Plain text, ≤ 1,400 characters; first paragraph says what it is + a condition sentence" },
           condition: { type: "string", enum: CONDITIONS },
-          condition_note: { type: "string" },
+          condition_note: {
+            type: "string",
+            description:
+              "For a single trading card, start with \"Ungraded.\" or the slab's grader, grade and cert (\"PSA 9, cert 12345678.\"), then the wear. FIA reads this to pick eBay's card condition (ungraded: Near Mint or Better / Excellent / Very Good / Poor — say \"crease\", \"heavy wear\" etc. plainly).",
+          },
           ebay_category_id: { type: "string" },
           ebay_category_suggestion: { type: "string", description: "Path you'd use if none of the store's categories fits" },
           store_category_ids: { type: "array", items: { type: "string" }, maxItems: 2 },

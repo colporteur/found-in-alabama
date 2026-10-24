@@ -10,7 +10,11 @@
 // Settings that aren't on the draft (payment and return policies, item
 // location, handling time, Best Offer, package size) are copied from Todd's
 // newest eBay listing that uses the same kind of shipping policy — FIA
-// invents none of them. Off unless app_settings "ebay_publish".enabled.
+// invents none of them. Off unless app_settings "ebay_publish".enabled —
+// except single trading cards, which take this road by default (cardsDirect,
+// publish-settings.ts) because Nifty can't send the card condition eBay
+// requires for them. Those can also be published in a batch from the
+// Listings page (checkAndPublish: eBay's check, then publish if it's clean).
 // Rollback notes: claude/phase-3e-direct-ebay-publish.md (project doc).
 
 import { createHash } from "node:crypto";
@@ -21,8 +25,16 @@ import { applicationToken } from "@/lib/ebay/taxonomy";
 import { upsertListingFromItem } from "@/lib/ebay/listing-sync";
 import { queueItemForDraft } from "@/lib/listings/nifty";
 import { linkDraftToEbay } from "@/lib/listings/published";
+import { draftRoute, ebaySettings, saveEbaySettings, type PublishRoute } from "./publish-settings";
 import {
   buildItem,
+  CARD_SINGLE_CATEGORIES,
+  cardConditionFields,
+  cardConditionLabel,
+  cleanCardCondition,
+  guessCardCondition,
+  isCardSingle,
+  type CardCondition,
   ebayMessages,
   feeTotal,
   pickConditionId,
@@ -40,19 +52,15 @@ async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
   return res.rows ?? [];
 }
 
-const SETTINGS_KEY = "ebay_publish";
 /** A check is good for publishing for this long (and only for the same text). */
 const CHECK_TTL_MS = 24 * 3600_000;
 
 export async function ebayPublishEnabled(): Promise<boolean> {
-  const [r] = await rows(sql`SELECT value FROM app_settings WHERE key = ${SETTINGS_KEY}`);
-  return (r?.value as { enabled?: boolean } | undefined)?.enabled === true;
+  return (await ebaySettings()).enabled;
 }
 
 export async function setEbayPublishEnabled(on: boolean): Promise<void> {
-  await db.execute(sql`
-    INSERT INTO app_settings (key, value, updated_at) VALUES (${SETTINGS_KEY}, ${JSON.stringify({ enabled: on })}::jsonb, now())
-    ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()`);
+  await saveEbaySettings({ enabled: on });
 }
 
 // ─── reference listing ──────────────────────────────────────────────────────
@@ -115,17 +123,46 @@ async function allowedConditions(categoryId: string): Promise<string[] | null> {
 
 // ─── building ───────────────────────────────────────────────────────────────
 
-type Built = { draft: PublishDraft; ref: Reference; conditionId: string; hash: string; status: string; meta: Record<string, unknown> };
+type Built = {
+  draft: PublishDraft;
+  ref: Reference;
+  conditionId: string;
+  descriptors: Array<Record<string, string>> | null;
+  card: CardCondition | null;
+  hash: string;
+  status: string;
+  meta: Record<string, unknown>;
+};
+
+/** The card condition FIA will send: Todd's choice, else a guess. */
+export function draftCardCondition(q: { condition: string; conditionNote: string | null; itemSpecifics: Record<string, string | string[]>; aiMeta: Record<string, unknown> }): CardCondition {
+  return cleanCardCondition(q.aiMeta.cardCondition) ?? guessCardCondition(q.condition, q.conditionNote, q.itemSpecifics);
+}
 
 async function build(draftId: string): Promise<Built> {
   const q = await queueItemForDraft(draftId);
   if (!q) throw new Error("Draft not found");
-  if (q.status !== "approved") throw new Error(`Only approved drafts can go to eBay (this one is ${q.status.replace("_", " ")})`);
+  const s = await ebaySettings();
+  const isCard = isCardSingle(q.ebayCategoryId);
+  if (!s.enabled && !(isCard && draftRoute(s, q.ebayCategoryId, q.aiMeta) === "ebay")) {
+    throw new Error("Publishing to eBay is switched off (Listings → settings)");
+  }
+  // Approved, or (a card that Nifty couldn't list) already sent to Nifty.
+  const okStatus = q.status === "approved" || (q.status === "in_nifty" && isCard);
+  if (!okStatus) throw new Error(`Only approved drafts can go to eBay (this one is ${q.status.replace("_", " ")})`);
   if (!q.ebayCategoryId) throw new Error("Pick an eBay category first");
   const kind = shipKind(q.shippingProfile);
   const ref = await referenceListing(kind);
-  const allowed = await allowedConditions(q.ebayCategoryId);
-  const conditionId = pickConditionId(q.condition, allowed, ref.categoryId === q.ebayCategoryId ? ref.conditionId : null);
+  let conditionId: string;
+  let descriptors: Array<Record<string, string>> | null = null;
+  let card: CardCondition | null = null;
+  if (isCard) {
+    card = draftCardCondition(q);
+    ({ conditionId, descriptors } = cardConditionFields(card, q.ebayCategoryId));
+  } else {
+    const allowed = await allowedConditions(q.ebayCategoryId);
+    conditionId = pickConditionId(q.condition, allowed, ref.categoryId === q.ebayCategoryId ? ref.conditionId : null);
+  }
   const draft: PublishDraft = {
     draftId,
     title: q.title,
@@ -141,8 +178,8 @@ async function build(draftId: string): Promise<Built> {
     weightOz: q.weightOz,
     pictureUrls: q.photos,
   };
-  const hash = createHash("sha256").update(JSON.stringify(buildItem(draft, ref, conditionId))).digest("hex").slice(0, 16);
-  return { draft, ref, conditionId, hash, status: q.status, meta: q.aiMeta };
+  const hash = createHash("sha256").update(JSON.stringify(buildItem(draft, ref, conditionId, descriptors))).digest("hex").slice(0, 16);
+  return { draft, ref, conditionId, descriptors, card, hash, status: q.status, meta: q.aiMeta };
 }
 
 function messagesFromError(err: unknown): EbayMessage[] {
@@ -169,6 +206,8 @@ export type EbayCheck = {
     price: number;
     categoryId: string;
     conditionId: string;
+    /** Single trading cards: "Ungraded: Excellent", "Graded: PSA 9". */
+    cardCondition?: string | null;
     storeCategoryIds: string[];
     photos: number;
     weightOz: number | null;
@@ -184,13 +223,12 @@ export type EbayCheck = {
 
 /** eBay's dry run. Creates nothing. */
 export async function checkDraftOnEbay(draftId: string, who: string): Promise<EbayCheck> {
-  if (!(await ebayPublishEnabled())) throw new Error("Publishing to eBay is switched off (Listings → settings)");
   const b = await build(draftId);
   let messages: EbayMessage[] = [];
   let fees: EbayCheck["fees"] = null;
   let ok = false;
   try {
-    const res = (await tradingCall("VerifyAddFixedPriceItem", { Item: buildItem(b.draft, b.ref, b.conditionId) })) as Row;
+    const res = (await tradingCall("VerifyAddFixedPriceItem", { Item: buildItem(b.draft, b.ref, b.conditionId, b.descriptors) })) as Row;
     messages = ebayMessages(res.Errors);
     fees = feeTotal(res.Fees);
     ok = true;
@@ -207,6 +245,7 @@ export async function checkDraftOnEbay(draftId: string, who: string): Promise<Eb
       price: b.draft.price,
       categoryId: b.draft.categoryId,
       conditionId: b.conditionId,
+      cardCondition: b.card ? cardConditionLabel(b.card) : null,
       storeCategoryIds: b.draft.storeCategoryIds,
       photos: b.draft.pictureUrls.length,
       weightOz: b.draft.weightOz,
@@ -225,7 +264,6 @@ export async function checkDraftOnEbay(draftId: string, who: string): Promise<Eb
 
 /** Publish for real — only after a clean check of the same listing. */
 export async function publishDraftToEbay(draftId: string, who: string): Promise<{ itemId: string; fees: EbayCheck["fees"]; messages: EbayMessage[] }> {
-  if (!(await ebayPublishEnabled())) throw new Error("Publishing to eBay is switched off (Listings → settings)");
   const b = await build(draftId);
   const last = b.meta.ebayCheck as EbayCheck | undefined;
   if (!last?.ok) throw new Error("Run “Check with eBay” first, and fix anything it reports");
@@ -235,7 +273,7 @@ export async function publishDraftToEbay(draftId: string, who: string): Promise<
   // One press at a time: claim the draft (a stale claim expires after 10 minutes).
   const [claim] = await rows(sql`
     UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('ebayPublishStartedAt', now()::text)
-    WHERE id = ${draftId}::uuid AND status = 'approved'
+    WHERE id = ${draftId}::uuid AND status = ${b.status}
       AND (ai_meta->>'ebayPublishStartedAt' IS NULL OR (ai_meta->>'ebayPublishStartedAt')::timestamptz < now() - interval '10 minutes')
     RETURNING id`);
   if (!claim) throw new Error("Already publishing (or no longer approved) — refresh the page");
@@ -249,7 +287,7 @@ export async function publishDraftToEbay(draftId: string, who: string): Promise<
       if (!full) throw new Error(`eBay didn't take photo ${hosted.length + 1}`);
       hosted.push(full.replace(/&amp;/g, "&"));
     }
-    const item = buildItem({ ...b.draft, pictureUrls: hosted }, b.ref, b.conditionId);
+    const item = buildItem({ ...b.draft, pictureUrls: hosted }, b.ref, b.conditionId, b.descriptors);
     let res: Row;
     try {
       res = (await tradingCall("AddFixedPriceItem", { Item: item })) as Row;
@@ -277,10 +315,89 @@ export async function publishDraftToEbay(draftId: string, who: string): Promise<
       await db.execute(sql`
         UPDATE listing_drafts SET status = 'published', updated_at = now(),
           ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('ebayItemId', ${itemId}::text, 'publishedAt', now(), 'publishedHow', 'fia_publish')
-        WHERE id = ${draftId}::uuid AND status = 'approved'`);
+        WHERE id = ${draftId}::uuid AND status IN ('approved', 'in_nifty')`);
     }
     return { itemId, fees, messages };
   } finally {
     await db.execute(sql`UPDATE listing_drafts SET ai_meta = ai_meta - 'ebayPublishStartedAt' WHERE id = ${draftId}::uuid`);
   }
+}
+
+// ─── the eBay road: batch publishing and per-draft choices ──────────────────
+
+/** eBay's check, then — only when eBay accepts it — publish. For the batch
+ *  button on the Listings page (pressing it is Todd's go-ahead). */
+export async function checkAndPublish(
+  draftId: string,
+  who: string
+): Promise<{ ok: true; itemId: string; warnings: string[] } | { ok: false; error: string }> {
+  try {
+    const check = await checkDraftOnEbay(draftId, who);
+    if (!check.ok) return { ok: false, error: check.messages.map((m) => m.message).join(" · ") || "eBay would reject it" };
+    const r = await publishDraftToEbay(draftId, who);
+    return { ok: true, itemId: r.itemId, warnings: r.messages.filter((m) => m.severity === "Warning").map((m) => m.message) };
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+}
+
+export type RoadDraft = { id: string; title: string; price: number; photos: number; cardCondition: string | null; error: string | null };
+
+/** Drafts waiting on the eBay road: approved ones, and single cards that
+ *  went to Nifty before (where eBay refused them). */
+export async function ebayRoad(): Promise<{ approved: RoadDraft[]; fromNifty: RoadDraft[] }> {
+  const s = await ebaySettings();
+  const found = await rows(sql`
+    SELECT d.id, d.title, d.price, d.venue_prices, d.status, d.ebay_category_id, d.condition, d.condition_note, d.item_specifics, d.ai_meta,
+           (SELECT count(*)::int FROM draft_photos p WHERE p.draft_id = d.id AND p.uploaded_at IS NOT NULL) AS photos
+    FROM listing_drafts d
+    WHERE (d.status = 'approved' AND d.nifty_item_id IS NULL) OR (d.status = 'in_nifty' AND COALESCE(d.ebay_category_id, '') IN (${sql.join(CARD_SINGLE_CATEGORIES.map((c) => sql`${c}`), sql`, `)}))
+    ORDER BY d.approved_at NULLS LAST, d.created_at`);
+  const approved: RoadDraft[] = [];
+  const fromNifty: RoadDraft[] = [];
+  for (const d of found) {
+    const meta = (d.ai_meta ?? {}) as Record<string, unknown>;
+    const cat = (d.ebay_category_id as string | null) ?? null;
+    if (draftRoute(s, cat, meta) !== "ebay" && !(d.status === "in_nifty" && isCardSingle(cat))) continue;
+    const card = isCardSingle(cat)
+      ? cardConditionLabel(
+          draftCardCondition({
+            condition: String(d.condition ?? "Used"),
+            conditionNote: (d.condition_note as string | null) ?? null,
+            itemSpecifics: (d.item_specifics ?? {}) as Record<string, string | string[]>,
+            aiMeta: meta,
+          })
+        )
+      : null;
+    const lastCheck = meta.ebayCheck as EbayCheck | undefined;
+    const row: RoadDraft = {
+      id: String(d.id),
+      title: String(d.title ?? ""),
+      price: Number((d.venue_prices as Record<string, number> | null)?.ebay ?? d.price),
+      photos: Number(d.photos ?? 0),
+      cardCondition: card,
+      error: lastCheck && !lastCheck.ok ? lastCheck.messages.map((m) => m.message).join(" · ").slice(0, 300) : null,
+    };
+    (d.status === "approved" ? approved : fromNifty).push(row);
+  }
+  return { approved, fromNifty };
+}
+
+export async function setDraftRoute(draftId: string, route: PublishRoute | null): Promise<void> {
+  if (route) {
+    await db.execute(sql`
+      UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('publishRoute', ${route}::text), updated_at = now()
+      WHERE id = ${draftId}::uuid AND status IN ('review', 'approved')`);
+  } else {
+    await db.execute(sql`UPDATE listing_drafts SET ai_meta = ai_meta - 'publishRoute', updated_at = now() WHERE id = ${draftId}::uuid`);
+  }
+}
+
+export async function setDraftCardCondition(draftId: string, value: unknown): Promise<CardCondition | null> {
+  const c = cleanCardCondition(value);
+  if (!c) throw new Error("That isn't a card condition eBay knows");
+  await db.execute(sql`
+    UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('cardCondition', ${JSON.stringify(c)}::jsonb), updated_at = now()
+    WHERE id = ${draftId}::uuid`);
+  return c;
 }

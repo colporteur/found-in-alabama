@@ -25,7 +25,9 @@ import { MarkListed } from "./MarkListed";
 import { FixPanel } from "./FixPanel";
 import { FIXABLE, fixesForDraft } from "@/lib/listings/fixes";
 import { EbayPublishPanel } from "./EbayPublishPanel";
-import { ebayPublishEnabled } from "@/lib/ebay/publish";
+import { draftCardCondition } from "@/lib/ebay/publish";
+import { draftRoute, ebaySettings } from "@/lib/ebay/publish-settings";
+import { isCardSingle } from "@/lib/ebay/publish-core";
 import { ROTATABLE } from "@/lib/listings/photos";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 import { booksReady, itemCost, listAcquisitions } from "@/lib/books/books";
@@ -46,7 +48,17 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
   const next = await nextReviewId(d.id).catch(() => ({ id: null, left: 0 }));
   const fixes = await fixesForDraft(d.id).catch(() => []);
   const ebayDone = (d.aiMeta?.ebayPublish as { itemId?: string } | undefined)?.itemId ?? null;
-  const ebayPilot = d.status === "approved" && !d.niftyItemId && (await ebayPublishEnabled().catch(() => false));
+  // Straight to eBay: the pilot panel on approved drafts, and always for
+  // single trading cards (review/approved, or sent to Nifty and stuck there).
+  const ebayS = await ebaySettings().catch(() => ({ enabled: false, cardsDirect: true }));
+  const isCard = isCardSingle(d.ebayCategoryId);
+  const route = draftRoute(ebayS, d.ebayCategoryId, d.aiMeta);
+  const ebayPilot =
+    (d.status === "approved" && !d.niftyItemId && (ebayS.enabled || route === "ebay")) ||
+    (isCard && (d.status === "review" || d.status === "approved" || d.status === "in_nifty"));
+  const cardCondition = isCard
+    ? draftCardCondition({ condition: d.condition ?? "Used", conditionNote: d.conditionNote, itemSpecifics: d.itemSpecifics ?? {}, aiMeta: d.aiMeta ?? {} })
+    : null;
   // Lot pool: forming lots for "Send to lot pool", and whether this draft is in it.
   const pool = (await poolReady().catch(() => false))
     ? {
@@ -189,10 +201,15 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
         <EbayPublishPanel
           id={d.id}
           initial={(d.aiMeta?.ebayCheck as Parameters<typeof EbayPublishPanel>[0]["initial"]) ?? null}
+          status={d.status}
+          route={route}
+          canChooseRoute={ebayS.enabled || isCard}
+          card={cardCondition}
+          cardChosen={!!d.aiMeta?.cardCondition}
         />
       )}
 
-      {d.status === "published" && !d.niftyItemId && ebayDone && (
+      {d.status === "published" && ebayDone && (
         <div className="bg-white border border-brand-ink/15 rounded-lg p-4 mb-8 text-sm">
           <h2 className="text-xs uppercase tracking-wider text-brand-earth mb-1">eBay</h2>
           <p>

@@ -91,3 +91,80 @@ test("messages and fees", () => {
   // A store's free listing: fee with an equal promotional discount → nothing to pay.
   assert.deepEqual(feeTotal({ Fee: [{ Name: "InsertionFee", Fee: 0.2, PromotionalDiscount: 0.2 }] }), { total: 0, lines: [{ name: "InsertionFee", amount: 0, listed: 0.2 }] });
 });
+
+// ─── single trading cards ────────────────────────────────────────────────
+import { cardConditionFields, cleanCardCondition, guessCardCondition, isCardSingle } from "./publish-core.ts";
+
+test("card singles are recognised by category", () => {
+  assert.equal(isCardSingle("261328"), true);
+  assert.equal(isCardSingle("183454"), true);
+  assert.equal(isCardSingle("261329"), false); // lots
+  assert.equal(isCardSingle(null), false);
+});
+
+test("guessCardCondition: ungraded from condition word and note", () => {
+  assert.deepEqual(guessCardCondition("Used", "Ungraded. In toploader."), { graded: false, condition: "Excellent" });
+  assert.deepEqual(guessCardCondition("Used", "Light edge and corner wear. No COA."), { graded: false, condition: "Excellent" });
+  assert.deepEqual(guessCardCondition("Used", "Corner and edge wear; small light mark on front."), { graded: false, condition: "Very Good" });
+  assert.deepEqual(guessCardCondition("Pre-owned - Fair", "creases"), { graded: false, condition: "Poor" });
+  assert.deepEqual(guessCardCondition("Used", "Small crease top left."), { graded: false, condition: "Very Good" });
+  assert.deepEqual(guessCardCondition("Like New", null), { graded: false, condition: "Near Mint or Better" });
+  assert.deepEqual(guessCardCondition("Used", "x", { "Card Condition": "Very Good" }), { graded: false, condition: "Very Good" });
+});
+
+test("guessCardCondition: graded from note or specifics", () => {
+  assert.deepEqual(guessCardCondition("Used", "PSA 9 Mint, cert #12345678."), { graded: true, grader: "PSA", grade: "9", cert: "12345678" });
+  assert.deepEqual(guessCardCondition("Used", "BGS 9.5 slab"), { graded: true, grader: "BGS", grade: "9.5", cert: null });
+  assert.deepEqual(guessCardCondition("Used", null, { "Professional Grader": "SGC", Grade: "8" }), { graded: true, grader: "SGC", grade: "8", cert: null });
+  assert.equal(guessCardCondition("Used", "Ungraded; would likely be PSA 8").graded, false);
+});
+
+test("cardConditionFields → eBay ids and descriptors", () => {
+  assert.deepEqual(cardConditionFields({ graded: false, condition: "Excellent" }, "261328"), {
+    conditionId: "4000",
+    descriptors: [{ Name: "40001", Value: "400011" }],
+  });
+  assert.deepEqual(cardConditionFields({ graded: false, condition: "Excellent" }, "183454").descriptors, [{ Name: "40001", Value: "400015" }]);
+  assert.deepEqual(cardConditionFields({ graded: true, grader: "PSA", grade: "10", cert: "999" }, "261328"), {
+    conditionId: "2750",
+    descriptors: [
+      { Name: "27501", Value: "275010" },
+      { Name: "27502", Value: "275020" },
+      { Name: "27503", AdditionalInfo: "999" },
+    ],
+  });
+});
+
+test("cleanCardCondition rejects junk", () => {
+  assert.equal(cleanCardCondition({ graded: false, condition: "Mint" }), null);
+  assert.equal(cleanCardCondition({ graded: true, grader: "XYZ", grade: "9" }), null);
+  assert.deepEqual(cleanCardCondition({ graded: true, grader: "CGC", grade: "8.5", cert: " " }), { graded: true, grader: "CGC", grade: "8.5", cert: null });
+});
+
+test("buildItem sends card descriptors and drops clashing specifics", () => {
+  const card = cardConditionFields({ graded: false, condition: "Very Good" }, "261328");
+  const item = buildItem(
+    {
+      draftId: "0b7c2a9e-3f1d-4c2b-9a8e-1d2c3b4a5f60",
+      title: "1987 Fleer Jose Canseco #389",
+      description: "A card.",
+      condition: "Used",
+      conditionNote: "Ungraded.",
+      price: 5.87,
+      quantity: 1,
+      sku: "A1",
+      categoryId: "261328",
+      itemSpecifics: { Sport: "Baseball", "Card Condition": "Excellent", Graded: "No" },
+      storeCategoryIds: [],
+      weightOz: 1,
+      pictureUrls: ["https://x/1.jpg"],
+    },
+    REF,
+    card.conditionId,
+    card.descriptors
+  ) as Record<string, any>;
+  assert.equal(item.ConditionID, "4000");
+  assert.deepEqual(item.ConditionDescriptors, { ConditionDescriptor: [{ Name: "40001", Value: "400012" }] });
+  assert.deepEqual(item.ItemSpecifics.NameValueList.map((n: any) => n.Name), ["Sport"]);
+  assert.equal(item.ConditionDescription, "Ungraded.");
+});

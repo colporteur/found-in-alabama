@@ -7,7 +7,7 @@ import { DEFAULT_WRITER_SETTINGS } from "@/lib/listings/rules";
 import { SettingsForm } from "./SettingsForm";
 import { TemplatesForm } from "./TemplatesForm";
 import { niftyTemplates, DEFAULT_TEMPLATES, TEMPLATE_LABELS } from "@/lib/listings/nifty";
-import { ebayPublishEnabled } from "@/lib/ebay/publish";
+import { ebaySettings } from "@/lib/ebay/publish-settings";
 import { EbayPublishSwitch } from "./EbayPublishSwitch";
 
 export const dynamic = "force-dynamic";
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic";
 export default async function WriterSettingsPage() {
   const s = await writerSettings();
   const templates = await niftyTemplates();
-  const ebayOn = await ebayPublishEnabled().catch(() => false);
+  const ebay = await ebaySettings().catch(() => ({ enabled: false, cardsDirect: true }));
   return (
     <section className="container-content py-12 max-w-3xl">
       <p className="text-xs uppercase tracking-wider text-brand-earth mb-3">
@@ -48,7 +48,19 @@ export default async function WriterSettingsPage() {
         copied from your newest eBay listing with the same kind of shipping policy. Afterwards, import it into Nifty to crosslist.
         Sending to Nifty keeps working as before. Turning this off just hides the panel.
       </p>
-      <EbayPublishSwitch initial={ebayOn} />
+      <EbayPublishSwitch initial={ebay.enabled} />
+
+      <h2 className="font-marker text-2xl mt-12 mb-2">Single trading cards</h2>
+      <p className="text-sm text-brand-ink/70 mb-4">
+        eBay wants a card condition on single cards (Graded with the grader and grade, or Ungraded with Near Mint or Better /
+        Excellent / Very Good / Poor). Nifty can&apos;t send that, so single cards fail there. With this on, approved single cards
+        (eBay categories Trading Card Singles and CCG Individual Cards) skip <strong>Send approved to Nifty</strong> and wait on
+        the Listings page for <strong>Publish to eBay</strong>. Lots still go to Nifty. Any one draft can be switched to the
+        other road on its page.
+      </p>
+      <EbayPublishSwitch initial={ebay.cardsDirect} field="cardsDirect">
+        Send single trading cards <strong>straight to eBay</strong> instead of Nifty
+      </EbayPublishSwitch>
     </section>
   );
 }
