@@ -128,6 +128,16 @@ export type NiftyQueueItem = {
   shippingProfile: string | null;
 };
 
+/** Pure: Depop counts every "#…" in a description as a hashtag and refuses
+ *  more than 5 ("Use a maximum of 5 hashtags…"). Card lots list card numbers
+ *  ("Canseco #389, Ryan #13…"), so the shared Nifty description says
+ *  "No. 389" instead; any other "#word" loses its "#". Titles keep "#". */
+export function hashtagFreeDescription(text: string): string {
+  return String(text ?? "")
+    .replace(/#\s?(\d[\w/-]*)/g, "No. $1")
+    .replace(/#(?=[A-Za-z])/g, "");
+}
+
 /** Approved drafts not yet in Nifty, oldest first. */
 export async function niftyQueue(limit = 300): Promise<NiftyQueueItem[]> {
   const templates = await niftyTemplates();
@@ -175,7 +185,7 @@ function queueItemFromRow(d: Row, templates: Record<TemplateKey, string>): Nifty
       templateKey: key,
       templateId: templates[key],
       title: String(d.title ?? ""),
-      description: String(d.description ?? ""),
+      description: hashtagFreeDescription(String(d.description ?? "")),
       condition: String(d.condition ?? "Used"),
       conditionNote: (d.condition_note as string | null) ?? null,
       price: Number(d.price),

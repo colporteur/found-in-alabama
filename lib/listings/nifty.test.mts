@@ -22,3 +22,11 @@ test("which template a draft uses", () => {
   assert.equal(pickTemplateKey({ kind: "ephemera", shippingProfile: "envelope" }), "paper_envelope");
   assert.equal(pickTemplateKey({ kind: "other", categoryPath: "Collectibles > Advertising", shippingProfile: "calculated" }), "general");
 });
+
+test("hashtagFreeDescription: Depop-safe card numbers", async () => {
+  const { hashtagFreeDescription } = await import("./nifty.ts");
+  assert.equal(
+    hashtagFreeDescription("Includes Canseco #389, Ryan #13, Bagwell # 755 and #RC-12. #vintage #1 seed."),
+    "Includes Canseco No. 389, Ryan No. 13, Bagwell No. 755 and RC-12. vintage No. 1 seed."
+  );
+});
