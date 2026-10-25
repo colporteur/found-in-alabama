@@ -15,6 +15,7 @@ import { BinControl } from "./BinControl";
 import { ShelfControl } from "./ShelfControl";
 import { ApproveControl } from "./ApproveControl";
 import { FixRequest } from "./FixRequest";
+import { HoverZoom } from "./HoverZoom";
 
 const FIXABLE_STATUS = new Set(["review", "sent_back", "approved"]);
 
@@ -253,20 +254,22 @@ export function DraftTable({ drafts, shelves, parents = [] }: { drafts: DraftSum
                   <td className="p-2 w-14 min-w-[3.5rem]">
                     {/* Fixed size: the site's global img max-width:100% let the
                         table squeeze this column to a sliver. */}
-                    <Link href={`/admin/listings/${d.id}`} className="block w-12 h-12" title="Open the draft">
-                      {d.cover ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={d.cover}
-                          alt=""
-                          loading="lazy"
-                          style={{ width: 48, height: 48, maxWidth: "none" }}
-                          className="block object-cover rounded border border-brand-ink/10"
-                        />
-                      ) : (
-                        <span className="block w-12 h-12 rounded bg-brand-ink/5" />
-                      )}
-                    </Link>
+                    <HoverZoom src={d.cover} className="block w-12 h-12">
+                      <Link href={`/admin/listings/${d.id}`} className="block w-12 h-12" title="Open the draft">
+                        {d.cover ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={d.cover}
+                            alt=""
+                            loading="lazy"
+                            style={{ width: 48, height: 48, maxWidth: "none" }}
+                            className="block object-cover rounded border border-brand-ink/10"
+                          />
+                        ) : (
+                          <span className="block w-12 h-12 rounded bg-brand-ink/5" />
+                        )}
+                      </Link>
+                    </HoverZoom>
                   </td>
                   <td className="p-1">
                     {ed ? (

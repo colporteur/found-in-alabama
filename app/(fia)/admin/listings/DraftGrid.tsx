@@ -14,6 +14,7 @@ import { BinControl } from "./BinControl";
 import { ShelfControl } from "./ShelfControl";
 import { ApproveControl } from "./ApproveControl";
 import { FixRequest } from "./FixRequest";
+import { HoverZoom } from "./HoverZoom";
 
 const FIXABLE_STATUS = new Set(["review", "sent_back", "approved"]);
 
@@ -273,16 +274,18 @@ export function DraftGrid({
                 </span>
               )}
               <Link href={`/admin/listings/${d.id}`} className="block">
-                <div className="aspect-square bg-brand-ink/5 flex items-center justify-center overflow-hidden">
-                  {d.cover ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={d.cover} alt="" className="object-contain w-full h-full" />
-                  ) : (
-                    <span className="text-xs text-brand-ink/40">
-                      {d.photos} photo{d.photos === 1 ? "" : "s"}
-                    </span>
-                  )}
-                </div>
+                <HoverZoom src={d.cover}>
+                  <div className="aspect-square bg-brand-ink/5 flex items-center justify-center overflow-hidden">
+                    {d.cover ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={d.cover} alt="" className="object-contain w-full h-full" />
+                    ) : (
+                      <span className="text-xs text-brand-ink/40">
+                        {d.photos} photo{d.photos === 1 ? "" : "s"}
+                      </span>
+                    )}
+                  </div>
+                </HoverZoom>
                 <div className="p-3 text-sm">
                   <p className="font-medium line-clamp-2">{d.title ?? d.titleHint ?? "Untitled item"}</p>
                   <p className="text-xs text-brand-ink/60 mt-1">
