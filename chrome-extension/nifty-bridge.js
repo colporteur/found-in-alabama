@@ -96,15 +96,31 @@ async function niftyBridgeSend(draft, options) {
     const lb = Math.floor(x / 16);
     return [lb, Math.round((x - lb * 16) * 10) / 10];
   };
+  /* Nifty's dynamic lists (eBay store categories, Mercari/Depop/Whatnot
+     shipping buckets) sometimes answer "Oops, something went wrong" (Oct 27,
+     2026: all 7 hockey lots failed on it). Retry once; if it still fails,
+     return null so the caller skips just that field with a warning — the
+     draft still gets saved and Todd sets the field in Nifty. */
+  async function loadDynamic(marketplace, dynamicProviderId, attributeValues, what) {
+    const req = { marketplace, dynamicProviderId, dynamicProviderContext: { attributeValues }, areAllDependenciesSatisfied: true };
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        return (await api.get("taxonomy.loadDynamicProvider", req)) || [];
+      } catch (e) {
+        if (attempt === 2) {
+          warnings.push(`Nifty couldn't load ${what} (${String(e.message || e).slice(0, 80)}); left it for you to set in Nifty`);
+          return null;
+        }
+        await new Promise((r) => setTimeout(r, api.retryDelayMs != null ? api.retryDelayMs : 1500));
+      }
+    }
+    return null;
+  }
   async function dynMembers(marketplace, attr, values) {
     if (!attr.dynamicProviderId) return attr.members || [];
-    const dyn = await api.get("taxonomy.loadDynamicProvider", {
-      marketplace,
-      dynamicProviderId: attr.dynamicProviderId,
-      dynamicProviderContext: { attributeValues: values },
-      areAllDependenciesSatisfied: true,
-    });
-    const d = (dyn || []).find((x) => x.id === attr.id);
+    const dyn = await loadDynamic(marketplace, attr.dynamicProviderId, values, `${marketplace} "${attr.name || attr.id}"`);
+    if (!dyn) return [];
+    const d = dyn.find((x) => x.id === attr.id);
     return (d && d.members) || [];
   }
   const memberValue = (attr, mm) =>
@@ -205,8 +221,16 @@ async function niftyBridgeSend(draft, options) {
   }
 
   // ── 3. eBay listing: fixed settings + our specifics + store categories ──
+  // Venues never to draft on, even if the template item is still on them
+  // (Todd's Etsy shop is suspended; Nifty won't let a disconnected venue be
+  // unticked in the draft editor, so it must never get into the draft).
+  const SKIP_VENUES = new Set(["etsy"]);
   const listings = [];
   for (const m of tpl.marketplaceListings || []) {
+    if (SKIP_VENUES.has(String(m.marketplace || "").toLowerCase())) {
+      warnings.push(`Template is on ${m.marketplace}; left ${m.marketplace} off this draft`);
+      continue;
+    }
     const isEbay = m.marketplace === "eBay";
     const categoryId = isEbay && ebayCategory ? ebayCategory.id : m.category && m.category.id;
     const tax = await taxonomy(m.marketplace, categoryId);
@@ -240,18 +264,15 @@ async function niftyBridgeSend(draft, options) {
       const storeAttr = tax.attributes.find((a) => a.section === "SELLER_COLLECTION");
       if (storeAttr && (draft.storeCategoryIds || []).length) {
         let members = storeAttr.members || [];
+        let storeListOk = true;
         if (storeAttr.dynamicProviderId) {
-          const dyn = await api.get("taxonomy.loadDynamicProvider", {
-            marketplace: "eBay",
-            dynamicProviderId: storeAttr.dynamicProviderId,
-            dynamicProviderContext: { attributeValues: [] },
-            areAllDependenciesSatisfied: true,
-          });
+          const dyn = await loadDynamic("eBay", storeAttr.dynamicProviderId, [], "the eBay store categories");
+          if (!dyn) storeListOk = false;
           const dAttr = (dyn || []).find((x) => x.id === storeAttr.id);
           if (dAttr && dAttr.members) members = dAttr.members;
         }
         const picked = [];
-        for (const sid of draft.storeCategoryIds.slice(0, storeAttr.maxValues || 2)) {
+        for (const sid of storeListOk ? draft.storeCategoryIds.slice(0, storeAttr.maxValues || 2) : []) {
           const mm = members.find((x) => String(x.externalId) === String(sid));
           if (mm) picked.push({ type: "taxonomy-enum-dynamically-loaded-value", id: mm.id, externalId: mm.externalId });
           else warnings.push(`eBay store category ${sid} isn't in Nifty's list (re-sync store categories?)`);
