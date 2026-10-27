@@ -216,3 +216,42 @@ test("can mark the new draft Ready to list (still a draft, still saveAsDraftV2)"
   assert.equal(posts[0][2].lifecycleStatus, "READY_TO_LIST");
   assert.equal(posts[0][2].isDraft, false);
 });
+
+test("Nifty's store-category list failing doesn't stop the draft (Oct 27 'Oops' errors)", async () => {
+  const api = fakeApi();
+  api.retryDelayMs = 0;
+  const realGet = api.get;
+  let tries = 0;
+  api.get = async (proc, input) => {
+    if (proc === "taxonomy.loadDynamicProvider") {
+      tries++;
+      throw new Error("Oops, something went wrong! Please refresh the page and try again.");
+    }
+    return realGet(proc, input);
+  };
+  const out = await niftyBridgeSend(DRAFT, { api });
+  assert.equal(out.ok, true, out.error);
+  assert.equal(tries, 2, "retried once");
+  const p = api.calls.find((c) => c[0] === "POST")[2];
+  const eb = p.marketplaceListings.find((l) => l.marketplace === "eBay");
+  assert.equal(eb.attributeValues.find((v) => v.id === "store"), undefined, "store categories left for Todd");
+  assert.ok(out.warnings.some((w) => /store categories/.test(w) && /set in Nifty/.test(w)));
+});
+
+test("a one-off failure is retried and the store categories still go in", async () => {
+  const api = fakeApi();
+  api.retryDelayMs = 0;
+  const realGet = api.get;
+  let failed = false;
+  api.get = async (proc, input) => {
+    if (proc === "taxonomy.loadDynamicProvider" && !failed) {
+      failed = true;
+      throw new Error("Oops");
+    }
+    return realGet(proc, input);
+  };
+  const out = await niftyBridgeSend(DRAFT, { api });
+  assert.equal(out.ok, true, out.error);
+  const eb = api.calls.find((c) => c[0] === "POST")[2].marketplaceListings.find((l) => l.marketplace === "eBay");
+  assert.deepEqual(eb.attributeValues.find((v) => v.id === "store").values.map((v) => v.id), ["s-uuid-1", "s-uuid-2"]);
+});
