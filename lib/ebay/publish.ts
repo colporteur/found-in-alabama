@@ -4,7 +4,7 @@
 //   checkDraftOnEbay()   eBay's dry run (VerifyAddFixedPriceItem): nothing is
 //                        created; returns eBay's errors, warnings and fees.
 //   publishDraftToEbay() only after a clean check of the SAME listing text:
-//                        copies the photos to eBay's picture hosting, then
+//                        hands eBay the photos (lib/ebay/media.ts), then
 //                        AddFixedPriceItem. The draft's id is sent as eBay's
 //                        UUID, so a second press can't make a second listing.
 // Settings that aren't on the draft (payment and return policies, item
@@ -21,6 +21,7 @@ import { createHash } from "node:crypto";
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { tradingCall } from "@/lib/ebay/client";
+import { hostPhotosForListing } from "@/lib/ebay/media";
 import { applicationToken } from "@/lib/ebay/taxonomy";
 import { upsertListingFromItem } from "@/lib/ebay/listing-sync";
 import { queueItemForDraft } from "@/lib/listings/nifty";
@@ -287,15 +288,11 @@ export async function publishDraftToEbay(draftId: string, who: string): Promise<
   if (!claim) throw new Error("Already publishing (or no longer approved) — refresh the page");
 
   try {
-    // Photos → eBay picture hosting (eBay copies them from our links).
-    const hosted: string[] = [];
-    for (const url of b.draft.pictureUrls.slice(0, 24)) {
-      const up = (await tradingCall("UploadSiteHostedPictures", { ExternalPictureURL: url, PictureSet: "Supersize" })) as Row;
-      const full = str(((up.SiteHostedPictureDetails ?? {}) as Row).FullURL);
-      if (!full) throw new Error(`eBay didn't take photo ${hosted.length + 1}`);
-      hosted.push(full.replace(/&amp;/g, "&"));
-    }
-    const item = buildItem({ ...b.draft, pictureUrls: hosted }, b.ref, b.conditionId, b.descriptors);
+    // Photos → eBay picture hosting: Media API when the connection allows it,
+    // otherwise our https links go in the listing and eBay copies them
+    // (lib/ebay/media.ts; UploadSiteHostedPictures was retired).
+    const photos = await hostPhotosForListing(b.draft.pictureUrls);
+    const item = buildItem({ ...b.draft, pictureUrls: photos.urls }, b.ref, b.conditionId, b.descriptors);
     let res: Row;
     try {
       res = (await tradingCall("AddFixedPriceItem", { Item: item })) as Row;
@@ -308,7 +305,7 @@ export async function publishDraftToEbay(draftId: string, who: string): Promise<
     if (!itemId) throw new Error("eBay didn't return an item number");
     const fees = feeTotal(res.Fees);
     const messages = ebayMessages(res.Errors);
-    await saveMeta(draftId, "ebayPublish", { at: new Date().toISOString(), itemId, fees, messages, by: who, copiedFrom: b.ref.itemId });
+    await saveMeta(draftId, "ebayPublish", { at: new Date().toISOString(), itemId, fees, messages, by: who, copiedFrom: b.ref.itemId, photosVia: photos.via });
 
     // Mirror + link right away (the 15-minute sync would get there too).
     try {
