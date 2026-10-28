@@ -1,7 +1,7 @@
 // Run: npx tsx --test lib/ebay/publish-core.test.mts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildItem, descriptionHtml, draftUuid, ebayMessages, feeTotal, lbOz, pickConditionId, policyMatches, shipKind, type Reference } from "./publish-core.ts";
+import { buildItem, descriptionHtml, imageIdFromLocation, draftUuid, ebayMessages, feeTotal, lbOz, pickConditionId, policyMatches, shipKind, type Reference } from "./publish-core.ts";
 
 const REF: Reference = {
   itemId: "117459947439",
@@ -174,4 +174,11 @@ test("card shipping policy by price", () => {
   assert.deepEqual(cardShippingPolicy(5.87), { id: "254457129020", kind: "envelope" });
   assert.deepEqual(cardShippingPolicy(20), { id: "254457129020", kind: "envelope" });
   assert.deepEqual(cardShippingPolicy(20.87), { id: "254457062020", kind: "calculated" });
+});
+
+test("imageIdFromLocation reads the Media API image id", () => {
+  assert.equal(imageIdFromLocation("https://apim.ebay.com/commerce/media/v1_beta/image/v1%7C1234"), "v1|1234");
+  assert.equal(imageIdFromLocation("https://apim.ebay.com/commerce/media/v1_beta/image/abc/"), "abc");
+  assert.equal(imageIdFromLocation(null), null);
+  assert.equal(imageIdFromLocation("https://example.com/nothing"), null);
 });

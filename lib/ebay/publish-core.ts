@@ -330,3 +330,11 @@ export function feeTotal(fees: unknown): { total: number; lines: Array<{ name: s
     .filter((l) => l.name && (l.amount > 0 || (l.listed ?? 0) > 0));
   return { total: Math.round(lines.reduce((t, l) => t + l.amount, 0) * 100) / 100, lines };
 }
+
+/** The image id at the end of a getImage Location header, e.g.
+ *  https://apim.ebay.com/commerce/media/v1_beta/image/abc123 → "abc123". */
+export function imageIdFromLocation(location: string | null | undefined): string | null {
+  if (!location) return null;
+  const m = /\/image\/([^/?#]+)\/?(?:[?#].*)?$/.exec(location.trim());
+  return m ? decodeURIComponent(m[1]) : null;
+}

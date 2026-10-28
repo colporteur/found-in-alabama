@@ -32,7 +32,12 @@ export const REQUIRED_SCOPES = [
   "https://api.ebay.com/oauth/api_scope/sell.analytics.readonly",
   // Phase 4b: read orders (buyer, ship-to, fulfillment status). Read-only.
   "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly",
+  // Media API photo uploads for listings FIA publishes (lib/ebay/media.ts).
+  // Until a re-connect grants it, publishing passes photo links directly.
+  "https://api.ebay.com/oauth/api_scope/sell.inventory",
 ];
+
+export const INVENTORY_SCOPE = "https://api.ebay.com/oauth/api_scope/sell.inventory";
 
 export const FULFILLMENT_SCOPE = "https://api.ebay.com/oauth/api_scope/sell.fulfillment.readonly";
 
