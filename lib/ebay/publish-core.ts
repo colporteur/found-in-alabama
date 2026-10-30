@@ -266,7 +266,9 @@ export function buildItem(
     UUID: draftUuid(d.draftId),
     PictureDetails: { PictureURL: d.pictureUrls.slice(0, 24) },
   };
-  if (d.conditionNote && conditionId !== "1000" && conditionId !== "2750") item.ConditionDescription = d.conditionNote.slice(0, 1000);
+  // Card singles carry their condition in ConditionDescriptors; eBay rejects
+  // ConditionDescription there ("not valid for category 183454").
+  if (d.conditionNote && conditionId !== "1000" && conditionId !== "2750" && !descriptors?.length) item.ConditionDescription = d.conditionNote.slice(0, 1000);
   if (d.sku) item.SKU = d.sku.slice(0, 50);
   if (ref.location) item.Location = ref.location;
   if (ref.postalCode) item.PostalCode = ref.postalCode;
@@ -337,4 +339,18 @@ export function imageIdFromLocation(location: string | null | undefined): string
   if (!location) return null;
   const m = /\/image\/([^/?#]+)\/?(?:[?#].*)?$/.exec(location.trim());
   return m ? decodeURIComponent(m[1]) : null;
+}
+
+/** eBay's "[10007] System error … try again later" is its own hiccup, not a
+ *  problem with the listing: wait and try again (twice) before giving up. */
+export async function retrySystemError<T>(fn: () => Promise<T>, waits: number[] = [2000, 6000]): Promise<T> {
+  for (let i = 0; ; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      if (i >= waits.length || !/\[10007\]/.test((err as Error).message)) throw err;
+      console.warn(`[ebay-publish] eBay system error, retry ${i + 1} of ${waits.length}`);
+      await new Promise((r) => setTimeout(r, waits[i]));
+    }
+  }
 }

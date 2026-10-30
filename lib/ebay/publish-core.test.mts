@@ -166,7 +166,7 @@ test("buildItem sends card descriptors and drops clashing specifics", () => {
   assert.equal(item.ConditionID, "4000");
   assert.deepEqual(item.ConditionDescriptors, { ConditionDescriptor: [{ Name: "40001", Value: "400012" }] });
   assert.deepEqual(item.ItemSpecifics.NameValueList.map((n: any) => n.Name), ["Sport"]);
-  assert.equal(item.ConditionDescription, "Ungraded.");
+  assert.equal(item.ConditionDescription, undefined); // eBay rejects it for card singles
 });
 
 import { cardShippingPolicy } from "./publish-core.ts";
@@ -181,4 +181,22 @@ test("imageIdFromLocation reads the Media API image id", () => {
   assert.equal(imageIdFromLocation("https://apim.ebay.com/commerce/media/v1_beta/image/abc/"), "abc");
   assert.equal(imageIdFromLocation(null), null);
   assert.equal(imageIdFromLocation("https://example.com/nothing"), null);
+});
+
+import { retrySystemError } from "./publish-core.ts";
+test("retrySystemError retries eBay 10007 only", async () => {
+  let n = 0;
+  const ok = await retrySystemError(async () => {
+    n++;
+    if (n < 3) throw new Error("eBay AddFixedPriceItem Failure: [10007] System error. Unable to process your request.");
+    return "listed";
+  }, [1, 1]);
+  assert.equal(ok, "listed");
+  assert.equal(n, 3);
+  let m = 0;
+  await assert.rejects(retrySystemError(async () => { m++; throw new Error("[21919303] missing specific"); }, [1, 1]));
+  assert.equal(m, 1);
+  let k = 0;
+  await assert.rejects(retrySystemError(async () => { k++; throw new Error("[10007] System error"); }, [1, 1]), /10007/);
+  assert.equal(k, 3);
 });
