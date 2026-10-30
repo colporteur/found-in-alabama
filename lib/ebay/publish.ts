@@ -41,6 +41,7 @@ import {
   feeTotal,
   pickConditionId,
   policyMatches,
+  retrySystemError,
   shipKind,
   type EbayMessage,
   type PublishDraft,
@@ -237,7 +238,7 @@ export async function checkDraftOnEbay(draftId: string, who: string): Promise<Eb
   let fees: EbayCheck["fees"] = null;
   let ok = false;
   try {
-    const res = (await tradingCall("VerifyAddFixedPriceItem", { Item: buildItem(b.draft, b.ref, b.conditionId, b.descriptors) })) as Row;
+    const res = (await retrySystemError(() => tradingCall("VerifyAddFixedPriceItem", { Item: buildItem(b.draft, b.ref, b.conditionId, b.descriptors) }))) as Row;
     messages = ebayMessages(res.Errors);
     fees = feeTotal(res.Fees);
     ok = true;
@@ -295,7 +296,8 @@ export async function publishDraftToEbay(draftId: string, who: string): Promise<
     const item = buildItem({ ...b.draft, pictureUrls: photos.urls }, b.ref, b.conditionId, b.descriptors);
     let res: Row;
     try {
-      res = (await tradingCall("AddFixedPriceItem", { Item: item })) as Row;
+      // Retrying is safe: the UUID stops a second listing if the first went through.
+      res = (await retrySystemError(() => tradingCall("AddFixedPriceItem", { Item: item }))) as Row;
     } catch (err) {
       const msg = (err as Error).message;
       if (/UUID/i.test(msg)) throw new Error(`eBay already has a listing made from this draft (${msg}). Look for it in Seller Hub before trying again.`);

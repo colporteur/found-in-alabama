@@ -111,7 +111,7 @@ export async function tradingCall<T = Record<string, unknown>>(
   // Set EBAY_DEBUG=1 in env to log the request and response XML to the
   // server console. Useful for diagnosing schema-validation failures.
   if (process.env.EBAY_DEBUG === "1") {
-    console.log(`[ebay:${callName}] >>> request body:\n${xml}`);
+    console.log(`[ebay:${callName}] >>> request body:\n${xml.replace(/<eBayAuthToken>[^<]*<\/eBayAuthToken>/, "<eBayAuthToken>(hidden)</eBayAuthToken>")}`);
   }
 
   const response = await fetch(endpoint(creds.env), {
