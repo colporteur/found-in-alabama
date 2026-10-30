@@ -15,6 +15,8 @@ import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { putObject, publicUrl, r2Config } from "@/lib/storage/r2";
 import { renderCover, COVER_MAX_TILES, COVER_SIZE, type CoverOptions } from "./cover";
+import { FIT_MAX_PIECES } from "./photo-fit-plan";
+import { clearFitTiles, fitLotPhotos } from "./photo-fit";
 import { ROTATABLE } from "./photos";
 import { CLAUDE_STATUS } from "./claude";
 
@@ -153,7 +155,7 @@ export async function combineLot(
   const poolByDraft = new Map(pool.map((p) => [String(p.draft_id), p]));
   const clean = [...queuedIds, ...pool.map((p) => String(p.draft_id)).filter((id) => !queuedIds.includes(id))];
   if (clean.length < 2) throw new Error("A lot needs at least two pieces.");
-  if (clean.length > COVER_MAX_TILES) throw new Error(`A lot can have at most ${COVER_MAX_TILES} pieces.`);
+  if (clean.length > FIT_MAX_PIECES) throw new Error(`A lot can have at most ${FIT_MAX_PIECES} pieces.`);
   const found = await rows(sql`
     SELECT id, status, title, title_hint, bin_sku, registry_item_id, ai_meta FROM listing_drafts
     WHERE id IN (${sql.join(clean.map((id) => sql`${id}::uuid`), sql`, `)})`);
@@ -178,7 +180,9 @@ export async function combineLot(
   const perPart = clean.map((id) => photos.filter((p) => p.draftId === id));
   if (perPart.some((ps) => !ps.length)) throw new Error("Every draft in a lot needs at least one uploaded photo.");
 
-  const { keep, park } = lotOrder(perPart, MAX_PHOTOS - 1);
+  // Everything comes onto the lot; fitLotPhotos (below) then lays it into
+  // eBay's 24, merging scans only when there are more than fit.
+  const { keep, park } = lotOrder(perPart, Number.MAX_SAFE_INTEGER);
   const fronts = perPart.map(frontOf).filter((p): p is P => !!p);
   const urls = await rows(sql`
     SELECT id, url FROM draft_photos WHERE id IN (${sql.join(fronts.map((f) => sql`${f.id}::uuid`), sql`, `)})`);
@@ -236,16 +240,22 @@ export async function combineLot(
           AND NOT EXISTS (SELECT 1 FROM lot_pool x WHERE x.group_id = ${g}::uuid AND x.status = 'waiting')`);
     }
   }
+  const fit = await fitLotPhotos(lotId).catch((err) => {
+    console.warn(`[lots] ${lotId}: fitting photos failed:`, err);
+    return null;
+  });
   return {
     lotDraftId: lotId,
     parts: drafts.length,
-    photos: keep.length + 1,
+    photos: fit?.listed ?? keep.length + 1,
     parked: park.length,
     bin: (lot.bin_sku as string | null) ?? null,
     note:
-      `Combined into draft ${lotId} (it stays in your queue). Photo 1 is a cover made from each piece's front. ` +
-      `Now call listing_get_draft with ${lotId} and write ONE listing for the whole lot with listing_save.` +
-      (park.length ? ` ${park.length} extra photo(s) didn't fit eBay's 24 and were left out.` : ""),
+      `Combined into draft ${lotId} (it stays in your queue). Photo 1 is a cover made from each piece's front` +
+      (fit?.text ? `, numbered 1–${drafts.length}; the ${fit.scans} scans didn't fit eBay's 24 one per photo, so some share a merged photo (${fit.text})` : "") +
+      `. ` +
+      (fit?.dropped?.length ? `Pieces #${fit.dropped.join(", #")} are only on the cover (no room in the 24 photos). ` : "") +
+      `Now call listing_get_draft with ${lotId} and write ONE listing for the whole lot with listing_save.`,
   };
 }
 
@@ -261,6 +271,8 @@ export async function splitLot(lotId: string): Promise<{ restored: number }> {
     throw new Error(`A lot can only be split before it's approved (this one is "${String(d.status).replace("_", " ")}").`);
 
   if (lot.coverPhotoId) await db.execute(sql`DELETE FROM draft_photos WHERE id = ${lot.coverPhotoId}::uuid AND draft_id = ${lotId}::uuid`);
+  await clearFitTiles(lotId); // FIA's merged photos (photo-fit.ts)
+  await db.execute(sql`UPDATE listing_drafts SET ai_meta = ai_meta - 'photoFit' WHERE id = ${lotId}::uuid`);
   if (lot.poolGroupId) return splitPoolLot(lotId, lot);
   // Photos Todd added to the lot afterwards (e.g. his own cover) stay on it,
   // after the first part's own photos.

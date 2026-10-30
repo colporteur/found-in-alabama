@@ -10,7 +10,8 @@
 
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
-import { COVER_MAX_TILES } from "./cover";
+import { FIT_MAX_PIECES } from "./photo-fit-plan";
+import { clearFitTiles, fitLotPhotos } from "./photo-fit";
 import { CLAUDE_STATUS } from "./claude";
 import { frontOf, insertCoverRow, loadPhotos, lotOrder, placePhotos, uploadCover, type LotMeta, type LotPart } from "./lots";
 
@@ -20,7 +21,6 @@ async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
   return res.rows ?? [];
 }
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const MAX_PHOTOS = 24;
 const PARK_FROM = 1001;
 
 export const OPEN_STATUS = "lot_open";
@@ -93,7 +93,7 @@ export async function addToLot(
   const ids = Array.from(new Set(draftIds.filter((x) => UUID.test(x) && x !== lotId)));
   if (!ids.length) throw new Error("Give at least one draft id to add.");
   if (lot.parts.some((p) => ids.includes(p.draftId))) throw new Error("One of those pieces is already in this lot.");
-  if (lot.parts.length + ids.length > COVER_MAX_TILES) throw new Error(`A lot can have at most ${COVER_MAX_TILES} pieces (this one has ${lot.parts.length}).`);
+  if (lot.parts.length + ids.length > FIT_MAX_PIECES) throw new Error(`A lot can have at most ${FIT_MAX_PIECES} pieces (this one has ${lot.parts.length}).`);
 
   const found = await rows(sql`
     SELECT id, status, title, title_hint, bin_sku, registry_item_id, ai_meta FROM listing_drafts
@@ -126,6 +126,7 @@ export async function addToLot(
   const parts = existingParts(lot, foundP);
   // Photos on the lot that belong to no piece: FIA's old covers go; anything
   // else (Todd's own additions) stays with the first piece.
+  await clearFitTiles(lotId); // FIA's merged photos are made again below
   const onLot = await rows(sql`
     SELECT id, position, role, storage_key FROM draft_photos WHERE draft_id = ${lotId}::uuid AND uploaded_at IS NOT NULL ORDER BY position`);
   const knownSet = new Set(known);
@@ -139,7 +140,8 @@ export async function addToLot(
   if (newParts.some((ps) => !ps.length)) throw new Error("Every piece added needs at least one uploaded photo.");
   const all = [...parts, ...newParts];
 
-  const { keep, park } = lotOrder(all, MAX_PHOTOS - 1);
+  // Everything on the lot; fitLotPhotos (below) lays it into eBay's 24.
+  const { keep, park } = lotOrder(all, Number.MAX_SAFE_INTEGER);
   const fronts = all.map(frontOf).filter((p): p is P => !!p);
   const urls = await rows(sql`SELECT id, url FROM draft_photos WHERE id IN (${sql.join(fronts.map((f) => sql`${f.id}::uuid`), sql`, `)})`);
   const urlOf = new Map(urls.map((u) => [String(u.id), String(u.url)]));
@@ -191,16 +193,21 @@ export async function addToLot(
       await db.execute(sql`UPDATE registry_items SET status = 'archived', updated_at = now() WHERE id = ${String(a.registry_item_id)} AND status = 'draft'`);
     }
   }
+  const fit = await fitLotPhotos(lotId).catch((err) => {
+    console.warn(`[open-lots] ${lotId}: fitting photos failed:`, err);
+    return null;
+  });
   return {
     lotDraftId: lotId,
     added: addedParts.length,
     pieces: n,
-    photos: keep.length + 1,
+    photos: fit?.listed ?? keep.length + 1,
     parked: park.length,
     note:
       `Added. The lot now has ${n} pieces, a new cover from every front, and is closed again. It's back in your queue: ` +
       `call listing_get_draft with ${lotId} and write it for all ${n} pieces with listing_save.` +
-      (park.length ? ` ${park.length} photo(s) didn't fit eBay's 24 and were left out of the listing.` : ""),
+      (fit?.text ? ` Its scans didn't fit eBay's 24 one per photo, so some share a merged photo (${fit.text}).` : "") +
+      (fit?.dropped?.length ? ` Pieces #${fit.dropped.join(", #")} are only on the cover.` : ""),
   };
 }
 

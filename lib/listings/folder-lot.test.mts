@@ -1,36 +1,47 @@
 // Run: npx tsx --test lib/listings/folder-lot.test.mts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { planFolderLot, SOLO_SLOTS, FOLDER_LOT_MAX } from "./folder-lot";
+import { planFolderLot, maxPicks, FOLDER_LOT_MAX } from "./folder-lot";
 import { badgesSvg, digitPath, layoutCover } from "./cover";
 import { parseIntakeRequest, MAX_LOT_PHOTOS } from "./validate";
 
-test("23 or fewer pieces: every piece gets its own photo, no grid", () => {
-  assert.deepEqual(planFolderLot(5), { solo: [1, 2, 3, 4, 5], grid: [] });
-  assert.deepEqual(planFolderLot(4, [3]), { solo: [3, 1, 2, 4], grid: [] });
-  const p = planFolderLot(23);
-  assert.equal(p.solo.length, 23);
-  assert.equal(p.grid.length, 0);
+test("23 or fewer pieces: every piece gets its own photo", () => {
+  const p = planFolderLot(5);
+  assert.deepEqual(p.tiles.map((t) => t.scans[0]), ["1", "2", "3", "4", "5"]);
+  assert.deepEqual(planFolderLot(4, [3]).tiles.map((t) => t.scans[0]), ["3", "1", "2", "4"]);
+  assert.equal(planFolderLot(23).tiles.length, 23);
+  assert.equal(planFolderLot(23).merged, false);
 });
 
-test("more than 23: 22 solos + a grid of the rest = 24 listed photos with the overview", () => {
+test("more than 23: neighbours share merged photos so every piece shows in 24", () => {
   for (const n of [24, 26, 27, 40, 60]) {
-    const { solo, grid } = planFolderLot(n);
-    assert.equal(solo.length, SOLO_SLOTS);
-    assert.equal(1 + solo.length + 1, 24);
-    assert.deepEqual([...solo, ...grid].sort((a, b) => a - b), Array.from({ length: n }, (_, i) => i + 1));
+    const p = planFolderLot(n);
+    assert.ok(p.tiles.length <= 23);
+    assert.ok(p.tiles.every((t) => t.scans.length <= 4));
+    assert.deepEqual(p.tiles.flatMap((t) => t.scans).map(Number).sort((a, b) => a - b), Array.from({ length: n }, (_, i) => i + 1));
+    assert.deepEqual(p.dropped, []);
   }
-  assert.deepEqual(planFolderLot(26).grid, [23, 24, 25, 26]);
+  // 26 pieces: only 3 photos merge two pieces
+  assert.equal(planFolderLot(26).tiles.filter((t) => t.scans.length === 2).length, 3);
 });
 
-test("Claude's picks come first, are deduplicated and checked, and are topped up", () => {
-  const { solo, grid } = planFolderLot(26, [18, 18, 99, 0, 2.5, 26, 3]);
-  assert.deepEqual(solo.slice(0, 3), [18, 26, 3]);
-  assert.equal(solo.length, 22);
-  assert.ok(!grid.includes(18) && !grid.includes(26));
-  // Too many picks: only 22 kept
-  assert.equal(planFolderLot(30, Array.from({ length: 30 }, (_, i) => 30 - i)).solo[0], 30);
-  assert.equal(planFolderLot(30, Array.from({ length: 30 }, (_, i) => 30 - i)).solo.length, 22);
+test("picks keep their own photo, are deduplicated and checked, and capped at what still fits", () => {
+  const p = planFolderLot(26, [18, 18, 99, 0, 2.5, 26, 3]);
+  assert.deepEqual(p.tiles.slice(0, 3).map((t) => t.scans), [["18"], ["26"], ["3"]]);
+  assert.equal(maxPicks(20), 20);
+  assert.equal(maxPicks(40), 17);
+  assert.equal(maxPicks(60), 10);
+  const many = planFolderLot(60, Array.from({ length: 30 }, (_, i) => 30 - i));
+  assert.equal(many.tiles[0].scans[0], "30");
+  assert.deepEqual(many.dropped, []);
+  assert.equal(many.tiles.filter((t) => t.scans.length === 1).length >= 10, true);
+});
+
+test("solo photos only: the first 23 pieces, no merging", () => {
+  const p = planFolderLot(30, null, true);
+  assert.equal(p.tiles.length, 23);
+  assert.ok(p.tiles.every((t) => t.scans.length === 1));
+  assert.deepEqual(p.dropped, [24, 25, 26, 27, 28, 29, 30]);
 });
 
 test("digits draw as paths, one 12-wide cell each", () => {

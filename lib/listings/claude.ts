@@ -39,6 +39,7 @@ import {
   type Identification,
 } from "./rules";
 import { arrangeFolderLot, folderLotOf, folderLotText } from "./folder-lot";
+import { photoFitOf } from "./photo-fit";
 
 type Row = Record<string, unknown>;
 async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
@@ -244,11 +245,17 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
   const instructions = (d.review_note as string | null)?.trim();
   const meta = (d.ai_meta ?? {}) as Record<string, unknown>;
   const lot = meta.lot as { parts?: Array<{ title: string | null; bin: string | null }> } | undefined;
+  const fit = photoFitOf(meta);
   const lotText = folderLot
     ? folderLotText(folderLot)
     : lot?.parts?.length
     ? `THIS IS A LOT of ${lot.parts.length} pieces you combined: ${lot.parts.map((p, i) => `${i + 1}) ${p.title ?? "item"}`).join("; ")}. ` +
-      `Photo 1 is the cover (each piece's front); then piece by piece: its front, then its own backs/insides. Write ONE listing for the whole lot: ` +
+      (fit.text
+        ? `Photo 1 is the cover (every piece's front, numbered 1–${lot.parts.length} as above). eBay allows 24 photos, so some pieces' scans share a merged photo, numbered the same way: ${fit.text}. ` +
+          (fit.dropped?.length ? `Pieces #${fit.dropped.join(", #")} are only on the cover. ` : "") +
+          `The full-size originals of merged scans come after photo ${fit.listed ?? 24} (listing_get_photos from=${(fit.listed ?? 24) + 1}) — look at them before writing. `
+        : `Photo 1 is the cover (each piece's front); then piece by piece: its front, then its own backs/insides. `) +
+      `Write ONE listing for the whole lot: ` +
       `the title starts "Lot of ${lot.parts.length}" (or names the set), the description covers each piece in turn with its own condition, ` +
       `item specifics fit the lot as a whole, and the price is for the lot. Quantity stays 1. Never mention bins.`
     : meta.claudeLots === true && String(d.status) === CLAUDE_STATUS
@@ -355,8 +362,9 @@ export async function claudeLotPhotos(id: string, solo: number[], who: string) {
   return {
     ...out,
     note:
-      `Photo 1: overview of all ${out.pieces}. Photos 2–${out.solo.length + 1}: pieces #${out.solo.join(", #")}.` +
-      (out.grid.length ? ` Photo ${out.solo.length + 2}: "Also included" grid of #${out.grid.join(", #")}.` : "") +
+      `Photo 1: overview of all ${out.pieces}. ` +
+      (out.text ? `Then ${out.text}.` : `Then each piece on its own.`) +
+      (out.dropped.length ? ` Pieces #${out.dropped.join(", #")} are only on the overview.` : "") +
       ` Now write the lot with listing_save (or listing_revise if you already saved it).`,
   };
 }
