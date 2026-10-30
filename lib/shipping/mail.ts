@@ -120,7 +120,8 @@ export function mailFacts(i: MailInput): MailFacts {
   const paper = PAPER_KINDS.has(kind) || (PAPER_CATEGORY_RE.test(cat) && !NOT_PAPER_CATEGORY_RE.test(cat));
   const isPostcard = /postcard/i.test(cat) || /\b(rppc|post\s?cards?|postcards?)\b/i.test(title);
   const isCard = (i.categoryId != null && CARD_CATEGORIES.has(i.categoryId)) || /trading card/i.test(cat);
-  const sePieceLimit = isCard ? 24 : isPostcard ? 3 : 5;
+  // Cards: eBay allows 24 raw cards, but Todd ships lots of 5+ calculated (Oct 30).
+  const sePieceLimit = isCard ? 4 : isPostcard ? 3 : 5;
 
   const seFit = size ? size.long <= SE_ITEM_MAX.long && size.short <= SE_ITEM_MAX.short && pieces <= sePieceLimit : null;
 
