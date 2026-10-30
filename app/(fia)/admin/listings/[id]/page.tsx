@@ -15,6 +15,7 @@ import { PhotoStrip } from "./PhotoStrip";
 import { LotPanel } from "./LotPanel";
 import { FolderLotPanel } from "./FolderLotPanel";
 import { folderLotOf } from "@/lib/listings/folder-lot";
+import { photoFitOf } from "@/lib/listings/photo-fit";
 import { AddToPool } from "../pool/AddToPool";
 import { AddToOpenLot } from "./AddToOpenLot";
 import { openLots } from "@/lib/listings/open-lots";
@@ -109,6 +110,11 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
             canOpen={["ready", "review", "sent_back", "with_claude"].includes(d.status)}
             open={d.status === "lot_open" ? { since, days: since ? Math.floor((Date.now() - new Date(since).getTime()) / 86_400_000) : 0 } : null}
             additions={lot.additions ?? []}
+            fit={(() => {
+              const f = photoFitOf(d.aiMeta);
+              return { soloOnly: f.soloOnly === true, text: f.text ?? "", dropped: f.dropped ?? [], error: f.error ?? null };
+            })()}
+            canFit={ROTATABLE.includes(d.status)}
           />
         ) : null;
       })()}
@@ -120,7 +126,10 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
           <FolderLotPanel
             id={d.id}
             pieces={f?.pieces.length ?? 0}
-            solo={f?.solo ?? []}
+            picked={f?.picked ?? []}
+            text={f?.text ?? ""}
+            dropped={f?.dropped ?? []}
+            soloOnly={photoFitOf(d.aiMeta).soloOnly === true}
             error={error}
             pending={pending}
             canEdit={ROTATABLE.includes(d.status)}

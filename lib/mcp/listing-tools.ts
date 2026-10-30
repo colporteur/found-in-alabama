@@ -77,13 +77,13 @@ function buildTools(who: string): ToolDef[] {
       name: "listing_lot_photos",
       title: "Choose a folder lot's own photos",
       description:
-        "Only for a whole-folder lot (listing_get_draft says Todd sent it as one folder, pieces numbered 1–N). eBay shows 24 photos: photo 1 is a numbered overview of every piece; with more than 23 pieces, 22 pieces get their own photo and the rest share one numbered \"Also included\" grid. Give the piece numbers that deserve their own photo, best first (the most searchable, valuable or best-condition pieces; up to 22); FIA rebuilds the overview and grid. Nothing is published.",
+        "Only for a whole-folder lot (listing_get_draft says Todd sent it as one folder, pieces numbered 1–N). eBay shows 24 photos: photo 1 is a numbered overview of every piece; with more than 23 pieces, neighbouring pieces share merged 2–4-up photos (numbered like the overview), only as many as needed. Give the piece numbers that deserve a photo of their own, best first (the most searchable, valuable or best-condition pieces; listing_get_draft says how many can); FIA re-merges the rest. Nothing is published.",
       inputSchema: {
         type: "object",
         required: ["draft_id", "solo"],
         properties: {
           draft_id: { type: "string" },
-          solo: { type: "array", items: { type: "number" }, maxItems: 22, description: "Piece numbers (from the overview), best first" },
+          solo: { type: "array", items: { type: "number" }, maxItems: 22, description: "Piece numbers (from the overview) that keep their own photo, best first" },
         },
       },
       run: async (a) =>
@@ -127,13 +127,13 @@ function buildTools(who: string): ToolDef[] {
       title: "Combine drafts into a lot",
       readOnly: false,
       description:
-        "Only for drafts listing_queue marks combineLots: true, all from the same batch — plus, optionally, pooled pieces waiting in Todd's lot pool (pool_member_ids from listing_pool; check it first). Merges them into ONE lot draft (the first draft id): all photos move onto it, FIA makes a cover from each piece's front as photo 1, and the other drafts are set aside (Todd can split the lot again; pool pieces go back to the pool). Combine when price and shared affinity make market sense — pieces worth more together (same city, theme, maker or series) or too cheap to ship alone; keep anything that sells well by itself separate. Then call listing_get_draft on the lot id and write it with listing_save.",
+        "Only for drafts listing_queue marks combineLots: true, all from the same batch — plus, optionally, pooled pieces waiting in Todd's lot pool (pool_member_ids from listing_pool; check it first). Merges them into ONE lot draft (the first draft id): all photos move onto it, FIA makes a cover from each piece's front as photo 1 and fits every scan into eBay's 24 photos (merging scans into 2–4-up photos only when there are more than fit; up to 60 pieces), and the other drafts are set aside (Todd can split the lot again; pool pieces go back to the pool). Combine when price and shared affinity make market sense — pieces worth more together (same city, theme, maker or series) or too cheap to ship alone; keep anything that sells well by itself separate. Then call listing_get_draft on the lot id and write it with listing_save.",
       inputSchema: {
         type: "object",
         required: ["draft_ids", "reason"],
         properties: {
-          draft_ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 23, description: "Pieces from this batch, best/most representative first (the lot is built on the first)" },
-          pool_member_ids: { type: "array", items: { type: "string" }, maxItems: 22, description: "Pooled pieces from listing_pool (memberId) to include" },
+          draft_ids: { type: "array", items: { type: "string" }, minItems: 1, maxItems: 60, description: "Pieces from this batch, best/most representative first (the lot is built on the first)" },
+          pool_member_ids: { type: "array", items: { type: "string" }, maxItems: 59, description: "Pooled pieces from listing_pool (memberId) to include" },
           reason: { type: "string", description: "One or two sentences: why these sell better as a lot (shown to Todd)" },
         },
       },

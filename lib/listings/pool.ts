@@ -16,6 +16,7 @@
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { frontOf, insertCoverRow, loadPhotos, lotOrder, placePhotos, uploadCover, type LotMeta } from "./lots";
+import { fitLotPhotos } from "./photo-fit";
 
 type Row = Record<string, unknown>;
 async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
@@ -28,7 +29,6 @@ export const POOL_BIN = "LOTPOOL";
 export const POOLED_STATUS = "pooled";
 /** Drafts that can be set aside into the pool. */
 const POOLABLE = ["ready", "review", "sent_back", "with_claude"];
-const MAX_PHOTOS = 24;
 const num = (v: unknown) => (v == null || v === "" || !Number.isFinite(Number(v)) ? null : Number(v));
 
 export async function poolReady(): Promise<boolean> {
@@ -383,7 +383,8 @@ export async function listGroup(groupId: string, who: string): Promise<{ lotDraf
   const lotPhotos = await loadPhotos([lotId]);
   const perCand = candPhotoIds.map((list) => lotPhotos.filter((x) => list.includes(x.id)));
   const parts = [...perPooled, ...perCand];
-  const { keep, park } = lotOrder(parts, MAX_PHOTOS - 1);
+  // Everything on the lot; fitLotPhotos lays it into eBay's 24 once the lot is saved.
+  const { keep, park } = lotOrder(parts, Number.MAX_SAFE_INTEGER);
   const fronts = parts.map(frontOf).filter((p): p is NonNullable<typeof p> => !!p);
   const urlRows = fronts.length ? await rows(sql`SELECT id, url FROM draft_photos WHERE id IN (${ids(fronts.map((f) => f.id))})`) : [];
   const urlOf = new Map(urlRows.map((u) => [String(u.id), String(u.url)]));
@@ -454,6 +455,7 @@ export async function listGroup(groupId: string, who: string): Promise<{ lotDraf
         'claudeQueuedAt', now(), 'claudeQueuedBy', ${who}::text, 'claudeLots', false)
     WHERE id = ${lotId}::uuid`);
   if (regId) await db.execute(sql`UPDATE registry_items SET bin_sku = NULL, updated_at = now() WHERE id = ${regId}::uuid AND status = 'draft'`);
+  await fitLotPhotos(lotId).catch((err) => console.warn(`[pool] ${lotId}: fitting photos failed:`, err));
   for (const p of pooled.slice(1)) {
     await db.execute(sql`
       UPDATE listing_drafts SET status = 'discarded', review_note = ${`combined into a lot (${lotId})`},

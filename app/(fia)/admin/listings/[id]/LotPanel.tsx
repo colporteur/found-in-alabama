@@ -8,6 +8,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { PhotoFitBox } from "./PhotoFitBox";
 
 type Part = { draftId: string; title: string | null; bin: string | null; candidate?: { registryItemId: string } };
 
@@ -20,6 +21,8 @@ export function LotPanel({
   open = null,
   canOpen = false,
   additions = [],
+  fit = null,
+  canFit = false,
 }: {
   id: string;
   parts: Part[];
@@ -30,6 +33,9 @@ export function LotPanel({
   open?: { since: string | null; days: number } | null;
   canOpen?: boolean;
   additions?: Array<{ at: string; pieces: string[]; reason: string | null }>;
+  /** "Fit to 24" (lib/listings/photo-fit.ts). */
+  fit?: { soloOnly: boolean; text: string; dropped: number[]; error: string | null } | null;
+  canFit?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -142,6 +148,7 @@ export function LotPanel({
           ))}
         </p>
       )}
+      {fit && <PhotoFitBox id={id} soloOnly={fit.soloOnly} text={fit.text} dropped={fit.dropped} error={fit.error} canEdit={canFit} />}
       {canOpen && !open && (
         <button
           type="button"
