@@ -25,6 +25,9 @@ export type WeightPlan = {
   envelopeFit?: boolean | null;
 };
 
+/** Card lots this size or bigger ship calculated, never Standard Envelope. */
+export const CARD_LOT_MIN = 5;
+
 /** Standard formats that always fit a Standard Envelope. */
 const ENVELOPE_KINDS = new Set(["postcard", "trading_card", "greeting_card"]);
 
@@ -47,6 +50,9 @@ export function planWeight(i: {
   identification?: string | null;
   sizeInches: string | null;
   source: string | null;
+  /** How many pieces (cards) — the "Number of Cards" specific or a lot's
+   *  piece count; falls back to the title ("Lot of 14"). */
+  pieces?: number | null;
 }): WeightPlan {
   if (i.givenOz != null && i.givenOz > 0) {
     return { oz: i.givenOz, source: "given", reason: "weight given at intake or by hand", profile: null };
@@ -54,7 +60,13 @@ export function planWeight(i: {
   const kind = (i.kind ?? "").toLowerCase();
   const text = `${i.title ?? ""} ${i.identification ?? ""}`;
   // eBay Standard Envelope piece limits: 3 postcards, 24 raw cards.
-  const pieces = pieceCount(i.title ?? "");
+  const pieces = i.pieces != null && i.pieces > 0 ? Math.floor(i.pieces) : pieceCount(i.title ?? "");
+  // Card lots (Todd, Oct 30): 5 or more cards go calculated in a mailer, not
+  // Standard Envelope — 4 oz up to 15 cards, 8 oz up to 40, 12 oz beyond.
+  if (kind === "trading_card" && pieces >= CARD_LOT_MIN) {
+    const oz = pieces <= 15 ? 4 : pieces <= 40 ? 8 : 12;
+    return { oz, source: "assumed", reason: `card lot of ${pieces}: ${oz} oz mailer, calculated shipping`, profile: "calculated", envelopeFit: false };
+  }
   if (kind === "postcard" && pieces <= 3) return { oz: 1, source: "assumed", reason: "postcard", profile: "envelope", envelopeFit: true };
   if (kind === "book" || kind === "magazine" || BOOKLET_RE.test(text)) {
     return { oz: 16, source: "assumed", reason: "booklet / magazine / book: 1 lb Media Mail", profile: "media" };
@@ -78,6 +90,16 @@ function paperWeight(size: [number, number] | null, long: number, short: number)
   if (size && long <= 9 && short <= 6) return { oz: 4, source: "assumed", reason: `paper up to 6×9 in (${long}×${short})`, profile: "calculated" };
   if (size && long <= 12.5 && short <= 9.5) return { oz: 8, source: "assumed", reason: `paper up to 9×12 in (${long}×${short})`, profile: "calculated" };
   return { oz: 12, source: "assumed", reason: size ? `large paper (${long}×${short} in)` : "paper, size unknown", profile: "calculated" };
+}
+
+/** Pure: a draft's card count — the "Number of Cards" specific, else the
+ *  number of pieces combined into its lot; null when neither is known. */
+export function cardCount(specifics: Record<string, string | string[]> | null | undefined, aiMeta: unknown): number | null {
+  const v = specifics?.["Number of Cards"];
+  const n = parseInt(String(Array.isArray(v) ? v[0] : v ?? "").replace(/[^0-9]/g, ""), 10);
+  if (Number.isFinite(n) && n > 0) return n;
+  const parts = ((aiMeta ?? {}) as { lot?: { parts?: unknown[] } }).lot?.parts;
+  return Array.isArray(parts) && parts.length ? parts.length : null;
 }
 
 /** 20 oz → { lb: 1, oz: 4 } (Nifty's "Package weight" is lb + oz). */

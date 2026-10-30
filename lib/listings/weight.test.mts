@@ -47,3 +47,15 @@ test("SHIP-2: envelope fit for small paper, cards and postcard lots", () => {
   assert.equal(lot.profile, "calculated");
   assert.equal(lot.envelopeFit, false);
 });
+
+test("card lots of 5+ ship calculated at 4/8/12 oz; smaller ones can go envelope", async () => {
+  const { cardCount } = await import("./weight.ts");
+  const lot = planWeight({ ...base, kind: "trading_card", title: "Pacific Revolution Hockey Card Lot of 15 Gretzky" });
+  assert.deepEqual([lot.oz, lot.profile, lot.envelopeFit], [4, "calculated", false]);
+  assert.equal(planWeight({ ...base, kind: "trading_card", title: "Hockey lot", pieces: 22 }).oz, 8);
+  assert.equal(planWeight({ ...base, kind: "trading_card", title: "Big lot", pieces: 90 }).oz, 12);
+  assert.equal(planWeight({ ...base, kind: "trading_card", title: "3 card lot", pieces: 3 }).envelopeFit, true);
+  assert.equal(cardCount({ "Number of Cards": "14" }, {}), 14);
+  assert.equal(cardCount({}, { lot: { parts: [1, 2, 3, 4, 5, 6] } }), 6);
+  assert.equal(cardCount({}, {}), null);
+});

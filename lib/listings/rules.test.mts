@@ -234,3 +234,11 @@ test("SHIP-2: planDraftShipping puts small cards and photos in an envelope at 1 
   // Todd's own weight over 3.5 oz still wins
   assert.equal(planDraftShipping({ ...w, oz: 5, source: "given" }, { price: 7.87, categoryPath: photos, kind: "photograph" }).ship?.profile, "calculated");
 });
+
+test("planDraftShipping: a card lot of 5+ stays calculated even at $9.87 in an envelope-eligible category", () => {
+  const lots = "Sports Mem, Cards & Fan Shop > Sports Trading Cards > Trading Card Lots";
+  const w = { oz: 4, source: "assumed" as const, reason: "card lot of 14: 4 oz mailer, calculated shipping", profile: "calculated" as const, envelopeFit: false };
+  const r = planDraftShipping(w, { price: 9.87, categoryPath: lots, kind: "trading_card" });
+  assert.equal(r.ship?.profile, "calculated");
+  assert.equal(r.weight.oz, 4);
+});

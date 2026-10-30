@@ -443,6 +443,8 @@ export function planDraftShipping(
   const ship =
     assumed && weight.profile === "media"
       ? { profile: "media" as const, reason: weight.reason }
+      : assumed && weight.profile === "calculated" && weight.envelopeFit === false && /card lot/.test(weight.reason)
+        ? { profile: "calculated" as const, reason: weight.reason }
       : assumed && weight.profile === "envelope" && suggested?.profile !== "calculated"
         ? { profile: "envelope" as const, reason: weight.reason }
         : suggested;

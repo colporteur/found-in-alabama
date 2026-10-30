@@ -19,7 +19,7 @@ import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import sharp from "sharp";
 import { gatewayChat, type GatewayContentPart } from "@/lib/gateway";
-import { planWeight } from "./weight";
+import { cardCount, planWeight } from "./weight";
 import { RESEARCH_SYSTEM, parseResearch, researchPromptText, type Research } from "./research";
 import { computeLlmCost, getRate, logAiCall } from "@/lib/enhance/cost";
 import { listGuides, loadGuide, routeGuides, guideKeywordHits, guideSection, ITEM_SPECIFICS_HEADING, type Guide } from "@/lib/enhance/guides";
@@ -571,6 +571,7 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
       identification: ident?.identification ?? null,
       sizeInches: ((d.facts ?? {}) as Record<string, unknown>).size_inches as string | null ?? null,
       source: String(d.source ?? ""),
+      pieces: cardCount(specifics, d.ai_meta),
     });
     // SHIP-2: profile and weight together (a piece that fits a Standard
     // Envelope goes envelope at 1 oz when its category allows it).

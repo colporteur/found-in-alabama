@@ -15,7 +15,7 @@ import { categoryAspects } from "@/lib/ebay/taxonomy";
 import { aspectPromptText, fitSpecifics } from "@/lib/ebay/aspects";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
 import { listGuides, loadGuide } from "@/lib/enhance/guides";
-import { planWeight } from "./weight";
+import { cardCount, planWeight } from "./weight";
 import {
   categoryOptions,
   factsText,
@@ -498,6 +498,7 @@ export async function saveClaudeWrite(
     identification: ident?.identification ?? null,
     sizeInches: (facts.size_inches as string | null) ?? null,
     source: String(d.source ?? ""),
+    pieces: cardCount(specifics, d.ai_meta),
   });
   // SHIP-2: profile and weight together (a piece that fits a Standard
   // Envelope goes envelope at 1 oz when its category allows it).
