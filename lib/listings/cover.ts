@@ -60,7 +60,11 @@ export function layoutCover(aspects: number[], side = COVER_SIZE): Tile[] {
       const availW = side - 2 * gap - gap * (r.length - 1);
       return availW / r.reduce((s, i) => s + aspects[i], 0);
     });
+    // Too many in one row: the gutters alone are wider than the square
+    // (a negative height here once made 50 cards come out 1358 px wide).
+    if (hs.some((h) => !(h > 0))) continue;
     const availH = side - gap * (rows.length + 1);
+    if (availH <= 0) break;
     const f = Math.min(1, availH / hs.reduce((a, b) => a + b, 0));
     const area = rows.reduce((acc, r, k) => acc + r.reduce((s, i) => s + aspects[i] * (hs[k] * f) * (hs[k] * f), 0), 0);
     const fair = Math.min(...hs) / Math.max(...hs);

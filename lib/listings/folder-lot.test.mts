@@ -68,3 +68,13 @@ test("intake: a folder lot may carry more than 24 photos, a normal item may not"
   assert.equal(parseIntakeRequest({ source: "scans", photos: photos(1), folderLot: true }).ok, false);
   assert.equal(MAX_LOT_PHOTOS, FOLDER_LOT_MAX);
 });
+
+test("crowded covers stay inside the square (50 and 60 cards)", () => {
+  for (const n of [23, 40, 50, 60]) {
+    const t = layoutCover(Array(n).fill(0.71), 2000);
+    assert.equal(t.length, n);
+    assert.ok(Math.max(...t.map((x) => x.x + x.w)) <= 2000, `n=${n} too wide`);
+    assert.ok(Math.max(...t.map((x) => x.y + x.h)) <= 2000, `n=${n} too tall`);
+    assert.ok(t.every((x) => x.x >= 0 && x.y >= 0));
+  }
+});
