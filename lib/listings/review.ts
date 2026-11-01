@@ -12,8 +12,10 @@ async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
 }
 
 /** What a draft still needs before it can be approved (empty = ready). */
-export function approvalGaps(d: { title?: unknown; description?: unknown; price?: unknown; condition?: unknown }): string[] {
+export function approvalGaps(d: { title?: unknown; description?: unknown; price?: unknown; condition?: unknown; photos?: unknown }): string[] {
   const gaps: string[] = [];
+  // A draft Claude created from a chat has no photos until Todd adds them.
+  if (d.photos != null && !(Number(d.photos) > 0)) gaps.push("photos");
   if (!d.title || String(d.title).trim().length < 10) gaps.push("title");
   if (!d.description || String(d.description).trim().length < 40) gaps.push("description");
   if (d.price == null || !(Number(d.price) > 0)) gaps.push("price");
@@ -28,7 +30,9 @@ export async function approveDrafts(ids: string[], who: string): Promise<Approve
   const out: ApproveResult = { approved: [], skipped: [] };
   if (clean.length === 0) return out;
   const found = await rows(sql`
-    SELECT id, status, title, description, price, condition FROM listing_drafts
+    SELECT id, status, title, description, price, condition,
+      (SELECT count(*)::int FROM draft_photos p WHERE p.draft_id = listing_drafts.id AND p.uploaded_at IS NOT NULL) AS photos
+    FROM listing_drafts
     WHERE id IN (${sql.join(clean.map((id) => sql`${id}`), sql`, `)})`);
   const byId = new Map(found.map((r) => [String(r.id), r]));
   for (const id of clean) {

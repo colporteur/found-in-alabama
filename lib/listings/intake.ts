@@ -197,6 +197,17 @@ export async function completeIntake(
     await db.execute(sql`UPDATE draft_photos SET uploaded_at = now(), bytes = ${size} WHERE id = ${String(p.id)}`);
   }
   let status = String(draft.status);
+  // A draft Claude created from a chat has its photos now: drop the reminder.
+  const m0 = (draft.ai_meta as Record<string, unknown> | null) ?? {};
+  if (missing.length === 0 && m0.needsPhotos === true) {
+    const [n] = await rows(sql`SELECT count(*)::int AS n FROM draft_photos WHERE draft_id = ${draftId} AND uploaded_at IS NOT NULL`);
+    if (Number(n?.n ?? 0) > 0) {
+      await db.execute(sql`
+        UPDATE listing_drafts SET updated_at = now(), ai_meta = jsonb_set(ai_meta - 'needsPhotos', '{flags}',
+          COALESCE((SELECT jsonb_agg(f) FROM jsonb_array_elements(ai_meta->'flags') f WHERE f::text NOT LIKE '%no photos yet%'), '[]'::jsonb))
+        WHERE id = ${draftId}`);
+    }
+  }
   if (missing.length === 0 && status === "uploading") {
     await db.execute(sql`UPDATE listing_drafts SET status = 'ready', updated_at = now() WHERE id = ${draftId}`);
     status = "ready";
@@ -242,4 +253,48 @@ export async function completeIntake(
     if (done.length) status = "with_claude";
   }
   return { ok: true, status, missing };
+}
+
+// ─── adding photos to an existing draft (the draft page) ────────────────────
+
+export const ADD_PHOTO_STATUSES = ["ready", "review", "sent_back", "with_claude"];
+const MAX_LISTED = 24;
+
+export type AddPhoto = { name: string; sha256: string; bytes: number; contentType: string };
+
+/** Register more photos on a draft (after its last one) and say where to
+ *  upload each, through the app ("proxy" mode). Used for drafts Claude created
+ *  from a chat, which arrive with no photos, and for adding a missed photo. */
+export async function addDraftPhotos(
+  draftId: string,
+  photos: AddPhoto[]
+): Promise<{ ok: true; uploads: UploadInstruction[] } | { ok: false; status: number; error: string }> {
+  const cfg = r2Config();
+  if (!cfg) return { ok: false, status: 503, error: "Photo storage (R2) is not configured yet" };
+  const [d] = await rows(sql`SELECT status, ai_meta FROM listing_drafts WHERE id = ${draftId}`);
+  if (!d) return { ok: false, status: 404, error: "Draft not found" };
+  if (!ADD_PHOTO_STATUSES.includes(String(d.status)))
+    return { ok: false, status: 409, error: `Photos can't be added once a draft is "${String(d.status).replace("_", " ")}".` };
+  const meta = (d.ai_meta ?? {}) as Record<string, unknown>;
+  if (meta.lot || meta.folderLot) return { ok: false, status: 409, error: "This is a lot: its photos are laid out by FIA, so add photos to a piece before combining." };
+  const clean = photos.filter(
+    (p) => p && /^[0-9a-f]{64}$/i.test(p.sha256) && /^image\/(jpeg|png|webp)$/.test(p.contentType) && p.bytes > 0 && p.bytes < 4_500_000
+  );
+  if (!clean.length || clean.length !== photos.length) return { ok: false, status: 400, error: "Send JPEG, PNG or WebP photos under 4.5 MB each." };
+  const [c] = await rows(sql`
+    SELECT count(*)::int AS n, COALESCE(max(position), 0)::int AS last FROM draft_photos WHERE draft_id = ${draftId}`);
+  const have = Number(c?.n ?? 0);
+  if (have + clean.length > MAX_LISTED)
+    return { ok: false, status: 400, error: `eBay takes ${MAX_LISTED} photos; this draft has ${have}, so add at most ${Math.max(0, MAX_LISTED - have)}.` };
+  let position = Number(c?.last ?? 0);
+  for (const [i, p] of clean.entries()) {
+    position += 1;
+    const key = draftPhotoKey(draftId, position, p.sha256, p.contentType);
+    const role = have === 0 && i === 0 ? "front" : "other";
+    await db.execute(sql`
+      INSERT INTO draft_photos (draft_id, position, role, storage_key, url, original_name, sha256, bytes, content_type)
+      VALUES (${draftId}, ${position}, ${role}, ${key}, ${publicUrl(cfg, key)}, ${p.name.slice(0, 200)}, ${p.sha256.toLowerCase()},
+              ${p.bytes}, ${p.contentType})`);
+  }
+  return { ok: true, uploads: await uploadsFor(cfg, draftId, "proxy") };
 }

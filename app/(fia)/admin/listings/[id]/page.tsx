@@ -16,6 +16,7 @@ import { LotPanel } from "./LotPanel";
 import { FolderLotPanel } from "./FolderLotPanel";
 import { folderLotOf } from "@/lib/listings/folder-lot";
 import { photoFitOf } from "@/lib/listings/photo-fit";
+import { AddPhotos } from "./AddPhotos";
 import { AddToPool } from "../pool/AddToPool";
 import { AddToOpenLot } from "./AddToOpenLot";
 import { openLots } from "@/lib/listings/open-lots";
@@ -146,6 +147,14 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
         </p>
       )}
 
+      {["ready", "review", "sent_back", "with_claude"].includes(d.status) && !d.aiMeta?.lot && !d.aiMeta?.folderLot && (
+        <AddPhotos
+          id={d.id}
+          have={d.photoList.length}
+          needed={d.aiMeta?.needsPhotos === true}
+          note={typeof d.aiMeta?.photoNote === "string" ? (d.aiMeta.photoNote as string) : null}
+        />
+      )}
       <PhotoStrip id={d.id} photos={d.photoList} canRotate={ROTATABLE.includes(d.status)} />
 
       <div className="flex flex-wrap items-start gap-4 mb-8">
