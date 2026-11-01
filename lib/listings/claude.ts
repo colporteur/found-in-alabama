@@ -376,6 +376,23 @@ export async function claudeFindCategories(query: string) {
   return { categories: rankCategories(cats, q, 30).map((c) => ({ id: c.id, path: c.path, listingsInStore: c.count })) };
 }
 
+/** The rule for picking store shelves (the same one FIA's writer follows). */
+export const SHELF_RULE =
+  "Pick TWO of the store's own shelves (store_category_ids): first the shelf for what the item IS; second a place shelf ONLY when the item is clearly tied to a place — an [AL] shelf for Alabama, or that state's shelf under \"Found in Other States\" for another US state (never guess a state) — otherwise the next-best shelf a buyer would browse (subject, theme, era, maker or use), not a near-duplicate of the first.";
+
+/** The store's own shelves (eBay store categories) ranked for some words. */
+export async function claudeStoreShelves(query: string, limit = 40) {
+  const q = query.trim().slice(0, 300);
+  if (!q) throw new Error("Give a few words about the item, e.g. 'wwii military photograph tennessee'");
+  const store = await buildCategoryOptions().catch(() => []);
+  const ranked = rankStoreCategories(
+    store.map((o) => ({ id: o.id, path: o.path.replace(/&amp;/g, "&"), isAlabama: o.isAlabama })),
+    q,
+    limit
+  );
+  return { rule: SHELF_RULE, shelves: ranked.map((c) => `${c.id} — ${c.isAlabama ? "[AL] " : ""}${c.path}`) };
+}
+
 export async function claudeFindGuide(query: string) {
   const q = query.trim().slice(0, 200);
   if (!q) {

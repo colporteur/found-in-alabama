@@ -15,6 +15,7 @@ import {
   claudeFindCategories,
   claudeFindGuide,
   claudeGuideById,
+  claudeStoreShelves,
   claudeLotPhotos,
   claudeMorePhotos,
   claudePool,
@@ -45,7 +46,7 @@ export function listingTools(who: string): ToolDef[] {
   delete saveProps.draft_id;
   create.inputSchema = {
     type: "object",
-    required: ["title", "description", "condition", "price"],
+    required: ["title", "description", "condition", "price", "store_category_ids"],
     properties: { ...saveProps, ...((create.inputSchema as { properties: Record<string, unknown> }).properties) },
   };
   return tools;
@@ -348,11 +349,19 @@ function buildTools(who: string): ToolDef[] {
       },
     },
     {
+      name: "listing_store_categories",
+      title: "Find the store's own shelves",
+      description:
+        "Todd's eBay store categories (shelves), ranked for a few words about the item (e.g. 'wwii military photograph tennessee'). Returns 'id — path' lines ([AL] = Alabama) and the rule for picking two. Use it before listing_create_draft, and whenever you need shelves for store_category_ids.",
+      inputSchema: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+      run: async (a) => claudeStoreShelves(argStr(a, "query", 300) ?? ""),
+    },
+    {
       name: "listing_create_draft",
       title: "Create a new draft from a chat",
       readOnly: false,
       description:
-        "For an item Todd researched with you in a chat and wants in FIA (one he hasn't sent from the Scans page). Creates a NEW draft with your listing and puts it in Todd's Review queue marked \"Created by Claude\" — the same cleanup and rules as listing_save (title/description cleanup, .87 price endings and floors, real item specifics only, weight and shipping). It has NO photos: Todd adds them on the draft page, and it can't be approved until he does, so say in photo_note which photos to add. Returns the draft id; change it afterwards with listing_revise. Nothing is approved, sent to Nifty or published. Limit 25 a day.",
+        "For an item Todd researched with you in a chat and wants in FIA (one he hasn't sent from the Scans page). Creates a NEW draft with your listing and puts it in Todd's Review queue marked \"Created by Claude\" — the same cleanup and rules as listing_save (title/description cleanup, .87 price endings and floors, real item specifics only, weight and shipping). First pick two store shelves with listing_store_categories and send them as store_category_ids (required here). It has NO photos: Todd adds them on the draft page, and it can't be approved until he does, so say in photo_note which photos to add. Returns the draft id; change it afterwards with listing_revise. Nothing is approved, sent to Nifty or published. Limit 25 a day.",
       inputSchema: {
         type: "object",
         properties: {

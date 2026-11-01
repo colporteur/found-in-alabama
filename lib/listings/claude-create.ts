@@ -9,7 +9,7 @@
 
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
-import { CLAUDE_STATUS, saveClaudeWrite, type ClaudeWrite } from "./claude";
+import { CLAUDE_STATUS, claudeStoreShelves, saveClaudeWrite, type ClaudeWrite } from "./claude";
 
 type Row = Record<string, unknown>;
 async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
@@ -57,6 +57,19 @@ export async function claudeCreateDraft(args: Record<string, unknown>, who: stri
   if (Number(c?.n ?? 0) >= CLAUDE_CREATE_DAILY_CAP)
     throw new Error(`Claude has already created ${CLAUDE_CREATE_DAILY_CAP} drafts in the last 24 hours (the daily limit). Ask Todd to review those first.`);
 
+  // A chat never sees the shelf list that queued drafts come with, so ask
+  // for shelves here rather than create a draft with none (Todd, Oct 31).
+  const shelves = Array.isArray(args.store_category_ids) ? (args.store_category_ids as unknown[]).map(String).filter(Boolean) : [];
+  if (!shelves.length) {
+    const words = [title, args.ebay_category_suggestion, (args.identification as Record<string, unknown> | undefined)?.identification]
+      .filter((v) => typeof v === "string")
+      .join(" ");
+    const { rule, shelves: list } = await claudeStoreShelves(words, 30);
+    throw new Error(
+      `Send store_category_ids too — nothing was created yet. ${rule} The store's shelves that best match this item (id — path; call listing_store_categories for others):\n${list.join("\n")}`
+    );
+  }
+
   const x = createExtras(args);
   const listing: ClaudeWrite = Object.fromEntries(Object.entries(args).filter(([k]) => !EXTRA_KEYS.includes(k)));
   const label = `Created by Claude${x.sourceNote ? ` · ${x.sourceNote}` : ""}`.slice(0, 300);
@@ -81,14 +94,17 @@ export async function claudeCreateDraft(args: Record<string, unknown>, who: stri
     const saved = await saveClaudeWrite(draftId, listing, who);
     // Put "add photos" at the top of the flags Todd sees in Review.
     const first = `Created by Claude from a chat — no photos yet. Add them on this page ("Add photos")${x.photoNote ? `: ${x.photoNote}` : ""}.`;
+    const [after] = await rows(sql`SELECT store_category_ids FROM listing_drafts WHERE id = ${draftId}::uuid`);
+    const noShelf = !Array.isArray(after?.store_category_ids) || !(after!.store_category_ids as unknown[]).length;
+    const top = noShelf ? [first, "No store shelves: the ones sent aren't the store's — pick two before approving."] : [first];
     await db.execute(sql`
       UPDATE listing_drafts SET ai_meta = jsonb_set(ai_meta, '{flags}',
-        to_jsonb(ARRAY[${first}::text]) || COALESCE(ai_meta->'flags', '[]'::jsonb))
+        ${JSON.stringify(top)}::jsonb || COALESCE(ai_meta->'flags', '[]'::jsonb))
       WHERE id = ${draftId}::uuid`);
     return {
       ...saved,
       created: true,
-      flags: [first, ...(saved.flags ?? [])],
+      flags: [...top, ...(saved.flags ?? [])],
       note: "In Todd's Review queue, marked Created by Claude. It has no photos: tell Todd to add them on the draft page (it can't be approved without one). Change it with listing_revise.",
     };
   } catch (err) {
