@@ -2,7 +2,8 @@
 // app write the listing drafts Todd queued with "Send to Claude". Offered only
 // on connections where Todd turned listing writing on (/admin/connect).
 // The writes are listing_save / listing_revise, which put a draft in Todd's
-// Review queue, and listing_combine_lot, which merges drafts Todd sent with
+// Review queue, listing_create_draft, which writes a NEW draft from a chat
+// (no photos until Todd adds them), and listing_combine_lot, which merges drafts Todd sent with
 // "combine lots" on into one lot draft, and listing_add_to_lot, which adds
 // queued pieces to a lot Todd is holding open; nothing here approves, sends to Nifty
 // or publishes.
@@ -30,12 +31,23 @@ import { combineLot } from "@/lib/listings/lots";
 import { addToLot } from "@/lib/listings/open-lots";
 import { completeFixes, fixPhotos, fixQueue, hasOpenFix } from "@/lib/listings/fixes";
 import { updateDraft } from "@/lib/listings/drafts";
+import { claudeCreateDraft } from "@/lib/listings/claude-create";
 
 export function listingTools(who: string): ToolDef[] {
   const tools = buildTools(who);
   const save = tools.find((t) => t.name === "listing_save")!;
   const revise = tools.find((t) => t.name === "listing_revise")!;
   revise.inputSchema = { ...save.inputSchema, required: ["draft_id"] };
+  // listing_create_draft takes everything listing_save does (minus draft_id)
+  // plus where the item and its photos are.
+  const create = tools.find((t) => t.name === "listing_create_draft")!;
+  const saveProps = { ...((save.inputSchema as { properties: Record<string, unknown> }).properties) };
+  delete saveProps.draft_id;
+  create.inputSchema = {
+    type: "object",
+    required: ["title", "description", "condition", "price"],
+    properties: { ...saveProps, ...((create.inputSchema as { properties: Record<string, unknown> }).properties) },
+  };
   return tools;
 }
 
@@ -334,6 +346,24 @@ function buildTools(who: string): ToolDef[] {
         const n = await completeFixes(argStr(a, "draft_id", 40) ?? "", argStr(a, "summary", 1000) ?? "", `claude:${who}`);
         return { ok: true, finished: n, note: "Done — it's back in Todd's Review queue with your summary." };
       },
+    },
+    {
+      name: "listing_create_draft",
+      title: "Create a new draft from a chat",
+      readOnly: false,
+      description:
+        "For an item Todd researched with you in a chat and wants in FIA (one he hasn't sent from the Scans page). Creates a NEW draft with your listing and puts it in Todd's Review queue marked \"Created by Claude\" — the same cleanup and rules as listing_save (title/description cleanup, .87 price endings and floors, real item specifics only, weight and shipping). It has NO photos: Todd adds them on the draft page, and it can't be approved until he does, so say in photo_note which photos to add. Returns the draft id; change it afterwards with listing_revise. Nothing is approved, sent to Nifty or published. Limit 25 a day.",
+      inputSchema: {
+        type: "object",
+        properties: {
+          bin: { type: "string", description: "Bin/SKU only if Todd told you where the item is stored" },
+          source_note: { type: "string", description: "Where it came from, e.g. \"Oxford AL estate sale, Oct 2026\"" },
+          photo_note: { type: "string", description: "Which photos Todd should add and in what order, e.g. \"Batch 02: 10312026–10312026_013, case closed first\"" },
+          weight_oz: { type: "number", description: "Packed weight, if known" },
+          quantity: { type: "number" },
+        },
+      },
+      run: async (a) => claudeCreateDraft(a, who),
     },
     {
       name: "listing_save",
