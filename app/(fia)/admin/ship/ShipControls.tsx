@@ -293,6 +293,16 @@ export function ShipTable({
                         {o.buyerUsername && o.buyerName ? " · " : ""}
                         {o.buyerName ?? ""}
                         {o.lines.length > 1 && <span className="ml-2">{o.lines.length} items, one package</span>}
+                        <a
+                          href={`/admin/labels/address?ship=${o.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-2 underline text-brand-ink/70"
+                          title="Print the buyer's address on the DYMO (57 × 32 mm)"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          🏷️ label
+                        </a>
                       </div>
                     )}
                     {o.sameBuyer.length > 0 && (
