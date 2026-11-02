@@ -70,6 +70,7 @@ export default function ShipNoticePanel({
   }
 
   const post = (action: string) => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action }) });
+  const post2 = (body: Record<string, unknown>) => ({ method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   const btn = "rounded border border-brand-ink/30 px-2 py-1 text-xs hover:bg-brand-ink/5 disabled:opacity-50";
 
   return (
@@ -99,9 +100,29 @@ export default function ShipNoticePanel({
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <a href={photo} target="_blank" rel="noopener noreferrer"><img src={photo} alt="Stamped mailpiece" className="h-16 w-auto rounded border" /></a>
               {!sentAt && (
-                <button type="button" className={btn} disabled={busy} onClick={() => call(`/api/admin/tes-orders/${orderId}/mailpiece`, { method: "DELETE" }, "Photo removed.")}>
-                  remove
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className={btn}
+                    disabled={busy}
+                    title="Turn left"
+                    onClick={() => call(`/api/admin/tes-orders/${orderId}/mailpiece/rotate`, post2({ turn: -90 }), "Turned.")}
+                  >
+                    ⟲
+                  </button>
+                  <button
+                    type="button"
+                    className={btn}
+                    disabled={busy}
+                    title="Turn right"
+                    onClick={() => call(`/api/admin/tes-orders/${orderId}/mailpiece/rotate`, post2({ turn: 90 }), "Turned.")}
+                  >
+                    ⟳
+                  </button>
+                  <button type="button" className={btn} disabled={busy} onClick={() => call(`/api/admin/tes-orders/${orderId}/mailpiece`, { method: "DELETE" }, "Photo removed.")}>
+                    remove
+                  </button>
+                </>
               )}
             </span>
           ) : null}
