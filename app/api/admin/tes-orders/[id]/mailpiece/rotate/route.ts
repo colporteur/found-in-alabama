@@ -33,11 +33,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!url) return NextResponse.json({ error: "This order has no mailpiece photo" }, { status: 404 });
   const got = await fetch(url, { signal: AbortSignal.timeout(30_000) });
   if (!got.ok) return NextResponse.json({ error: `Couldn't read the photo (HTTP ${got.status})` }, { status: 502 });
-  const jpg = await sharp(Buffer.from(await got.arrayBuffer()), { failOn: "none" })
-    .rotate() // apply any EXIF orientation first
-    .rotate(turn)
-    .jpeg({ quality: 88 })
-    .toBuffer();
+  // sharp does one rotation per pipeline: apply the EXIF orientation first,
+  // then the turn.
+  const upright = await sharp(Buffer.from(await got.arrayBuffer()), { failOn: "none" }).rotate().toBuffer();
+  const jpg = await sharp(upright).rotate(turn).jpeg({ quality: 88 }).toBuffer();
   const key = `orders/${params.id}/mailpiece-${Date.now().toString(36)}-${randomUUID().slice(0, 8)}.jpg`;
   await putObject(cfg, key, new Uint8Array(jpg), "image/jpeg");
   const next = publicUrl(cfg, key);
