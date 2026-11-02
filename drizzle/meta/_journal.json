@@ -372,6 +372,13 @@
       "when": 1792843213840,
       "tag": "0052_ship_mail_facts",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1793627716749,
+      "tag": "0053_ship_notice",
+      "breakpoints": true
     }
   ]
 }

@@ -17,6 +17,8 @@ import MarkHandledButton from "./MarkHandledButton";
 import HipHandledButton from "./HipHandledButton";
 import PirateShipPanel from "./PirateShipPanel";
 import TrackingEditor from "./TrackingEditor";
+import ShipNoticePanel from "./ShipNoticePanel";
+import { noticeState, shipNoticeReady, STAMPED, NOTICE_SOURCES } from "@/lib/tes/ship-notice";
 import { trackingUrl, SHIPPABLE_SOURCES } from "@/lib/tes/pirate-ship";
 
 const HIP_AUTO_DECISIONS = ["hip_wins", "processing"];
@@ -61,6 +63,9 @@ export default async function TesOrdersPage() {
         .from(tesOrderItems)
         .where(inArray(tesOrderItems.orderId, orderIds))
     : [];
+  // SHIP-NOTICE: photo / email state (hidden until migration 0053 has run).
+  const noticeReady = await shipNoticeReady().catch(() => false);
+  const notices = noticeReady ? await noticeState(orderIds) : new Map();
   const itemsByOrder = new Map<string, typeof items>();
   for (const it of items) {
     const arr = itemsByOrder.get(it.orderId) ?? [];
@@ -316,6 +321,18 @@ export default async function TesOrdersPage() {
                     />
                   )}
                 </div>
+                {noticeReady && o.status === "paid" && NOTICE_SOURCES.includes(o.source) && o.carrier !== "not shipping" && (
+                  <ShipNoticePanel
+                    orderId={o.id}
+                    storeName={o.source === "fia" ? "Found in Alabama" : "The Ephemeral State"}
+                    hasEmail={!!o.email}
+                    tracking={o.trackingNumber}
+                    stamped={!o.trackingNumber && o.carrier === STAMPED && !!o.shippedAt}
+                    photo={notices.get(o.id)?.photo ?? null}
+                    sentAt={notices.get(o.id)?.sentAt ?? null}
+                    error={notices.get(o.id)?.error ?? null}
+                  />
+                )}
               </li>
             );
           })}
