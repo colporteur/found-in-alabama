@@ -2,8 +2,8 @@
 
 // "Your order has shipped" email for a website order (lib/tes/ship-notice.ts).
 // With tracking it goes out by itself when tracking is recorded; for stamped
-// mail, take a photo of the stamped mailpiece (optional, from the phone
-// camera), then "Mailed by stamp — email buyer". Sent from the store the
+// mail, add a photo of the stamped mailpiece (optional — take one with the
+// phone camera or pick one from the photo library), then "Mailed by stamp — email buyer". Sent from the store the
 // order came from.
 
 import { useState } from "react";
@@ -106,10 +106,17 @@ export default function ShipNoticePanel({
             </span>
           ) : null}
           {!sentAt && (
-            <label className={`${btn} cursor-pointer ${busy ? "pointer-events-none opacity-50" : ""}`}>
-              📷 {photo ? "Retake photo" : "Photo of the stamped mailpiece"}
-              <input type="file" accept="image/*" capture="environment" className="hidden" disabled={busy} onChange={(e) => upload(e.target.files)} />
-            </label>
+            <>
+              <label className={`${btn} cursor-pointer ${busy ? "pointer-events-none opacity-50" : ""}`}>
+                📷 {photo ? "Retake photo" : "Take photo of the mailpiece"}
+                <input type="file" accept="image/*" capture="environment" className="hidden" disabled={busy} onChange={(e) => upload(e.target.files)} />
+              </label>
+              {/* No capture attribute: the phone offers its photo library (and files). */}
+              <label className={`${btn} cursor-pointer ${busy ? "pointer-events-none opacity-50" : ""}`}>
+                🖼️ {photo ? "Pick a different photo" : "Choose from photos"}
+                <input type="file" accept="image/*" className="hidden" disabled={busy} onChange={(e) => upload(e.target.files)} />
+              </label>
+            </>
           )}
           {!stamped && (
             <button
