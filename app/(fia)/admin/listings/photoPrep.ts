@@ -4,9 +4,9 @@
 
 const MAX_EDGE = 3200;
 
-export async function downsize(file: File): Promise<Blob> {
+export async function downsize(file: File, maxEdge = MAX_EDGE): Promise<Blob> {
   const bmp = await createImageBitmap(file);
-  const scale = Math.min(1, MAX_EDGE / Math.max(bmp.width, bmp.height));
+  const scale = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
   const w = Math.round(bmp.width * scale);
   const h = Math.round(bmp.height * scale);
   const canvas = document.createElement("canvas");

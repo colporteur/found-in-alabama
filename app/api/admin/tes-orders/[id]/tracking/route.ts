@@ -8,11 +8,12 @@
 // Clearing ({ tracking: null }) resets both. Admin-session gated.
 
 import { NextRequest, NextResponse } from "next/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { auth } from "@/auth";
 import { db } from "@/db";
 import { tesOrders } from "@/db/schema";
-import { guessCarrier, NOT_SHIPPING } from "@/lib/tes/pirate-ship";
+import { guessCarrier, NOT_SHIPPING, SHIPPABLE_SOURCES } from "@/lib/tes/pirate-ship";
+import { sendShipNotice } from "@/lib/tes/ship-notice";
 
 export const runtime = "nodejs";
 
@@ -47,10 +48,12 @@ export async function POST(
         ? { trackingNumber: tracking, carrier: carrier ?? guessCarrier(tracking), shippedAt: new Date() }
         : { trackingNumber: null, carrier: null, shippedAt: null }
     )
-    .where(and(eq(tesOrders.id, params.id), eq(tesOrders.source, "tes")))
+    .where(and(eq(tesOrders.id, params.id), inArray(tesOrders.source, SHIPPABLE_SOURCES)))
     .returning({ id: tesOrders.id });
   if (updated.length === 0) {
     return NextResponse.json({ ok: false, error: "Order not found" }, { status: 404 });
   }
-  return NextResponse.json({ ok: true });
+  // Tracking recorded: email the buyer (once; SHIP-NOTICE).
+  const notice = tracking && !skip ? await sendShipNotice(params.id).catch((e) => ({ sent: false, error: (e as Error).message })) : null;
+  return NextResponse.json({ ok: true, notice });
 }

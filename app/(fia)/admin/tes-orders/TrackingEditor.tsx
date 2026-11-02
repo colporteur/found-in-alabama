@@ -83,6 +83,20 @@ export default function TrackingEditor({
     );
   }
 
+  if (!tracking && carrier === "stamp" && shippedAt) {
+    // SHIP-NOTICE: mailed with a stamp (lib/tes/ship-notice.ts STAMPED).
+    return (
+      <span className="text-sm flex flex-wrap items-center gap-2">
+        <span className="inline-block text-xs px-2 py-0.5 rounded bg-green-100 text-green-800">
+          Mailed by stamp {new Date(shippedAt).toLocaleDateString()}
+        </span>
+        <button type="button" disabled={saving} onClick={() => save(null)} className="text-brand-ink/50 hover:text-brand-ink disabled:opacity-50">
+          undo
+        </button>
+      </span>
+    );
+  }
+
   if (!tracking && carrier === NOT_SHIPPING && shippedAt) {
     return (
       <span className="text-sm flex flex-wrap items-center gap-2">

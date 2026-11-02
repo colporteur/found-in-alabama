@@ -15,6 +15,7 @@ import { db } from "@/db";
 import { tesOrders } from "@/db/schema";
 import { extractTracking, normName, type TrackingRow } from "@/lib/tes/pirate-ship";
 import { SHIPPABLE_SOURCES } from "@/lib/tes/pirate-ship";
+import { sendShipNotice } from "@/lib/tes/ship-notice";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -129,8 +130,19 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Email each buyer whose order just got tracking (SHIP-NOTICE).
+  let emailed = 0;
+  const emailErrors: string[] = [];
+  for (const r of recorded) {
+    const n = await sendShipNotice(r.orderId).catch((e) => ({ sent: false, error: (e as Error).message }));
+    if (n.sent) emailed++;
+    else if ("error" in n && n.error) emailErrors.push(n.error);
+  }
+
   return NextResponse.json({
     ok: true,
+    emailed,
+    emailErrors: emailErrors.slice(0, 5),
     recorded,
     alreadyHad,
     unmatched,
