@@ -5,7 +5,9 @@
 const MAX_EDGE = 3200;
 
 export async function downsize(file: File, maxEdge = MAX_EDGE): Promise<Blob> {
-  const bmp = await createImageBitmap(file);
+  // Honor the camera's EXIF orientation (some phone browsers otherwise
+  // decode a portrait shot sideways).
+  const bmp = await createImageBitmap(file, { imageOrientation: "from-image" });
   const scale = Math.min(1, maxEdge / Math.max(bmp.width, bmp.height));
   const w = Math.round(bmp.width * scale);
   const h = Math.round(bmp.height * scale);
