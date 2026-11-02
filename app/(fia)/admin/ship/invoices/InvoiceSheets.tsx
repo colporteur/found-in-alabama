@@ -174,7 +174,7 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
       {inv.shipping != null && (
         <div className="inv-saleline">
           <span>Shipping</span>
-          <span>{money(inv.shipping)}</span>
+          <span>{inv.shipping === 0 ? "Free" : money(inv.shipping)}</span>
         </div>
       )}
       {inv.buyerFee != null && inv.buyerFee > 0 && (

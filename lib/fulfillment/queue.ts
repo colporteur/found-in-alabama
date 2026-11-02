@@ -141,8 +141,11 @@ export async function syncShipQueue(): Promise<SyncResult> {
 
   // 2. its lines (title, bin, photo from the registry when matched)
   const lines = await exec(sql`
-    INSERT INTO ship_order_lines (order_id, sale_event_id, registry_item_id, title, bin_sku, quantity, price, image_url)
-    SELECT o.id, e.id, e.registry_item_id, COALESCE(r.title, e.title), r.bin_sku,
+    INSERT INTO ship_order_lines (order_id, sale_event_id, registry_item_id, ebay_item_id, title, bin_sku, quantity, price, image_url)
+    SELECT o.id, e.id, e.registry_item_id, COALESCE(e.ebay_item_id, r.primary_ebay_item_id), COALESCE(r.title, e.title),
+           -- The registry's bin; else the SKU the item carried on the site
+           -- order or its eBay listing (older items have no registry bin).
+           COALESCE(NULLIF(r.bin_sku, ''), NULLIF(ti.sku, ''), NULLIF(el.sku, '')),
            COALESCE(ti.quantity, 1), e.price,
            COALESCE(it.hero_image, el.primary_image_url, ti.image_url)
     FROM sale_events e
@@ -161,7 +164,7 @@ export async function syncShipQueue(): Promise<SyncResult> {
     UPDATE ship_order_lines l
     SET registry_item_id = e.registry_item_id,
         title = COALESCE(r.title, l.title),
-        bin_sku = r.bin_sku,
+        bin_sku = COALESCE(NULLIF(r.bin_sku, ''), l.bin_sku),
         image_url = COALESCE(l.image_url, it.hero_image, el.primary_image_url)
     FROM sale_events e
     JOIN registry_items r ON r.id = e.registry_item_id
@@ -208,6 +211,19 @@ export async function syncShipQueue(): Promise<SyncResult> {
       AND r.id = COALESCE(
         (SELECT r1.id FROM registry_items r1 WHERE r1.primary_ebay_item_id = l.ebay_item_id LIMIT 1),
         (SELECT v.registry_item_id FROM venue_listings v WHERE v.venue = 'ebay' AND v.venue_listing_id = l.ebay_item_id LIMIT 1))`);
+
+  // Lines still without a bin (packages not shipped yet): the SKU the item
+  // carried on the site order or on its eBay listing.
+  await exec(sql`
+    UPDATE ship_order_lines l
+    SET bin_sku = COALESCE(NULLIF(ti.sku, ''), NULLIF(el.sku, '')),
+        ebay_item_id = COALESCE(l.ebay_item_id, e.ebay_item_id, r.primary_ebay_item_id)
+    FROM ship_orders o, sale_events e
+    LEFT JOIN registry_items r ON r.id = e.registry_item_id
+    LEFT JOIN tes_order_items ti ON e.source = 'stripe' AND ti.id::text = e.source_ref
+    LEFT JOIN ebay_listings el ON el.item_id = COALESCE(e.ebay_item_id, r.primary_ebay_item_id)
+    WHERE l.order_id = o.id AND l.sale_event_id = e.id AND o.status IN ('to_pick', 'packed')
+      AND (l.bin_sku IS NULL OR l.bin_sku = '') AND COALESCE(NULLIF(ti.sku, ''), NULLIF(el.sku, '')) IS NOT NULL`);
 
   const buyers = await captureEmailBuyers();
   await captureMercariCharges();
