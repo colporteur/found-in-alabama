@@ -254,6 +254,15 @@ export default async function TesOrdersPage() {
                   <p className="text-sm text-brand-ink/70 mb-3">
                     {[addr.line1, addr.line2].filter(Boolean).join(", ")} ·{" "}
                     {addr.city}, {addr.state} {addr.postal_code}
+                    <a
+                      href={`/admin/labels/address?tes=${o.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="ml-3 inline-block rounded border border-brand-ink/30 px-2 py-0.5 text-xs text-brand-ink hover:bg-brand-ink/5"
+                      title="Print the buyer's address on the DYMO (57 × 32 mm)"
+                    >
+                      🏷️ Address label
+                    </a>
                   </p>
                 )}
                 <ul className="text-sm divide-y divide-brand-ink/5 border-t border-b border-brand-ink/10 mb-3">
