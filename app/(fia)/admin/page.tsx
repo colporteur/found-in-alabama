@@ -65,6 +65,14 @@ export default async function AdminDashboard() {
         </Link>
       </div>
 
+      <Group title="Sourcing">
+        <Tool
+          href="/admin/bolo"
+          title="Discontinued BOLO"
+          desc="Discontinued cleaners, soaps, air fresheners and beauty products that resell high, with thumbnails, comps and live eBay counts. Built for the aisle."
+        />
+      </Group>
+
       <Group title="Journal & content">
         <Tool
           href="/admin/draft"

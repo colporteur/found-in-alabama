@@ -36,5 +36,9 @@ export default function manifest(): MetadataRoute.Manifest {
       },
     ],
     categories: ["business", "productivity"],
+    // Long-press the home-screen icon (Android) for a jump straight in.
+    shortcuts: [
+      { name: "Discontinued BOLO", short_name: "BOLO", url: "/admin/bolo" },
+    ],
   };
 }
