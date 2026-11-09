@@ -8,14 +8,39 @@ import { useEffect, useRef } from "react";
 
 type Label = { key: string; lines: string[] };
 
+// Shrink the address until it fits the label's printable area (the cell
+// minus its padding, with a little slack for the printer). If a line is
+// still too wide at a readable size, let lines wrap with a hanging indent
+// and keep shrinking until the whole block fits the height.
+const MIN_NOWRAP_PT = 9;
+const SLACK_PX = 3;
+
 function fit(root: HTMLElement | null) {
   root?.querySelectorAll<HTMLElement>(".adr").forEach((label) => {
     const cell = label.querySelector<HTMLElement>(".adr-cell");
     const text = label.querySelector<HTMLElement>(".adr-text");
     if (!cell || !text) return;
+    const cs = getComputedStyle(cell);
+    const availW = cell.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight) - SLACK_PX;
+    const availH = cell.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom) - SLACK_PX;
+    const tooBig = () => text.scrollWidth > availW || text.scrollHeight > availH;
+
     let pt = 14;
+    text.classList.remove("adr-wrap");
+    text.style.width = "";
     text.style.fontSize = `${pt}pt`;
-    while (pt > 5 && (text.scrollWidth > cell.clientWidth || text.scrollHeight > cell.clientHeight)) {
+    while (pt > MIN_NOWRAP_PT && tooBig()) {
+      pt -= 0.5;
+      text.style.fontSize = `${pt}pt`;
+    }
+    if (!tooBig()) return;
+
+    // Still too wide: wrap long lines instead of shrinking to unreadable.
+    text.classList.add("adr-wrap");
+    text.style.width = `${availW}px`;
+    pt = 12;
+    text.style.fontSize = `${pt}pt`;
+    while (pt > 5 && tooBig()) {
       pt -= 0.5;
       text.style.fontSize = `${pt}pt`;
     }
@@ -74,7 +99,9 @@ const CSS = `
   .adr-hint { font-size: 12px; color: #555; }
   .adr { width: 57mm; height: 32mm; overflow: hidden; background: #fff; border: 1px solid #cbd5e1; border-radius: 4px; margin-bottom: 10px; }
   .adr-cell { width: 57mm; height: 32mm; box-sizing: border-box; padding: 2mm 2.5mm; display: flex; align-items: center; overflow: hidden; }
-  .adr-text { font-weight: 700; font-size: 14pt; line-height: 1.15; outline: none; white-space: nowrap; }
+  .adr-text { font-weight: 700; font-size: 14pt; line-height: 1.15; outline: none; white-space: nowrap; min-width: 0; }
+  .adr-text.adr-wrap { white-space: normal; overflow-wrap: anywhere; }
+  .adr-text.adr-wrap > div { padding-left: 1.2em; text-indent: -1.2em; }
   @media print {
     html, body { margin: 0 !important; padding: 0 !important; background: #fff !important; min-height: 0 !important; display: block !important; }
     body header, body footer, body nav, .no-print { display: none !important; }
