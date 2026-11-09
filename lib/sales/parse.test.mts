@@ -145,6 +145,31 @@ test("poshmark: shipping and other mails are ignored", () => {
   );
 });
 
+test("poshmark: newer layout (no quotes in subject, Order Number, bare price)", () => {
+  const html = `<table>
+<tr><td><div>You just sold Vintage Tin Toy Robot Wind Up Japan 1960s on Poshmark.</div></td></tr>
+<tr><td>Order Number</td></tr><tr><td>6aed10668d1da0a07ab0ae4f</td></tr>
+<tr><td>Buyer</td></tr><tr><td>@buyer_handle</td></tr>
+<tr><td>Vintage Tin Toy Robot Wind Up Japan 1960s</td></tr>
+<tr><td>Size: OS</td></tr>
+<tr><td>SKU: AB12</td></tr>
+<tr><td>$13.00</td></tr>
+<tr><td>Your Earnings (minus fee and taxes)</td></tr><tr><td>$10.05</td></tr>
+</table>`;
+  const r = parseSaleEmail({
+    from: "orders@poshmark.com",
+    subject: "Vintage Tin Toy Robot Wind Up Japan 1960s just sold to @buyer_handle on Poshmark!",
+    text: null,
+    html,
+  });
+  assert.deepEqual(r, {
+    kind: "sale",
+    venue: "poshmark",
+    orderRef: "6aed10668d1da0a07ab0ae4f",
+    lines: [{ title: "Vintage Tin Toy Robot Wind Up Japan 1960s", titleTruncated: false, venueListingId: null, price: 13 }],
+  });
+});
+
 // ─── Whatnot ──────────────────────────────────────────────────────────────────
 
 test("whatnot: title from subject, price from body", () => {

@@ -174,11 +174,13 @@ export function mercariCharges(e: EmailInput): { tax: number | null; buyerFee: n
 
 function parsePoshmark(e: EmailInput, body: string): ParsedSale | null {
   const subject = stripInvisible(decodeEntities(e.subject ?? ""));
-  // Single item: "\"<title>\" just sold to @buyer on Poshmark!"
-  const single = subject.match(/^"(.+)"\s+just sold to @\S+ on Poshmark/i);
+  // Single item: "\"<title>\" just sold to @buyer on Poshmark!" — since late
+  // Oct 2026 Poshmark sends the title without the quotes, so they're optional.
+  const single = subject.match(/^"?(.+?)"?\s+just sold to @\S+ on Poshmark/i);
   const bundle = /just sold/i.test(subject) && /bundle/i.test(subject);
   if (!single && !bundle) return null;
-  const order = body.match(/Order ID[\s|]*([0-9a-f]{20,})/i);
+  // "Order ID" in the older layout, "Order Number" since late Oct 2026.
+  const order = body.match(/Order (?:ID|Number)[\s|]*([0-9a-f]{20,})/i);
 
   // Item rows: "<title>" / "Size: …" / "Price: $24.00" (one block per item;
   // a bundle lists several).
@@ -191,8 +193,9 @@ function parsePoshmark(e: EmailInput, body: string): ParsedSale | null {
     if (!/^Size:/i.test(rows[i])) continue;
     const title = rows[i - 1];
     let price: number | null = null;
+    // Older layout: "Price: $24.00"; newer: "SKU: …" then a bare "$24.00".
     for (let j = i + 1; j < Math.min(rows.length, i + 4); j++) {
-      const p = rows[j].match(/^Price:\s*\$([\d,]+\.\d{2})/i);
+      const p = rows[j].match(/^(?:Price:\s*)?\$([\d,]+\.\d{2})$/i);
       if (p) {
         price = money(p[1]);
         break;
