@@ -6,6 +6,7 @@
 
 import { sellApi } from "./sell-api";
 import { FULFILLMENT_SCOPE, hasGrantedScope } from "./oauth";
+import { decodeEntities } from "./entities";
 
 export type EbayOrderLine = {
   lineItemId: string;
@@ -109,7 +110,7 @@ export function parseEbayOrders(json: unknown): EbayOrder[] {
           return {
             lineItemId: String(li.lineItemId ?? ""),
             legacyItemId: str(li.legacyItemId),
-            title: str(li.title),
+            title: li.title != null ? decodeEntities(String(li.title)) || null : null,
             sku: str(li.sku),
             quantity: Number(li.quantity ?? 1) || 1,
             lineCost: num(li.lineItemCost),

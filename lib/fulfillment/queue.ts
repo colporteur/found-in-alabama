@@ -20,6 +20,7 @@ import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { fetchEbayOrdersSince, type EbayOrder } from "@/lib/ebay/orders";
 import { parseEmailBuyer } from "./buyers";
+import { decodeEntities } from "@/lib/ebay/entities";
 import { mercariCharges } from "@/lib/sales/parse";
 
 type Row = Record<string, unknown>;
@@ -447,7 +448,7 @@ function toOrder(r: Row): ShipOrder {
     venue: String(r.venue),
     orderKey: String(r.order_key),
     venueOrderId: (r.venue_order_id as string | null) ?? null,
-    buyerName: (r.buyer_name as string | null) ?? null,
+    buyerName: r.buyer_name ? decodeEntities(r.buyer_name as string) : null,
     buyerUsername: (r.buyer_username as string | null) ?? null,
     soldAt: iso(r.sold_at),
     status: String(r.status),
@@ -465,7 +466,8 @@ function toOrder(r: Row): ShipOrder {
     trackingNumber: (r.tracking_number as string | null) ?? null,
     lines: lines.map((l) => ({
       id: String(l.id),
-      title: (l.title as string | null) ?? null,
+      // Older rows can carry raw XML entities ("H&amp;M") — decode for display.
+      title: l.title ? decodeEntities(l.title as string) : null,
       binSku: (l.bin_sku as string | null) ?? null,
       quantity: Number(l.quantity ?? 1),
       price: l.price == null ? null : Number(l.price),
