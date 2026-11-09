@@ -11,6 +11,7 @@
 // buyer is most likely to come back to (lib/shop/invoice-pitch.ts).
 
 import { loadShipOrders } from "@/lib/fulfillment/queue";
+import { addressLabels } from "@/lib/labels/address";
 import { pickOrder } from "@/lib/fulfillment/sku";
 import { codesForOrders, couponSettings } from "@/lib/shop/coupons";
 import { choosePitch, loadPitchContext, orderLines, planPitch, type Site } from "@/lib/shop/invoice-pitch";
@@ -86,6 +87,11 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
         : null;
     pitches.set(o.id, { text: settings?.stockLine !== false && p ? p.text : null, qr, site });
   }
+  // The buyer's mailing address, printed small, when FIA has one.
+  const shipTo = new Map<string, string>();
+  for (const a of await addressLabels([], orders.map((o) => o.id)).catch(() => [])) {
+    if (a.lines.length > 1) shipTo.set(a.key.slice(2), a.lines.join(", "));
+  }
   const data: InvoiceData[] = orders.map((o) => {
     const website = o.venue === "tes" || o.venue === "fia";
     return {
@@ -95,6 +101,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
       venue: VENUE[o.venue] ?? o.venue,
       buyer: o.buyerUsername && !website ? `@${o.buyerUsername}` : o.buyerName,
       orderId: o.venueOrderId,
+      shipTo: shipTo.get(o.id) ?? null,
       date: o.soldAt
         ? new Date(o.soldAt.endsWith("Z") || o.soldAt.includes("+") ? o.soldAt : `${o.soldAt}Z`).toLocaleDateString("en-US", {
             timeZone: "America/Chicago",

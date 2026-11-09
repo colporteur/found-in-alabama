@@ -19,6 +19,8 @@ export type InvoiceData = {
   venue: string;
   buyer: string | null;
   orderId: string | null;
+  /** Mailing address, one line, when FIA has it (eBay, website, some Depop). */
+  shipTo: string | null;
   date: string;
   shipping: number | null;
   /** Sales tax the buyer paid; the marketplace collects and remits it. */
@@ -135,6 +137,7 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
         <span>{inv.date}</span>
       </div>
       {inv.orderId && <div className="inv-saleline">Order {inv.orderId}</div>}
+      {inv.shipTo && <div className="inv-shipto">Ship to {inv.shipTo}</div>}
       <div className="inv-lines">
         {inv.lines.map((l) => (
           <div key={l.id} className="inv-line">
@@ -353,6 +356,7 @@ const INVOICE_CSS = `
   .inv-brands:not(.inv-brands-single) .inv-brand-site { font-size: 9px; white-space: nowrap; }
   .inv-brand-name { margin: 0; font-size: 12px; font-weight: 700; line-height: 1.2; }
   .inv-brand-site { margin: 2px 0 0; font-size: 10px; }
+  .inv-shipto { margin-top: 3px; font-size: 8px; line-height: 1.25; color: #333; overflow-wrap: anywhere; }
   .inv-saleline { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: 11px; overflow-wrap: anywhere; }
   .inv-note { font-size: 10px; }
   .inv-lines { margin-top: 4px; }
@@ -393,7 +397,7 @@ const INVOICE_CSS = `
     .inv-page { padding: 0; background: #fff; }
     .invoice { width: auto; min-height: 0; margin: 0; padding: 0; box-shadow: none; break-after: page; }
     .invoice:last-child { break-after: auto; }
-    .inv-brands, .inv-saleline, .inv-line, .inv-total, .inv-footer { break-inside: avoid; }
+    .inv-brands, .inv-saleline, .inv-shipto, .inv-line, .inv-total, .inv-footer { break-inside: avoid; }
     .inv-brands, .inv-saleline { break-after: avoid; }
     .inv-total, .inv-footer { break-before: avoid; }
     .inv-price, .inv-line-price { border-color: transparent !important; color: #000 !important; }
