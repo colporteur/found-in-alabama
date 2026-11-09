@@ -356,7 +356,7 @@ const INVOICE_CSS = `
   .inv-brands:not(.inv-brands-single) .inv-brand-site { font-size: 9px; white-space: nowrap; }
   .inv-brand-name { margin: 0; font-size: 12px; font-weight: 700; line-height: 1.2; }
   .inv-brand-site { margin: 2px 0 0; font-size: 10px; }
-  .inv-shipto { margin-top: 3px; font-size: 8px; line-height: 1.25; color: #333; overflow-wrap: anywhere; }
+  .inv-shipto { margin-top: 3px; font-size: 8px; line-height: 1.25; font-weight: 700; color: #000; overflow-wrap: anywhere; }
   .inv-saleline { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: 11px; overflow-wrap: anywhere; }
   .inv-note { font-size: 10px; }
   .inv-lines { margin-top: 4px; }
