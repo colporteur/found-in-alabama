@@ -18,6 +18,74 @@ const VENUE: Record<string, string> = {
   fia: "FIA",
 };
 
+// eBay photo URLs carry a size (s-l64, s-l500…); ask for the big one.
+function bigSrc(url: string) {
+  return /ebayimg\.com/i.test(url) ? url.replace(/s-l\d+\./i, "s-l1600.") : url;
+}
+
+type ZoomPhoto = { src: string; title: string | null; bin: string | null };
+
+// Thumbnail that pops a large preview beside it on hover, for checking the
+// item in hand against the photo while pulling packages.
+function HoverZoom({ thumb, photos }: { thumb: string; photos: ZoomPhoto[] }) {
+  const [pos, setPos] = useState<{ left: number; top: number; maxW: number; maxH: number } | null>(null);
+  const multi = photos.length > 1;
+
+  function show(e: React.MouseEvent<HTMLImageElement>) {
+    const r = e.currentTarget.getBoundingClientRect();
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const gap = 12;
+    const maxW = Math.min(multi ? 760 : 560, vw - r.right - gap * 2);
+    const maxH = vh - gap * 2;
+    setPos({ left: r.right + gap, top: gap, maxW: Math.max(maxW, 240), maxH });
+  }
+
+  return (
+    <>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={thumb}
+        alt=""
+        className="w-12 h-12 object-cover rounded cursor-zoom-in"
+        loading="lazy"
+        onMouseEnter={show}
+        onMouseLeave={() => setPos(null)}
+      />
+      {pos && (
+        <div
+          className="fixed z-50 pointer-events-none flex items-center"
+          style={{ left: pos.left, top: pos.top, height: pos.maxH, maxWidth: pos.maxW }}
+        >
+          <div
+            className={`bg-white rounded-lg shadow-2xl ring-1 ring-black/10 p-2 ${multi ? "grid grid-cols-2 gap-2 overflow-hidden" : ""}`}
+            style={{ maxHeight: pos.maxH }}
+          >
+            {photos.map((p, i) => (
+              <figure key={i} className="min-w-0">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={bigSrc(p.src)}
+                  alt=""
+                  className="block object-contain rounded"
+                  style={{
+                    maxWidth: multi ? (pos.maxW - 24) / 2 : pos.maxW - 16,
+                    maxHeight: multi ? (pos.maxH - 40) / Math.ceil(photos.length / 2) - 24 : pos.maxH - 40,
+                  }}
+                />
+                <figcaption className="mt-1 text-xs text-brand-ink/70 truncate">
+                  {p.bin && <span className="font-semibold mr-1">{p.bin}</span>}
+                  {p.title ?? ""}
+                </figcaption>
+              </figure>
+            ))}
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
 async function post(body: Record<string, unknown>) {
   const res = await fetch("/api/admin/ship", {
     method: "POST",
@@ -269,8 +337,12 @@ export function ShipTable({
                   </td>
                   <td className="py-2">
                     {img ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={img} alt="" className="w-12 h-12 object-cover rounded" loading="lazy" />
+                      <HoverZoom
+                        thumb={img}
+                        photos={o.lines
+                          .filter((l) => l.imageUrl)
+                          .map((l) => ({ src: l.imageUrl as string, title: l.title, bin: l.binSku }))}
+                      />
                     ) : (
                       <div className="w-12 h-12 rounded bg-brand-ink/10" />
                     )}
