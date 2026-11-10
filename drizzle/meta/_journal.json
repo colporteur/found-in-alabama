@@ -379,6 +379,13 @@
       "when": 1793627716749,
       "tag": "0053_ship_notice",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1794353000000,
+      "tag": "0054_item_guide_links",
+      "breakpoints": true
     }
   ]
 }

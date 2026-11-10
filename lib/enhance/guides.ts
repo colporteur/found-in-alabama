@@ -33,6 +33,9 @@ export type GuideMeta = {
   updated: string | null;
   /** Manifest version of the guide, when the manifest has one. */
   version?: string | null;
+  /** eBay site category ids and store shelf names the manifest ties to this guide. */
+  ebayCategoryIds?: string[];
+  storeCategories?: string[];
   /** true when this row came from the bundled fallback, not the gateway */
   local?: boolean;
 };
@@ -73,6 +76,8 @@ function normalizeRow(g: Record<string, unknown>): GuideMeta {
     description: String(g.description ?? ""),
     updated: g.updated ? String(g.updated) : null,
     version: g.version != null ? String(g.version) : null,
+    ebayCategoryIds: Array.isArray(g.ebayCategoryIds) ? g.ebayCategoryIds.map(String) : [],
+    storeCategories: Array.isArray(g.storeCategories) ? g.storeCategories.map(String) : [],
   };
 }
 
