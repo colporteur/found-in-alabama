@@ -33,6 +33,9 @@ import {
   parseWriteOutput,
   rankCategories,
   rankStoreCategories,
+  isBroadShelf,
+  shelfLine,
+  BROAD_SHELF_RULE,
   suggestShipping,
   planDraftShipping,
   CONDITIONS,
@@ -304,7 +307,7 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
       : "No Expert Guide matched the intake words. Once you know what the item is, call listing_find_guide with a few words (e.g. 'rppc postcard', 'vinyl record gospel') and use what it returns; otherwise be conservative on price.",
     supplyText(supply),
     `eBay categories this store uses (id — path), best guesses from the intake words; call listing_find_categories for others:\n${candidates.map((c) => `${c.id} — ${c.path}`).join("\n")}`,
-    shelves.length ? `The store's own shelves (store_category_ids; id — path, [AL] = Alabama):\n${shelves.map((c) => `${c.id} — ${c.isAlabama ? "[AL] " : ""}${c.path}`).join("\n")}` : "",
+    shelves.length ? `The store's own shelves (store_category_ids; id — path, [AL] = Alabama):\n${shelves.map(shelfLine).join("\n")}` : "",
     `WRITING RULES (the same ones FIA's own writer follows):\n${WRITE_RULES}`,
     `HOW TO FINISH: pick the eBay category, call listing_category_specifics with its id to see the real item-specific fields, then call listing_save with the listing fields from the JSON above plus "identification" (kind, card_type, era, places, est_value_usd, notes). Confident words the item doesn't show (rule 1d) stay in the listing and go in "unverified" — Todd keeps or removes each with one click in Review, so don't take them out yourself. FIA applies the price rules (.87 endings, floors, Poshmark floor), title/description cleanup and weight/shipping, and puts the draft in Todd's Review queue. Mention anything uncertain in "flags".`,
   ]
@@ -378,7 +381,7 @@ export async function claudeFindCategories(query: string) {
 
 /** The rule for picking store shelves (the same one FIA's writer follows). */
 export const SHELF_RULE =
-  "Pick TWO of the store's own shelves (store_category_ids): first the shelf for what the item IS; second a place shelf ONLY when the item is clearly tied to a place — an [AL] shelf for Alabama, or that state's shelf under \"Found in Other States\" for another US state (never guess a state) — otherwise the next-best shelf a buyer would browse (subject, theme, era, maker or use), not a near-duplicate of the first.";
+  "Pick TWO of the store's own shelves (store_category_ids): first the shelf for what the item IS; second a place shelf ONLY when the item is clearly tied to a place — an [AL] shelf for Alabama, or that state's shelf under \"Found in Other States\" for another US state (never guess a state) — otherwise the next-best shelf a buyer would browse (subject, theme, era, maker or use), not a near-duplicate of the first. " + BROAD_SHELF_RULE;
 
 /** The store's own shelves (eBay store categories) ranked for some words. */
 export async function claudeStoreShelves(query: string, limit = 40) {
@@ -390,7 +393,7 @@ export async function claudeStoreShelves(query: string, limit = 40) {
     q,
     limit
   );
-  return { rule: SHELF_RULE, shelves: ranked.map((c) => `${c.id} — ${c.isAlabama ? "[AL] " : ""}${c.path}`) };
+  return { rule: SHELF_RULE, shelves: ranked.map(shelfLine) };
 }
 
 export async function claudeFindGuide(query: string) {
@@ -485,11 +488,13 @@ export async function saveClaudeWrite(
   const store = await buildCategoryOptions().catch(() => []);
   const catIds = new Set(cats.map((c) => c.id));
   const storeIds = new Set(store.map((o) => o.id));
+  const broadShelfIds = new Set(store.filter((o) => isBroadShelf(o.path)).map((o) => o.id));
 
   const parsed = parseWriteOutput(JSON.stringify(input), {
     binSku: d.bin_sku as string | null,
     categoryIds: catIds,
     storeCategoryIds: storeIds,
+    broadShelfIds,
   });
   if (!parsed.ok) throw new Error(`${parsed.error.replace("The model's reply", "The listing")}. Send title, description, condition (${CONDITIONS.join(" / ")}), price and the rest as fields.`);
   const out = parsed.value;

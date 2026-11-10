@@ -6,6 +6,7 @@
 // Alabama relevance (state name, place name, team, author, etc.).
 
 import { gatewayChat } from "@/lib/gateway";
+import { isBroadShelf } from "@/lib/listings/rules";
 
 // Gateway alias — actual model set in the gateway routing table
 // (Admin → AI Models). Seeded to anthropic/claude-haiku-4.5.
@@ -52,6 +53,7 @@ Your task: pick the single best-fitting category for the listing.
 Rules:
 - Strongly prefer Alabama-flagged categories when the title or image references the state, an Alabama city, an Alabama university or sports team, an Alabama-born author, or any other Alabama connection.
 - Otherwise, pick the most specific category whose full path fits. "Modern Trading Card Games" beats "Toys" if both exist.
+- Categories marked [BROAD] (e.g. "Collectibles", "Music & Media", "Other …" catch-alls) are a LAST RESORT. Pick one only when no more specific category fits the item, and give it a confidence no higher than 0.6. "Advertising Collectibles" beats "Collectibles" for an advertising item.
 - If no category fits well, return primaryCategoryId: null and explain in reasoning. Confidence should reflect that. A null is much better than a wrong shelf.
 - Only return secondaryCategoryId if a second category genuinely adds information (e.g., an Alabama-themed book could go in both an Alabama category AND a fiction category). Otherwise leave it null.
 - The two IDs must come from the provided list. Do not invent IDs.
@@ -126,7 +128,10 @@ export async function suggestCategoryForListing(input: {
   // in the list itself, which helps far more than raw name order.
   const lines = [...input.categories]
     .sort((a, b) => (a.path ?? a.name).localeCompare(b.path ?? b.name))
-    .map((c) => `${c.id}\t${c.isAlabama ? "[AL] " : ""}${c.path ?? c.name}`)
+    .map((c) => {
+      const p = c.path ?? c.name;
+      return `${c.id}\t${c.isAlabama ? "[AL] " : ""}${p}${isBroadShelf(p) ? " [BROAD]" : ""}`;
+    })
     .join("\n");
 
   // The category list is identical across every item in a run, so it goes

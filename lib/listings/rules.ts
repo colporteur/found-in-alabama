@@ -256,19 +256,74 @@ export function cleanCategoryPath(p: string): string {
 
 export type StoreCategoryOption = { id: string; path: string; isAlabama: boolean };
 
+/**
+ * Very broad shelves: catch-alls that fit almost anything, so a model reaches
+ * for them too easily ("Collectibles" for an advertising tin that belongs on
+ * Advertising Collectibles). They stay pickable but are shelves of LAST
+ * choice — ranked last, labelled for the model, and never left in slot 1 when
+ * a specific shelf was also picked.
+ *
+ * Matched on the shelf's own (leaf) name. Add a name here to make another
+ * shelf last-choice. Leaves starting "Other " (Postcards › Other Vintage
+ * Postcards, Jewelry › Other Jewelry…) are their family's catch-all and count
+ * too. The Alabama place shelves are deliberately NOT here — they're the
+ * place shelf, not a fallback.
+ */
+export const BROAD_SHELF_NAMES = [
+  "collectibles",
+  "music & media",
+  "other",
+  "misc",
+  "miscellaneous",
+  "general",
+  "assorted",
+  "everything else",
+  "gifts",
+];
+
+export function isBroadShelf(path: string): boolean {
+  const leaf = (path.replace(/&amp;/g, "&").split(/\s*[›>]\s*/).pop() ?? "").trim().toLowerCase();
+  if (!leaf) return false;
+  return BROAD_SHELF_NAMES.includes(leaf) || /^other\s/.test(leaf);
+}
+
+/** "id — [AL] Path" line for prompts, with broad shelves marked last-resort. */
+export function shelfLine(o: StoreCategoryOption): string {
+  return `${o.id} — ${o.isAlabama ? "[AL] " : ""}${o.path}${isBroadShelf(o.path) ? " [BROAD — last resort]" : ""}`;
+}
+
+/** The shared instruction about broad shelves, for every shelf-picking prompt. */
+export const BROAD_SHELF_RULE =
+  'Shelves marked [BROAD — last resort] (e.g. "Collectibles") are catch-alls: use one ONLY when no more specific shelf fits the item, and never as the first shelf when a specific one fits. A broad shelf still beats a wrong specific one.';
+
 /** Store shelves that best fit the item. Alabama shelves and the
  *  "Found in Other States" state shelves are always kept in the list so the
- *  writer can pick the place shelf as the second category. */
+ *  writer can pick the place shelf as the second category. Broad catch-all
+ *  shelves (see isBroadShelf) always sort to the very end. */
 export function rankStoreCategories(options: StoreCategoryOption[], text: string, limit = 50): StoreCategoryOption[] {
   const want = new Set(words(text));
-  const scored = options.map((o) => ({ o, s: words(o.path).filter((w) => want.has(w)).length }));
+  const scored = options.map((o) => ({ o, s: words(o.path).filter((w) => want.has(w)).length, broad: isBroadShelf(o.path) }));
   scored.sort((a, b) => b.s - a.s);
   // Matching shelves first, then the rest of the list so the writer always has
   // candidates for a good second shelf (the store has ~200 leaf shelves).
-  const top = [...scored.filter((x) => x.s > 0), ...scored.filter((x) => x.s === 0)].slice(0, limit).map((x) => x.o);
+  const specific = scored.filter((x) => !x.broad);
+  const top = [...specific.filter((x) => x.s > 0), ...specific.filter((x) => x.s === 0)].slice(0, limit).map((x) => x.o);
   const always = options.filter((o) => o.isAlabama && /alabama interest|alabama ephemera/i.test(o.path));
   for (const o of always) if (!top.includes(o)) top.push(o);
+  // Broad shelves last, but always present so there is a fallback.
+  for (const x of scored) if (x.broad && !top.includes(x.o)) top.push(x.o);
   return top;
+}
+
+/** Put a specific shelf ahead of a broad one; flag a broad-only pick. */
+export function orderShelves(ids: string[], broadIds?: Set<string>): { ids: string[]; flag?: string } {
+  if (!broadIds || !ids.length) return { ids };
+  const specific = ids.filter((id) => !broadIds.has(id));
+  const broad = ids.filter((id) => broadIds.has(id));
+  const out = [...specific, ...broad];
+  return specific.length
+    ? { ids: out }
+    : { ids: out, flag: "Only a broad store shelf (e.g. Collectibles) was picked — check whether a more specific shelf fits" };
 }
 
 // ── title / description cleanup ─────────────────────────────────────────────
@@ -558,7 +613,7 @@ export function removeWords(text: string, words: string): string {
 
 export function parseWriteOutput(
   text: string,
-  opts: { binSku?: string | null; categoryIds?: Set<string>; storeCategoryIds?: Set<string> } = {}
+  opts: { binSku?: string | null; categoryIds?: Set<string>; storeCategoryIds?: Set<string>; broadShelfIds?: Set<string> } = {}
 ):
   | { ok: true; value: WriteOutput }
   | { ok: false; error: string } {
@@ -586,6 +641,9 @@ export function parseWriteOutput(
     store.push(id);
     if (store.length === 2) break;
   }
+  const shelfOrder = orderShelves(store, opts.broadShelfIds);
+  store.splice(0, store.length, ...shelfOrder.ids);
+  if (shelfOrder.flag) extraFlags.push(shelfOrder.flag);
   const specs: Record<string, string | string[]> = {};
   if (j.item_specifics && typeof j.item_specifics === "object" && !Array.isArray(j.item_specifics)) {
     for (const [k0, v] of Object.entries(j.item_specifics as Record<string, unknown>)) {

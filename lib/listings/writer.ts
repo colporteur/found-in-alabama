@@ -39,6 +39,9 @@ import {
   pickTier,
   rankCategories,
   rankStoreCategories,
+  isBroadShelf,
+  shelfLine,
+  BROAD_SHELF_RULE,
   suggestShipping,
   planDraftShipping,
   CONDITIONS,
@@ -317,6 +320,7 @@ STORE CATEGORIES: pick two of the store's own shelves (store_category_ids) from 
 - First: the shelf for what the item IS.
 - Second: a place shelf ONLY when the photos or facts clearly tie the item to a place — an Alabama shelf (marked [AL]) for Alabama, or that state's shelf under "Found in Other States" for another US state. Do not guess a state.
 - Otherwise the second is the next-best shelf a buyer might browse for this item (its subject, theme, era, maker or use), different from the first and not a near-duplicate of it. Always try to find a good second shelf; leave it out only when nothing on the list genuinely fits.
+- ${BROAD_SHELF_RULE}
 
 ITEM SPECIFICS: eBay item specific names and values for that category (follow the guide's item specifics map if it has one). Only values you are sure of; omit the rest. Typical for postcards: Type, Theme, Subject, City, State, Region, Country/Region of Manufacture, Era, Postage Condition, Publisher, Original/Licensed Reprint, Size.
 
@@ -448,6 +452,7 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
       120
     );
     const storeIds = new Set(storeCands.map((c) => c.id));
+    const broadShelfIds = new Set(storeCands.filter((c) => isBroadShelf(c.path)).map((c) => c.id));
     const guideRefs = guides.map((g) => ({ id: g.id, version: g.version ?? g.updated ?? null }));
     const guideText = guides.length ? guidePromptText(guides.map((g) => ({ id: g.id, name: g.name, content: g.content }))) : "";
 
@@ -458,7 +463,7 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
       supplyText(supply),
       `eBay categories this store uses (id — path):\n${candidates.map((c) => `${c.id} — ${c.path}`).join("\n")}`,
       storeCands.length
-        ? `The store's own shelves (eBay store categories; id — path):\n${storeCands.map((c) => `${c.id} — ${c.isAlabama ? "[AL] " : ""}${c.path}`).join("\n")}`
+        ? `The store's own shelves (eBay store categories; id — path):\n${storeCands.map(shelfLine).join("\n")}`
         : "",
       guides.length ? "" : "No expert guide matched this item; rely on general collectibles knowledge and be conservative on price.",
       correctionBlock.trim(),
@@ -483,7 +488,7 @@ export async function generateDraft(draftId: string, opts: GenerateOptions): Pro
         who: opts.who,
       });
       totalCost += call.costUsd;
-      const parsed = parseWriteOutput(call.text, { binSku: d.bin_sku as string | null, categoryIds: catIds, storeCategoryIds: storeIds });
+      const parsed = parseWriteOutput(call.text, { binSku: d.bin_sku as string | null, categoryIds: catIds, storeCategoryIds: storeIds, broadShelfIds });
       await noteRun(call.runId, parsed.ok ? parsed.value.confidence : null, parsed.ok ? parsed.value : { error: parsed.error, raw: call.text.slice(0, 4000) });
       attempts.push({ tier, model, out: parsed.ok ? parsed.value : null, error: parsed.ok ? undefined : parsed.error, resolvedModel: call.resolvedModel });
       const conf = parsed.ok ? parsed.value.confidence ?? 1 : 0;

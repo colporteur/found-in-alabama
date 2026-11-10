@@ -167,6 +167,31 @@ test("a late condition paragraph moves up to second place", () => {
   assert.equal(moveConditionUp(short), short);
 });
 
+test("broad shelves are last choice", async () => {
+  const { isBroadShelf, rankStoreCategories, parseWriteOutput } = await import("./rules");
+  assert.ok(isBroadShelf("Collectibles"));
+  assert.ok(isBroadShelf("Music & Media"));
+  assert.ok(isBroadShelf("Postcards › Other Vintage Postcards"));
+  assert.ok(!isBroadShelf("Advertising Collectibles"));
+  assert.ok(!isBroadShelf("Kitchen › Collectible Glassware"));
+  assert.ok(!isBroadShelf("Alabama Interest"));
+
+  const opts = [
+    { id: "1", path: "Collectibles", isAlabama: false },
+    { id: "2", path: "Advertising Collectibles", isAlabama: false },
+    { id: "3", path: "Kitchen", isAlabama: false },
+  ];
+  const ranked = rankStoreCategories(opts, "vintage collectibles advertising tin", 2);
+  assert.equal(ranked[0].id, "2");
+  assert.equal(ranked.at(-1)!.id, "1"); // kept as the fallback, last
+
+  const base = { title: "A long enough title here", description: "d".repeat(60) };
+  const swapped = parseWriteOutput(JSON.stringify({ ...base, store_category_ids: ["1", "2"] }), { broadShelfIds: new Set(["1"]) });
+  assert.ok(swapped.ok && swapped.value.storeCategoryIds.join(",") === "2,1");
+  const only = parseWriteOutput(JSON.stringify({ ...base, store_category_ids: ["1"] }), { broadShelfIds: new Set(["1"]) });
+  assert.ok(only.ok && only.value.flags.some((f) => /broad store shelf/i.test(f)));
+});
+
 test("store categories: only ids from the offered list, at most two", () => {
   const ok = parseWriteOutput(
     JSON.stringify({ title: "A long enough title here", description: "d".repeat(60), store_category_ids: ["54113704012", "999", "54147286012", "1"] }),
