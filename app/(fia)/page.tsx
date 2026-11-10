@@ -16,22 +16,39 @@ export default async function HomePage() {
     await Promise.all([getHomeShelves(), getFiaDiscountPercent()]);
   return (
     <>
-      {/* Hero — compact, so the Alabama shelf sits high */}
+      {/* Hero — compact, so the Alabama shelf sits high. Promo video
+          (public/video/, added Nov 2026) sits beside the copy on desktop
+          and under it on phones; muted + playsInline so it can autoplay. */}
       <section className="container-content pt-8 pb-6 md:pt-10 md:pb-8">
-        <h1 className="font-marker text-3xl md:text-4xl leading-tight mb-3">
-          Estate finds, books, and small antiques —{" "}
-          <span className="marker-highlight">found in Alabama.</span>
-        </h1>
-        <p className="text-base md:text-lg text-brand-ink/75 leading-snug mb-5 max-w-2xl">
-          If you collect it, we sell it. Come check out what we&rsquo;ve found.
-        </p>
-        <div className="flex flex-wrap gap-3">
-          <Link href="/shop" className="btn-primary">
-            Shop the inventory →
-          </Link>
-          <Link href="/we-buy" className="btn-secondary">
-            We buy estates &amp; collections
-          </Link>
+        <div className="grid gap-6 md:grid-cols-2 md:items-center">
+          <div>
+            <h1 className="font-marker text-3xl md:text-4xl leading-tight mb-3">
+              Estate finds, books, and small antiques —{" "}
+              <span className="marker-highlight">found in Alabama.</span>
+            </h1>
+            <p className="text-base md:text-lg text-brand-ink/75 leading-snug mb-5 max-w-2xl">
+              If you collect it, we sell it. Come check out what we&rsquo;ve found.
+            </p>
+            <div className="flex flex-wrap gap-3">
+              <Link href="/shop" className="btn-primary">
+                Shop the inventory →
+              </Link>
+              <Link href="/we-buy" className="btn-secondary">
+                We buy estates &amp; collections
+              </Link>
+            </div>
+          </div>
+          <video
+            className="w-full aspect-video rounded-lg ring-1 ring-brand-ink/10 shadow-md bg-brand-paper"
+            src="/video/found-in-alabama-promo.mp4"
+            poster="/video/found-in-alabama-promo-poster.jpg"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            aria-label="Found in Alabama promo: Alabama finds we have sold and have for sale"
+          />
         </div>
       </section>
 
