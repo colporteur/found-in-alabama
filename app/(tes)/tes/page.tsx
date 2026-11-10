@@ -41,26 +41,42 @@ export default async function TesHomePage() {
     <>
       <FeaturedBar />
       <section className="border-b border-tes-ink/10 bg-tes-kraft/15">
-        <div className="container-content py-14 md:py-20">
-          <p className="text-xs uppercase tracking-[0.2em] text-tes-stamp mb-4">
-            Antique paper Americana
-          </p>
-          <h1 className="font-typewriter text-4xl md:text-6xl leading-tight mb-5 max-w-3xl">
-            Paper survivors, sorted by the state they came from.
-          </h1>
-          <p className="text-lg text-tes-ink/75 max-w-prose leading-relaxed">
-            Postcards, photographs, letters, documents, and other ephemera.
-            {totalItems > 0 && <br />}
-            {totalItems > 0
-              ? `${totalItems.toLocaleString()} pieces in stock.`
-              : ""}
-          </p>
-          {discountPct > 0 && (
-            <p className="mt-6 inline-block bg-tes-ink text-tes-cream font-typewriter text-sm md:text-base px-4 py-2 rounded-md shadow-sm">
-              Every piece is {discountPct}% below its eBay price — automatic,
-              no code needed.
-            </p>
-          )}
+        {/* Copy + promo video (public/video/, added Nov 2026): side by
+            side on desktop, video under the copy on phones. Muted +
+            playsInline so it can autoplay. */}
+        <div className="container-content py-14 md:py-20 grid gap-8 md:grid-cols-2 md:items-center">
+          <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-tes-stamp mb-4">
+                Antique paper Americana
+              </p>
+              <h1 className="font-typewriter text-4xl md:text-5xl leading-tight mb-5 max-w-3xl">
+                Paper survivors, sorted by the state they came from.
+              </h1>
+              <p className="text-lg text-tes-ink/75 max-w-prose leading-relaxed">
+                Postcards, photographs, letters, documents, and other ephemera.
+                {totalItems > 0 && <br />}
+                {totalItems > 0
+                  ? `${totalItems.toLocaleString()} pieces in stock.`
+                  : ""}
+              </p>
+              {discountPct > 0 && (
+                <p className="mt-6 inline-block bg-tes-ink text-tes-cream font-typewriter text-sm md:text-base px-4 py-2 rounded-md shadow-sm">
+                  Every piece is {discountPct}% below its eBay price — automatic,
+                  no code needed.
+                </p>
+              )}
+          </div>
+          <video
+            className="w-full aspect-video rounded-lg ring-1 ring-tes-ink/10 shadow-md bg-tes-cream"
+            src="/video/the-ephemeral-state-promo.mp4"
+            poster="/video/the-ephemeral-state-promo-poster.jpg"
+            autoPlay
+            muted
+            loop
+            playsInline
+            preload="metadata"
+            aria-label="The Ephemeral State promo: antique paper Americana, state by state"
+          />
         </div>
       </section>
 
