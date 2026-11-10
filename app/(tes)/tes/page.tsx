@@ -9,6 +9,7 @@ import { getTesDiscountPercent } from "@/lib/tes/discount";
 import { tesPrefix } from "@/lib/tes/host";
 import { CategoryGrid } from "@/components/tes/TesCategoryCards";
 import FeaturedBar from "@/components/tes/FeaturedBar";
+import PromoVideo from "@/components/PromoVideo";
 
 // ISR: served from the cache for STOREFRONT_REVALIDATE_SECONDS (see
 // lib/storefront-cache.ts); sold/ended/repriced items and category
@@ -66,16 +67,11 @@ export default async function TesHomePage() {
                 </p>
               )}
           </div>
-          <video
-            className="w-full aspect-video rounded-lg ring-1 ring-tes-ink/10 shadow-md bg-tes-cream"
+          <PromoVideo
             src="/video/the-ephemeral-state-promo.mp4"
             poster="/video/the-ephemeral-state-promo-poster.jpg"
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            aria-label="The Ephemeral State promo: antique paper Americana, state by state"
+            label="The Ephemeral State promo: antique paper Americana, state by state"
+            frameClassName="ring-1 ring-tes-ink/10 bg-tes-cream"
           />
         </div>
       </section>

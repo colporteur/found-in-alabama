@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { marketplaces, contact } from "@/lib/links";
 import StorefrontItemCard from "@/components/StorefrontItemCard";
+import PromoVideo from "@/components/PromoVideo";
 import { getHomeShelves } from "@/lib/fia/home";
 import { getFiaDiscountPercent } from "@/lib/fia/settings";
 
@@ -38,16 +39,11 @@ export default async function HomePage() {
               </Link>
             </div>
           </div>
-          <video
-            className="w-full aspect-video rounded-lg ring-1 ring-brand-ink/10 shadow-md bg-brand-paper"
+          <PromoVideo
             src="/video/found-in-alabama-promo.mp4"
             poster="/video/found-in-alabama-promo-poster.jpg"
-            autoPlay
-            muted
-            loop
-            playsInline
-            preload="metadata"
-            aria-label="Found in Alabama promo: Alabama finds we have sold and have for sale"
+            label="Found in Alabama promo: Alabama finds we have sold and have for sale"
+            frameClassName="ring-1 ring-brand-ink/10 bg-brand-paper"
           />
         </div>
       </section>
