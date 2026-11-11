@@ -9,6 +9,7 @@ import { argDate, argEnum, argNum, argStr, type ToolDef } from "./protocol";
 import { monthReport } from "@/lib/books/books";
 import { staleReport } from "@/lib/stale/report";
 import { readinessReport } from "@/lib/sales/readiness";
+import { guideReadTools } from "./guide-tools";
 
 type Row = Record<string, unknown>;
 async function rows(q: SQL): Promise<Row[]> {
@@ -660,4 +661,5 @@ export const TOOLS: ToolDef[] = [
   listingPipeline,
   hauls,
   delistReadiness,
+  ...guideReadTools,
 ];

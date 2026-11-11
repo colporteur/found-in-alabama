@@ -2024,3 +2024,31 @@ export const listingFixes = pgTable(
     statusIdx: index("listing_fixes_status_idx").on(t.status),
   })
 );
+
+// Expert Guide learning loop (Phase 5c): which Expert Guide each sold or live
+// item belongs to, so a guide can show Todd's own results next to the market
+// survey. One row per registry item. guide_id NULL = "no guide covers this".
+// method: keyword (the linker's guess; re-scored when guides change) |
+// claude | manual (decided; never overwritten by the linker).
+export const itemGuideLinks = pgTable(
+  "item_guide_links",
+  {
+    registryItemId: uuid("registry_item_id")
+      .primaryKey()
+      .references(() => registryItems.id, { onDelete: "cascade" }),
+    guideId: text("guide_id"),
+    method: text("method").default("keyword").notNull(),
+    score: integer("score").default(0).notNull(),
+    /** The runner-up guide from another branch of the library, if any. */
+    altGuideId: text("alt_guide_id"),
+    /** false = a weak or missing keyword match that Claude or Todd should settle. */
+    confident: boolean("confident").default(false).notNull(),
+    linkedBy: text("linked_by"),
+    linkedAt: timestamp("linked_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    guideIdx: index("item_guide_links_guide_idx").on(t.guideId),
+    reviewIdx: index("item_guide_links_review_idx").on(t.confident, t.method),
+  })
+);
