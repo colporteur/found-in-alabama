@@ -2,7 +2,9 @@
 // eBay. Researched Nov 2026 (prompted by @ZachAltmyer's "know 400 products"
 // post). Shown at /admin/bolo, built for checking on a phone in the aisle.
 //
-// To add an item: append an entry below and deploy. `query` drives the
+// Items added from a photo on the page live in the bolo_items table
+// (lib/bolo/store.ts) and are merged in at render time. The list below is
+// the seed research. To add one by hand: append an entry below and deploy. `query` drives the
 // thumbnail and the live-listing count (eBay Browse API, cached 12h) and the
 // sold-comps link, so make it specific enough to find THIS product.
 //
@@ -10,7 +12,14 @@
 // completed sale; "asking" is only a listed price — anyone can list soup for
 // $200. Always check the Sold comps link before buying deep.
 
-export type BoloCategory = "Cleaners & polish" | "Air fresheners" | "Bar soap" | "Hair care" | "Fragrance" | "Traps";
+export type BoloCategory =
+  | "Cleaners & polish"
+  | "Air fresheners"
+  | "Bar soap"
+  | "Hair care"
+  | "Fragrance"
+  | "Other"
+  | "Traps";
 
 export type BoloItem = {
   id: string;

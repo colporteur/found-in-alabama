@@ -9,9 +9,13 @@
 // either website, printed big at the bottom when there's room. COUPON-2: the
 // code's prefix (FIA/TES) and a stock line + QR code follow the site the
 // buyer is most likely to come back to (lib/shop/invoice-pitch.ts).
+// COUPON-3: a package going to an Alabama address prints a big "Alabama
+// neighbor" mark (the cue for a Found in Alabama sticker) and its code
+// defaults to FIA… / foundinalabama.com (lib/shop/alabama.ts).
 
 import { loadShipOrders } from "@/lib/fulfillment/queue";
 import { addressLabels } from "@/lib/labels/address";
+import { isAlabamaAddress } from "@/lib/shop/alabama";
 import { pickOrder } from "@/lib/fulfillment/sku";
 import { codesForOrders, couponSettings } from "@/lib/shop/coupons";
 import { choosePitch, loadPitchContext, orderLines, planPitch, type Site } from "@/lib/shop/invoice-pitch";
@@ -45,6 +49,15 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
   );
   const pickRank = new Map<string, number>();
   walk.forEach((x, i) => { if (!pickRank.has(x.orderId)) pickRank.set(x.orderId, i); });
+  // The buyer's mailing address, printed small, when FIA has one — and
+  // whether it's in Alabama (COUPON-3).
+  const shipTo = new Map<string, string>();
+  const alabama = new Set<string>();
+  for (const a of await addressLabels([], orders.map((o) => o.id)).catch(() => [])) {
+    if (a.lines.length < 2) continue;
+    shipTo.set(a.key.slice(2), a.lines.join(", "));
+    if (isAlabamaAddress(a.lines)) alabama.add(a.key.slice(2));
+  }
   // COUPON-1: each package's code for a next order on either site (made the
   // first time its invoice is shown; reprints show the same one).
   const settings = await couponSettings().catch(() => null);
@@ -54,7 +67,9 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
   const picked = new Map<string, { site: Site; cat: string | null; exact: boolean }>(
     orders.map((o) => [
       o.id,
-      ctx ? planPitch(o.venue, lineCats.get(o.id) ?? [], o.pitchCategoryId, ctx.tesSet) : { site: o.venue === "tes" ? "tes" : "fia", cat: null, exact: false },
+      ctx
+        ? planPitch(o.venue, lineCats.get(o.id) ?? [], o.pitchCategoryId, ctx.tesSet, alabama.has(o.id))
+        : { site: o.venue === "tes" && !alabama.has(o.id) ? "tes" : "fia", cat: null, exact: false },
     ])
   );
   // COUPON-2c: a custom search Todd set wins (when it still finds something).
@@ -87,11 +102,6 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
         : null;
     pitches.set(o.id, { text: settings?.stockLine !== false && p ? p.text : null, qr, site });
   }
-  // The buyer's mailing address, printed small, when FIA has one.
-  const shipTo = new Map<string, string>();
-  for (const a of await addressLabels([], orders.map((o) => o.id)).catch(() => [])) {
-    if (a.lines.length > 1) shipTo.set(a.key.slice(2), a.lines.join(", "));
-  }
   const data: InvoiceData[] = orders.map((o) => {
     const website = o.venue === "tes" || o.venue === "fia";
     return {
@@ -102,6 +112,7 @@ export default async function InvoicesPage({ searchParams }: { searchParams: { i
       buyer: o.buyerUsername && !website ? `@${o.buyerUsername}` : o.buyerName,
       orderId: o.venueOrderId,
       shipTo: shipTo.get(o.id) ?? null,
+      alabama: alabama.has(o.id),
       date: o.soldAt
         ? new Date(o.soldAt.endsWith("Z") || o.soldAt.includes("+") ? o.soldAt : `${o.soldAt}Z`).toLocaleDateString("en-US", {
             timeZone: "America/Chicago",

@@ -175,13 +175,17 @@ export function ShipTable({
   startDate,
   shelves = null,
   searches = null,
+  alabama = [],
 }: {
   orders: ShipOrder[];
   tab: ShipTab;
   startDate: string;
   shelves?: Shelves;
   searches?: Searches;
+  /** COUPON-3: packages shipping to an Alabama address. */
+  alabama?: string[];
 }) {
+  const alSet = useMemo(() => new Set(alabama), [alabama]);
   const router = useRouter();
   const fresh = useMemo(
     () => new Set(orders.filter((o) => tab === "to_pick" && !o.pickPrintedAt).map((o) => o.id)),
@@ -375,6 +379,16 @@ export function ShipTable({
                         >
                           🏷️ label
                         </a>
+                      </div>
+                    )}
+                    {alSet.has(o.id) && (
+                      <div className="text-xs mt-1">
+                        <span
+                          className="px-1.5 py-0.5 rounded bg-brand-ink text-white font-semibold"
+                          title="Ships to Alabama: put a Found in Alabama sticker in the package. Its invoice code defaults to FIA."
+                        >
+                          ★ AL · add sticker
+                        </span>
                       </div>
                     )}
                     {o.sameBuyer.length > 0 && (

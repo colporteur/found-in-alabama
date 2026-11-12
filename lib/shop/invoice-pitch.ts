@@ -236,10 +236,13 @@ export function planPitch(
   venue: string,
   lines: PitchLine[],
   choice: string | null | undefined,
-  tesSet: Set<string>
+  tesSet: Set<string>,
+  /** COUPON-3: an Alabama address — pitch foundinalabama.com (FIA… code),
+   *  same starting shelf (FIA counts every listing). A pick still wins. */
+  alabama = false
 ): { site: Site; cat: string | null; exact: boolean } {
   const auto = pickSite(venue, lines, tesSet);
-  if (!choice) return { ...auto, exact: false };
+  if (!choice) return { ...auto, site: alabama ? "fia" : auto.site, exact: false };
   if (choice === "store") return { site: auto.site, cat: null, exact: true };
   // "fia:<id>" / "tes:<id>": the shelf counted on that site (a TES shelf
   // like Postcards can be pitched for foundinalabama.com too).
@@ -282,7 +285,8 @@ export function shelfLabel(ctx: Pick<PitchContext, "cats">, id: string, count: n
  *  shelves its items sit on; plus every shelf (for "another shelf"). */
 export async function shelfChoices(
   orders: Array<{ id: string; venue: string; pitchCategoryId?: string | null }>,
-  min: number
+  min: number,
+  alabama: Set<string> = new Set()
 ): Promise<{ perOrder: Record<string, { auto: string; site: Site; options: ShelfChoice[] }>; all: ShelfChoice[] }> {
   const perOrder: Record<string, { auto: string; site: Site; options: ShelfChoice[] }> = {};
   if (!orders.length) return { perOrder, all: [] };
@@ -290,7 +294,7 @@ export async function shelfChoices(
   const lines = await orderLines(orders.map((o) => o.id));
   for (const o of orders) {
     const ls = lines.get(o.id) ?? [];
-    const plan = planPitch(o.venue, ls, null, ctx.tesSet);
+    const plan = planPitch(o.venue, ls, null, ctx.tesSet, alabama.has(o.id));
     const p = choosePitch({ site: plan.site, startCat: plan.cat, cats: ctx.cats, counter: ctx.counters[plan.site], tesSet: ctx.tesSet, min, slugOf: ctx.slugOf });
     const autoLabel = p.categoryId ? shelfLabel(ctx, p.categoryId, p.count) : `whole store (${p.count.toLocaleString("en-US")})`;
     const seen = new Set<string>();
@@ -313,7 +317,7 @@ export async function shelfChoices(
         }
       }
     }
-    perOrder[o.id] = { auto: `${p.site === "tes" ? "TES" : "FIA"}: ${autoLabel}`, site: p.site, options };
+    perOrder[o.id] = { auto: `${p.site === "tes" ? "TES" : "FIA"}: ${autoLabel}${alabama.has(o.id) ? " · Alabama buyer" : ""}`, site: p.site, options };
   }
   const parents = new Set(ctx.cats.map((c) => c.parentCategoryId).filter(Boolean) as string[]);
   const all = ctx.cats

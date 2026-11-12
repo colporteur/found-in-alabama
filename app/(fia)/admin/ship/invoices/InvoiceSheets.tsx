@@ -21,6 +21,8 @@ export type InvoiceData = {
   orderId: string | null;
   /** Mailing address, one line, when FIA has it (eBay, website, some Depop). */
   shipTo: string | null;
+  /** Ships to an Alabama address: print the mark (sticker cue). */
+  alabama?: boolean;
   date: string;
   shipping: number | null;
   /** Sales tax the buyer paid; the marketplace collects and remits it. */
@@ -138,6 +140,16 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
       </div>
       {inv.orderId && <div className="inv-saleline">Order {inv.orderId}</div>}
       {inv.shipTo && <div className="inv-shipto">Ship to {inv.shipTo}</div>}
+      {inv.alabama && (
+        <div className="inv-al">
+          <span className="inv-al-star">★</span>
+          <span>
+            <span className="inv-al-head">Alabama neighbor</span>
+            <span className="inv-al-sub">Thanks for buying from a fellow Alabamian!</span>
+          </span>
+          <span className="inv-al-star">★</span>
+        </div>
+      )}
       <div className="inv-lines">
         {inv.lines.map((l) => (
           <div key={l.id} className="inv-line">
@@ -281,6 +293,7 @@ export function InvoiceSheets({ invoices }: { invoices: InvoiceData[] }) {
     [invoices, pickSorted]
   );
   const missing = invoices.filter((i) => i.lines.some((l) => l.price == null)).length;
+  const alabamaCount = invoices.filter((i) => i.alabama).length;
 
   async function print() {
     setBusy(true);
@@ -307,6 +320,9 @@ export function InvoiceSheets({ invoices }: { invoices: InvoiceData[] }) {
         <div>
           <b>Invoices</b> · {invoices.length} label{invoices.length === 1 ? "" : "s"}
           {missing > 0 && <span className="inv-warn"> · {missing} with a missing price (red $ — click to type it)</span>}
+          {alabamaCount > 0 && (
+            <span className="inv-al-count"> · ★ {alabamaCount} to Alabama — add a Found in Alabama sticker</span>
+          )}
         </div>
         <label>
           <input type="checkbox" checked={photos} onChange={(e) => setPhotos(e.target.checked)} /> Photos
@@ -357,6 +373,14 @@ const INVOICE_CSS = `
   .inv-brand-name { margin: 0; font-size: 12px; font-weight: 700; line-height: 1.2; }
   .inv-brand-site { margin: 2px 0 0; font-size: 10px; }
   .inv-shipto { margin-top: 3px; font-size: 8px; line-height: 1.25; font-weight: 700; color: #000; overflow-wrap: anywhere; }
+  /* COUPON-3: the Alabama mark — big and black so it's seen while packing. */
+  .inv-al { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; padding: 4px 6px;
+    background: #000; color: #fff; border-radius: 4px; text-align: center; break-inside: avoid;
+    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .inv-al-star { font-size: 18px; line-height: 1; }
+  .inv-al-head { display: block; font-size: 15px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; line-height: 1.1; }
+  .inv-al-sub { display: block; font-size: 9px; font-weight: 600; line-height: 1.2; }
+  .inv-al-count { font-weight: 700; color: #7a4b00; }
   .inv-saleline { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: 11px; overflow-wrap: anywhere; }
   .inv-note { font-size: 10px; }
   .inv-lines { margin-top: 4px; }
