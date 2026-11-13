@@ -142,12 +142,8 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
       {inv.shipTo && <div className="inv-shipto">Ship to {inv.shipTo}</div>}
       {inv.alabama && (
         <div className="inv-al">
-          <span className="inv-al-star">★</span>
-          <span>
-            <span className="inv-al-head">Alabama neighbor</span>
-            <span className="inv-al-sub">Thanks for buying from a fellow Alabamian!</span>
-          </span>
-          <span className="inv-al-star">★</span>
+          <span className="inv-al-head">★ Alabama Neighbor ★</span>
+          <span className="inv-al-sub">Thanks for buying from a fellow Alabamian!</span>
         </div>
       )}
       <div className="inv-lines">
@@ -373,13 +369,14 @@ const INVOICE_CSS = `
   .inv-brand-name { margin: 0; font-size: 12px; font-weight: 700; line-height: 1.2; }
   .inv-brand-site { margin: 2px 0 0; font-size: 10px; }
   .inv-shipto { margin-top: 3px; font-size: 8px; line-height: 1.25; font-weight: 700; color: #000; overflow-wrap: anywhere; }
-  /* COUPON-3: the Alabama mark — big and black so it's seen while packing. */
-  .inv-al { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 6px; padding: 4px 6px;
-    background: #000; color: #fff; border-radius: 4px; text-align: center; break-inside: avoid;
-    -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-  .inv-al-star { font-size: 18px; line-height: 1; }
-  .inv-al-head { display: block; font-size: 15px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; line-height: 1.1; }
-  .inv-al-sub { display: block; font-size: 9px; font-weight: 600; line-height: 1.2; }
+  /* COUPON-3: the Alabama mark. Black text on white inside a thick border:
+     a solid black fill with white letters smears on the Zebra thermal head. */
+  .inv-al { display: block; margin-top: 7px; padding: 4px 6px; border: 3px solid #000; border-radius: 4px;
+    background: #fff; color: #000; text-align: center; break-inside: avoid; }
+  .inv-al-head { display: block; font-family: Arial, Helvetica, sans-serif; font-size: 17px; font-weight: 900;
+    letter-spacing: .06em; text-transform: uppercase; line-height: 1.15; color: #000; }
+  .inv-al-sub { display: block; margin-top: 1px; font-family: Arial, Helvetica, sans-serif; font-size: 11px;
+    font-weight: 700; line-height: 1.2; color: #000; }
   .inv-al-count { font-weight: 700; color: #7a4b00; }
   .inv-saleline { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: 11px; overflow-wrap: anywhere; }
   .inv-note { font-size: 10px; }
