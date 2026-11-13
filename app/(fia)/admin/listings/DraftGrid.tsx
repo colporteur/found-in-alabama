@@ -13,6 +13,7 @@ import { MinPriceControl } from "./MinPriceControl";
 import { BinControl } from "./BinControl";
 import { ShelfControl } from "./ShelfControl";
 import { ApproveControl } from "./ApproveControl";
+import { DiscardControl } from "./DiscardControl";
 import { FixRequest } from "./FixRequest";
 import { HoverZoom } from "./HoverZoom";
 
@@ -219,6 +220,9 @@ export function DraftGrid({
         <ApproveControl drafts={drafts} picked={picked} onDone={() => setPicked(new Set())} />
       </div>
       <div className="mb-3">
+        <DiscardControl drafts={drafts} picked={picked} onDone={() => setPicked(new Set())} />
+      </div>
+      <div className="mb-3">
         <FixRequest
           compact
           ids={drafts.filter((d) => picked.has(d.id) && FIXABLE_STATUS.has(d.status) && !!d.title).map((d) => d.id)}
@@ -246,7 +250,7 @@ export function DraftGrid({
                 picked.has(d.id) ? "border-green-800 ring-2 ring-green-800/30" : "border-brand-ink/15"
               }`}
             >
-              {(SELECTABLE.has(d.status) || (d.status === "with_claude" && !d.lotOf)) && (
+              {(SELECTABLE.has(d.status) || d.status === "discarded" || (d.status === "with_claude" && !d.lotOf)) && (
                 <label className="absolute top-2 left-2 z-10 bg-white/90 rounded px-1.5 py-1 flex items-center gap-1 text-xs">
                   <input type="checkbox" checked={picked.has(d.id)} onChange={() => toggle(d.id)} /> pick
                 </label>

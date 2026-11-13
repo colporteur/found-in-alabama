@@ -6,13 +6,14 @@
 //   { action: "bin", ids, bin, onlyEmpty? }         → set the bin / SKU on many drafts
 //   { action: "auto_shelf", ids, parent, keepPlace, slot? } → AI picks the subcategory of `parent` (≤25 per call)
 //   { action: "unapprove", ids }        → approved (not yet in Nifty) → back to review
+//   { action: "discard", ids } / { action: "restore", ids } → batch Discard / Restore (same as the draft page buttons)
 // Signed-in admin only. Approval only marks drafts; nothing is published.
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { approveDrafts, unapproveDraft } from "@/lib/listings/review";
 import { writableDraftIds, writerSettings } from "@/lib/listings/writer";
-import { raiseMinPrice } from "@/lib/listings/drafts";
+import { raiseMinPrice, setDraftStatus } from "@/lib/listings/drafts";
 import { autoShelf, setBin, setStoreShelf } from "@/lib/listings/bulk";
 
 export const runtime = "nodejs";
@@ -81,6 +82,19 @@ export async function POST(req: NextRequest) {
       else skipped.push({ id, reason: "not approved (or already in Nifty)" });
     }
     return NextResponse.json({ ok: true, unapproved, skipped });
+  }
+  if (b.action === "discard" || b.action === "restore") {
+    const action = b.action;
+    const ids = (Array.isArray(b.ids) ? b.ids.map(String) : []).slice(0, 300);
+    const who = session.user.email ?? "admin";
+    let done = 0;
+    const skipped: Array<{ id: string; reason: string }> = [];
+    for (const id of ids) {
+      const r = await setDraftStatus(id, action, who);
+      if (r.ok) done++;
+      else skipped.push({ id, reason: r.error ?? "skipped" });
+    }
+    return NextResponse.json({ ok: true, done, skipped });
   }
   if (b.action === "writable") {
     return NextResponse.json({ ok: true, ids: await writableDraftIds() });

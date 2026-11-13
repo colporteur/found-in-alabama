@@ -14,6 +14,7 @@ import { MinPriceControl } from "./MinPriceControl";
 import { BinControl } from "./BinControl";
 import { ShelfControl } from "./ShelfControl";
 import { ApproveControl } from "./ApproveControl";
+import { DiscardControl } from "./DiscardControl";
 import { FixRequest } from "./FixRequest";
 import { HoverZoom } from "./HoverZoom";
 
@@ -97,6 +98,7 @@ export function DraftTable({ drafts, shelves, parents = [] }: { drafts: DraftSum
   const dirtyIds = drafts.filter((d) => changed(d.id).length > 0).map((d) => d.id);
   const editableIds = drafts.filter((d) => EDITABLE.has(d.status)).map((d) => d.id);
   const pickableIds = drafts.filter((d) => EDITABLE.has(d.status) || d.status === "approved").map((d) => d.id);
+  // Discarded rows get a checkbox too (for "Restore selected"), but stay out of select-all.
 
   const set = (id: string, f: keyof Row) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
     setRows((r) => ({ ...r, [id]: { ...r[id], [f]: e.target.value } }));
@@ -200,6 +202,9 @@ export function DraftTable({ drafts, shelves, parents = [] }: { drafts: DraftSum
       <div className="mb-3">
         <ApproveControl drafts={drafts} picked={picked} onDone={() => setPicked(new Set())} />
       </div>
+      <div className="mb-3">
+        <DiscardControl drafts={drafts} picked={picked} onDone={() => setPicked(new Set())} />
+      </div>
       <div className="mb-4">
         <FixRequest
           compact
@@ -249,7 +254,7 @@ export function DraftTable({ drafts, shelves, parents = [] }: { drafts: DraftSum
               return (
                 <tr key={d.id} className="border-t border-brand-ink/5 align-top">
                   <td className="p-2">
-                    {(ed || d.status === "approved") && <input type="checkbox" checked={picked.has(d.id)} onChange={() => toggle(d.id)} />}
+                    {(ed || d.status === "approved" || d.status === "discarded") && <input type="checkbox" checked={picked.has(d.id)} onChange={() => toggle(d.id)} />}
                   </td>
                   <td className="p-2 w-14 min-w-[3.5rem]">
                     {/* Fixed size: the site's global img max-width:100% let the
