@@ -8,10 +8,10 @@
 // so Claude's later passes leave it alone. Photos can be added to any piece.
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Build, BuildLot, BuildPiece } from "@/lib/listings/lot-build";
-import { sortingGuide } from "@/lib/listings/lot-build-plan";
+import { sortingGuide, type GuideRow } from "@/lib/listings/lot-build-plan";
 import { downsize, sha256 } from "../../photoPrep";
 
 const money = (n: number | null) => (n == null ? "—" : `$${n.toFixed(2)}`);
@@ -67,6 +67,21 @@ function Tile({ p, ctx }: { p: BuildPiece; ctx: Ctx }) {
   );
 }
 
+/** "Lot 3" / "PULL" / "PHOTO" — the pile, short enough to read at arm's length. */
+function whereShort(r: GuideRow, lotNo: number | null): string {
+  if (r.kind === "pull") return "PULL — sell alone";
+  if (r.kind === "photo") return "NEEDS PHOTO — set aside";
+  if (r.kind === "none") return "Not placed yet";
+  return lotNo != null ? `Lot ${lotNo}${r.kind === "done" ? " (built)" : ""}` : r.where;
+}
+function whereTone(r: GuideRow): string {
+  if (r.kind === "pull") return "bg-red-700 text-white";
+  if (r.kind === "photo") return "bg-amber-600 text-white";
+  if (r.kind === "none") return "bg-brand-ink/10 text-brand-ink/70";
+  if (r.kind === "done") return "bg-green-800 text-white";
+  return "bg-purple-800 text-white";
+}
+
 export function BuildBoard({ build }: { build: Build }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -74,6 +89,28 @@ export function BuildBoard({ build }: { build: Build }) {
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [target, setTarget] = useState("");
   const [newLot, setNewLot] = useState("");
+  // "Sort the stack": the pieces in pile order (either direction), each with
+  // where it goes. Ticks for "placed" are kept in this browser only.
+  const [view, setView] = useState<"lots" | "sort">("lots");
+  const [desc, setDesc] = useState(false);
+  const [placed, setPlaced] = useState<Set<number>>(new Set());
+  const placedKey = `lot-builder-placed-${build.id}`;
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem(placedKey);
+      if (raw) setPlaced(new Set((JSON.parse(raw) as unknown[]).map(Number).filter(Number.isInteger)));
+    } catch {
+      /* no storage: ticks last until the page is closed */
+    }
+  }, [placedKey]);
+  function savePlaced(next: Set<number>) {
+    setPlaced(next);
+    try {
+      window.localStorage.setItem(placedKey, JSON.stringify(Array.from(next)));
+    } catch {
+      /* ignore */
+    }
+  }
 
   const live = build.pieces.filter((p) => p.state === "sorting");
   const pulls = live.filter((p) => p.verdict === "pull");
@@ -85,6 +122,8 @@ export function BuildBoard({ build }: { build: Build }) {
   const sent = build.pieces.filter((p) => p.state === "pulled");
   const byN = useMemo(() => new Map(build.pieces.map((p) => [p.n, p])), [build.pieces]);
   const guide = useMemo(() => sortingGuide(build.pieces, new Map(build.lots.map((l) => [l.no, l.name]))), [build.pieces, build.lots]);
+  const ordered = useMemo(() => (desc ? [...guide].reverse() : guide), [guide, desc]);
+  const nextUp = ordered.find((r) => !placed.has(r.n))?.n ?? null;
 
   function toggle(n: number) {
     setPicked((prev) => {
@@ -335,6 +374,80 @@ export function BuildBoard({ build }: { build: Build }) {
           </div>
         )}
 
+        <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-brand-ink/15 pb-3">
+          <button className={view === "lots" ? BTN_DARK : BTN} onClick={() => setView("lots")}>
+            Lots
+          </button>
+          <button className={view === "sort" ? BTN_DARK : BTN} onClick={() => setView("sort")}>
+            Sort the stack (#1 to #{guide.length ? guide[guide.length - 1].n : 0})
+          </button>
+          <span className="text-sm text-brand-ink/60">
+            {view === "lots" ? "Which pieces are in which lot. Tick pieces to move them." : "Your stack in the order you photographed it: where each piece goes."}
+          </span>
+        </div>
+
+        {view === "sort" && (
+          <div className="mb-6">
+            <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
+              <span>Start from:</span>
+              <button className={!desc ? BTN_DARK : BTN} onClick={() => setDesc(false)}>
+                #1 first
+              </button>
+              <button className={desc ? BTN_DARK : BTN} onClick={() => setDesc(true)}>
+                #{guide.length ? guide[guide.length - 1].n : 0} first (work backwards)
+              </button>
+              <span className="ml-2 text-brand-ink/70">
+                {guide.filter((r) => placed.has(r.n)).length} of {guide.length} placed. Tap a row when the piece is on its pile.
+              </span>
+              {placed.size > 0 && (
+                <button className={BTN} onClick={() => savePlaced(new Set())}>
+                  Clear ticks
+                </button>
+              )}
+            </div>
+            <ol className="max-w-3xl space-y-1.5">
+              {ordered.map((r) => {
+                const p = byN.get(r.n);
+                const isPlaced = placed.has(r.n);
+                return (
+                  <li key={r.n}>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const next = new Set(placed);
+                        if (isPlaced) next.delete(r.n);
+                        else next.add(r.n);
+                        savePlaced(next);
+                      }}
+                      className={`flex w-full items-center gap-3 rounded border-2 bg-white p-2 text-left ${
+                        isPlaced ? "border-brand-ink/10 opacity-40" : r.n === nextUp ? "border-green-800 ring-2 ring-green-800/30" : "border-brand-ink/15"
+                      }`}
+                    >
+                      <span className="w-16 shrink-0 text-center text-3xl font-bold tabular-nums">{r.n}</span>
+                      {p?.front ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={p.front} alt="" loading="lazy" className="h-16 w-16 shrink-0 rounded bg-brand-ink/5 object-contain" />
+                      ) : (
+                        <span className="h-16 w-16 shrink-0 rounded bg-brand-ink/5" />
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className={`inline-block rounded px-2.5 py-1 text-lg font-bold ${whereTone(r)}`}>{whereShort(r, p?.lotNo ?? null)}</span>
+                        {(r.kind === "lot" || r.kind === "done") && p?.lotNo != null && (
+                          <span className="ml-2 text-sm text-brand-ink/70">{build.lots.find((l) => l.no === p.lotNo)?.name}</span>
+                        )}
+                        <span className="block truncate text-sm text-brand-ink/60">{r.what ?? "not identified yet"}</span>
+                      </span>
+                      <span className="w-8 shrink-0 text-center text-2xl">{isPlaced ? "✓" : ""}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ol>
+          </div>
+        )}
+
+        {view === "lots" && (
+          <>
         {pulls.length > 0 && (
           <div className="mb-6 rounded border-2 border-red-700 bg-red-50/60 p-3">
             <div className="mb-2 flex flex-wrap items-center gap-3">
@@ -398,15 +511,23 @@ export function BuildBoard({ build }: { build: Build }) {
             </ul>
           </div>
         )}
+          </>
+        )}
       </div>
 
-      <div className="rounded border border-brand-ink/15 bg-white p-3 print:border-0 print:p-0">
+      <div className={`rounded border border-brand-ink/15 bg-white p-3 print:block print:border-0 print:p-0 ${view === "sort" ? "hidden" : ""}`}>
         <h2 className="mb-1 text-xl font-bold">
-          Sorting guide <span className="hidden print:inline">— {build.name}</span>
+          Sorting guide <span className="hidden print:inline">— {build.name}{desc ? " (last piece first)" : ""}</span>
         </h2>
-        <p className="mb-2 text-sm text-brand-ink/60 print:hidden">Piece numbers are the order you sent them. Work down the pile and drop each on its numbered lot.</p>
+        <p className="mb-2 text-sm text-brand-ink/60 print:hidden">
+          Every piece in the order you photographed it. For a bigger list you can tick off, in either direction, use{" "}
+          <button className="underline" onClick={() => setView("sort")}>
+            Sort the stack
+          </button>
+          . Printing uses the direction chosen there.
+        </p>
         <ol className="columns-1 gap-6 text-sm sm:columns-2 lg:columns-3 print:columns-3 print:text-xs">
-          {guide.map((r) => (
+          {ordered.map((r) => (
             <li key={r.n} className="mb-0.5 break-inside-avoid">
               <b className="inline-block w-10">#{r.n}</b>
               <span className={r.kind === "pull" ? "font-bold text-red-800" : r.kind === "photo" ? "font-bold text-amber-800" : r.kind === "none" ? "text-brand-ink/50" : ""}>{r.where}</span>
