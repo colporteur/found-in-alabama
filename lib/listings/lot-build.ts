@@ -632,7 +632,7 @@ export async function buildLot(buildId: string, no: number, who: string, opts: {
   if (ps.length < 2) throw new Error(`Lot ${no} needs at least two pieces.`);
   if (ps.length > LOT_MAX_PIECES) throw new Error(`Lot ${no} has ${ps.length} pieces; a lot holds at most ${LOT_MAX_PIECES}.`);
   const waiting = ps.filter((p) => p.verdict === "need_photo");
-  if (waiting.length && !opts.evenIfNeedsPhoto) throw new Error(`Piece${waiting.length === 1 ? "" : "s"} #${waiting.map((p) => p.n).join(", #")} still need a photo. Add it, move the piece out, or build anyway.`);
+  if (waiting.length && !opts.evenIfNeedsPhoto) throw new Error(`${waiting.length === 1 ? "Piece" : "Pieces"} #${waiting.map((p) => p.n).join(", #")} still ${waiting.length === 1 ? "needs" : "need"} a photo. Add it, move the piece out, or build anyway.`);
   if (ps.some((p) => !p.photos.length)) throw new Error("Every piece needs at least one uploaded photo.");
   // Strongest first: the lot is built on it and the cover leads with it.
   const order = [...ps].sort((a, c) => (c.estValue ?? 0) - (a.estValue ?? 0) || a.n - c.n);
@@ -685,7 +685,7 @@ export async function buildAll(buildId: string, who: string): Promise<{ built: A
   const b = await loadBuild(buildId);
   const built: Array<{ no: number; lotDraftId: string; pieces: number }> = [];
   const left: string[] = [];
-  for (const lot of b.lots.filter((l) => l.status === "proposed")) {
+  for (const lot of b.lots.filter((l) => l.status === "proposed" && l.pieces.length > 0)) {
     try {
       const r = await buildLot(buildId, lot.no, who);
       built.push({ no: lot.no, lotDraftId: r.lotDraftId, pieces: r.pieces });
