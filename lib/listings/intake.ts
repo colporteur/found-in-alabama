@@ -83,7 +83,7 @@ async function rememberAfter(draftId: string, req: IntakeRequest): Promise<void>
       UPDATE listing_drafts SET quantity = 1, ai_meta = COALESCE(ai_meta, '{}'::jsonb) || '{"folderLotPending": true}'::jsonb
       WHERE id = ${draftId} AND NOT (COALESCE(ai_meta, '{}'::jsonb) ? 'folderLot')`);
   }
-  if (!req.after.claude && !req.after.pool) return;
+  if (!req.after.claude && !req.after.pool && !req.after.lotBuild) return;
   await db.execute(sql`
     UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('intakeAfter', ${JSON.stringify(req.after)}::jsonb)
     WHERE id = ${draftId}`);
@@ -242,6 +242,19 @@ export async function completeIntake(
       console.error("[intake] lot pool failed", draftId, err);
     }
   }
+  // Sent from the Scans page's "Send to Lot Builder": it becomes a numbered
+  // piece of that sort session (nothing is written until Todd builds the lots).
+  if (missing.length === 0 && after?.lotBuild && status === "ready") {
+    try {
+      const { attachPiece, lotBuildReady } = await import("./lot-build");
+      if (await lotBuildReady()) {
+        await attachPiece(draftId, after.lotBuild, "scans page");
+        status = "sorting";
+      }
+    } catch (err) {
+      console.error("[intake] lot builder failed", draftId, err);
+    }
+  }
   if (missing.length === 0 && after?.claude && status === "ready") {
     const c = after.claude;
     const done = await rows(sql`
@@ -257,7 +270,7 @@ export async function completeIntake(
 
 // ─── adding photos to an existing draft (the draft page) ────────────────────
 
-export const ADD_PHOTO_STATUSES = ["ready", "review", "sent_back", "with_claude"];
+export const ADD_PHOTO_STATUSES = ["ready", "review", "sent_back", "with_claude", "sorting"];
 const MAX_LISTED = 24;
 
 export type AddPhoto = { name: string; sha256: string; bytes: number; contentType: string };

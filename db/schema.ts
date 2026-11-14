@@ -2052,3 +2052,92 @@ export const itemGuideLinks = pgTable(
     reviewIdx: index("item_guide_links_review_idx").on(t.confident, t.method),
   })
 );
+
+// ─── Lot Builder (LIST-BUILD) ────────────────────────────────────────────────
+// A sort session: one batch of a single item type (LP records, sewing
+// patterns…) that Todd already knows is lot material. Every piece is a
+// listing draft (status "sorting") that keeps its own photos and a number
+// that never changes. Claude identifies each piece through the connector,
+// flags the ones to pull and sell alone or that need another photo, and
+// proposes numbered lots; Todd adjusts and builds them (lib/listings/lot-build.ts).
+
+export const lotBuilds = pgTable(
+  "lot_builds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** The sender's name for the batch (one Scans-page send = one key). */
+    key: text("key").notNull(),
+    name: text("name").notNull(),
+    /** What the batch is, in Todd's words ("LP records"); routes the Expert Guides. */
+    kind: text("kind"),
+    /** open | closed */
+    status: text("status").default("open").notNull(),
+    note: text("note"),
+    /** Claude's summary of the sort plan. */
+    planNote: text("plan_note"),
+    plannedAt: timestamp("planned_at"),
+    plannedBy: text("planned_by"),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({ keyUq: uniqueIndex("lot_builds_key_uq").on(t.key) })
+);
+
+export const lotBuildLots = pgTable(
+  "lot_build_lots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    buildId: uuid("build_id")
+      .notNull()
+      .references(() => lotBuilds.id, { onDelete: "cascade" }),
+    /** Stable lot number (the physical pile); never reused inside a build. */
+    no: integer("no").notNull(),
+    name: text("name").notNull(),
+    reason: text("reason"),
+    suggestedPrice: numeric("suggested_price", { precision: 10, scale: 2 }),
+    guideId: text("guide_id"),
+    /** proposed | built | dissolved */
+    status: text("status").default("proposed").notNull(),
+    lotDraftId: uuid("lot_draft_id"),
+    createdBy: text("created_by"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({ noUq: uniqueIndex("lot_build_lots_no_uq").on(t.buildId, t.no) })
+);
+
+export const lotBuildPieces = pgTable(
+  "lot_build_pieces",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    buildId: uuid("build_id")
+      .notNull()
+      .references(() => lotBuilds.id, { onDelete: "cascade" }),
+    draftId: uuid("draft_id").notNull(),
+    /** Piece number in the order sent; never changes. */
+    n: integer("n").notNull(),
+    /** sorting | in_lot (its lot was built) | pulled (sent on as a single) | removed */
+    state: text("state").default("sorting").notNull(),
+    identification: text("identification"),
+    estValue: numeric("est_value", { precision: 10, scale: 2 }),
+    /** lot | pull | need_photo */
+    verdict: text("verdict"),
+    reason: text("reason"),
+    /** For need_photo: exactly what to photograph. */
+    photoRequest: text("photo_request"),
+    lotNo: integer("lot_no"),
+    /** Todd placed or overruled this piece: Claude's later passes leave it alone. */
+    locked: boolean("locked").default(false).notNull(),
+    lookedAt: timestamp("looked_at"),
+    /** How many photos the piece had when Claude last looked. */
+    photosSeen: integer("photos_seen").default(0).notNull(),
+    decidedBy: text("decided_by"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => ({
+    nUq: uniqueIndex("lot_build_pieces_n_uq").on(t.buildId, t.n),
+    draftUq: uniqueIndex("lot_build_pieces_draft_uq").on(t.draftId),
+  })
+);

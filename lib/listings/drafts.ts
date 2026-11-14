@@ -28,6 +28,8 @@ export const DRAFT_STATUSES = [
   "lot_open",
   /** Set aside in the lot pool (bin LOTPOOL) until its lot is listed. */
   "pooled",
+  /** A piece of a Lot Builder sort session (lib/listings/lot-build.ts). */
+  "sorting",
   "discarded",
 ] as const;
 
@@ -133,7 +135,8 @@ export async function listDrafts(status: string | null, limit = 100): Promise<{
         : sql`WHERE false`
       : status
         ? sql`WHERE d.status = ${status}`
-        : sql`WHERE d.status <> 'discarded'`;
+        : // Lot Builder pieces (often hundreds) live on the Lot Builder page, not in the everyday list.
+          sql`WHERE d.status NOT IN ('discarded', 'sorting')`;
   const found = await rows(sql`
     SELECT d.id, d.status, d.source, d.source_label, d.title, d.title_hint, d.bin_sku, d.price, d.created_at,
            ${fixCol}

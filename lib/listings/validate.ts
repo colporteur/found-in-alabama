@@ -41,10 +41,14 @@ export type IntakeRequest = {
   replace: boolean;
   /** What to do once every photo has arrived: queue it for Claude (one
    *  batch per Scans-page send, optionally allowed to combine lots). */
-  after: { claude: { lots: boolean; batch: string | null } | null; pool?: boolean };
+  after: { claude: { lots: boolean; batch: string | null } | null; pool?: boolean; lotBuild?: LotBuildAfter };
   /** Scans page "Send as one lot": every photo is one piece of a single lot. */
   folderLot: boolean;
 };
+
+/** Scans page "Send to Lot Builder": the draft becomes piece n of a sort
+ *  session (lib/listings/lot-build.ts). One send = one key. */
+export type LotBuildAfter = { key: string; name: string; kind: string | null; n: number | null };
 
 function str(v: unknown, max: number): string | null {
   if (v == null) return null;
@@ -68,6 +72,16 @@ function parseAfter(v: unknown): IntakeRequest["after"] {
   if (!v || typeof v !== "object") return { claude: null };
   // Scans page "Lot pool": the draft waits in the lot pool instead.
   if ((v as Record<string, unknown>).pool === true) return { claude: null, pool: true };
+  // Scans page "Send to Lot Builder": the draft becomes a piece of a sort session.
+  const lb = (v as Record<string, unknown>).lotBuild;
+  if (lb && typeof lb === "object") {
+    const r = lb as Record<string, unknown>;
+    if (typeof r.key !== "string" || !/^[\w:.-]{1,80}$/.test(r.key)) throw new Error("lotBuild.key must be 1–80 letters, digits, : . - _");
+    const name = (typeof r.name === "string" ? r.name.trim().slice(0, 120) : "") || r.key;
+    const kind = typeof r.kind === "string" && r.kind.trim() ? r.kind.trim().slice(0, 80) : null;
+    const n = Number.isInteger(r.n) && (r.n as number) >= 1 && (r.n as number) <= 5000 ? (r.n as number) : null;
+    return { claude: null, lotBuild: { key: r.key, name, kind, n } };
+  }
   const c = (v as Record<string, unknown>).claude;
   if (!c || typeof c !== "object") return { claude: null };
   const r = c as Record<string, unknown>;
