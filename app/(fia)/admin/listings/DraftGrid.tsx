@@ -34,6 +34,7 @@ const STATUS_LABEL: Record<string, string> = {
   with_claude: "With Claude",
   lot_open: "Open lot",
   pooled: "In lot pool",
+  sorting: "In Lot Builder",
   discarded: "Discarded",
 };
 

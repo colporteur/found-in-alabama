@@ -147,7 +147,18 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
         </p>
       )}
 
-      {["ready", "review", "sent_back", "with_claude"].includes(d.status) && !d.aiMeta?.lot && !d.aiMeta?.folderLot && (
+      {d.status === "sorting" && (
+        <p className="mb-6 rounded border border-purple-700 bg-purple-50 p-3 text-sm text-purple-900">
+          This is a piece of a Lot Builder session (nothing is written until its lot is built).{" "}
+          {typeof (d.aiMeta?.lotBuild as { buildId?: string } | undefined)?.buildId === "string" && (
+            <Link href={`/admin/listings/lot-builder/${(d.aiMeta!.lotBuild as { buildId: string }).buildId}`} className="underline font-medium">
+              Open the session
+            </Link>
+          )}
+        </p>
+      )}
+
+      {["ready", "review", "sent_back", "with_claude", "sorting"].includes(d.status) && !d.aiMeta?.lot && !d.aiMeta?.folderLot && (
         <AddPhotos
           id={d.id}
           have={d.photoList.length}

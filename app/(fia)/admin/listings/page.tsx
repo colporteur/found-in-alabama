@@ -29,6 +29,7 @@ const STATUS_LABEL: Record<string, string> = {
   with_claude: "With Claude",
   lot_open: "Open lot",
   pooled: "In lot pool",
+  sorting: "In Lot Builder",
   discarded: "Discarded",
 };
 
@@ -83,6 +84,9 @@ export default async function ListingsPage({ searchParams }: { searchParams: { s
             {pool.readyLots > 0 && (
               <span className="ml-1.5 rounded bg-green-700 text-white text-xs font-bold px-1.5 py-0.5">{pool.readyLots} ready</span>
             )}
+          </Link>
+          <Link href="/admin/listings/lot-builder" className="text-sm px-4 py-2 rounded border border-purple-700 text-purple-900 hover:bg-purple-50">
+            Lot Builder{counts.sorting ? ` (${counts.sorting})` : ""}
           </Link>
           <Link href="/admin/listings/settings" className="text-sm px-4 py-2 rounded border border-brand-ink/20 hover:border-brand-ink/50">
             Writer settings

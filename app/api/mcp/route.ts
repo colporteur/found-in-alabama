@@ -7,6 +7,7 @@ import { handleRpc } from "@/lib/mcp/protocol";
 import { TOOLS } from "@/lib/mcp/tools";
 import { hasListings, verifyAccessToken } from "@/lib/mcp/oauth";
 import { listingTools } from "@/lib/mcp/listing-tools";
+import { lotBuildTools } from "@/lib/mcp/lot-build-tools";
 import { guideLinkTools } from "@/lib/mcp/guide-tools";
 import { siteOrigin } from "@/lib/mcp/oauth-core";
 import { CORS, json, preflight } from "@/lib/mcp/http";
@@ -35,7 +36,7 @@ export async function POST(req: Request) {
     return json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, 400);
   }
   // Listing-draft tools only on connections Todd allowed to write drafts.
-  const tools = hasListings(who.scope) ? [...TOOLS, ...listingTools(who.who), ...guideLinkTools(who.who)] : TOOLS;
+  const tools = hasListings(who.scope) ? [...TOOLS, ...listingTools(who.who), ...lotBuildTools(who.who), ...guideLinkTools(who.who)] : TOOLS;
   const reply = await handleRpc(body, tools);
   if (reply === null) return new Response(null, { status: 202, headers: CORS });
   return json(reply);

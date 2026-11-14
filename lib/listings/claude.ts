@@ -138,7 +138,16 @@ export async function claudeQueue(limit = 50) {
   const open = list.length ? await openLots().catch(() => []) : [];
   const { fixQueue } = await import("./fixes");
   const fixes = await fixQueue().catch(() => []);
+  const { buildsForQueue } = await import("./lot-build");
+  const builds = await buildsForQueue().catch(() => []);
   return {
+    ...(builds.length
+      ? {
+          lotBuilderNote:
+            "Todd has Lot Builder sessions waiting for you: batches of one item type he wants sorted into smaller lots. For each: lot_build_get (rules, pieces, the Expert Guide), lot_build_sheet to look, lot_build_identify to save what each piece is with pull / need-photo alerts, then lot_build_plan. He builds the lots himself; they then appear in this queue to write.",
+          lotBuilder: builds,
+        }
+      : {}),
     ...(fixes.length
       ? {
           fixesNote:

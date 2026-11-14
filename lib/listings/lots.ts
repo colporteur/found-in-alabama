@@ -41,6 +41,9 @@ export type LotPart = {
   /** A pooled piece Claude pulled out of the lot pool into a batch lot;
    *  a split puts it back in the pool (same lot, bin LOTPOOL). */
   fromPool?: { memberId: string; groupId: string | null };
+  /** A piece of a Lot Builder sort session (lib/listings/lot-build.ts); a
+   *  split sends it back to that session ("sorting"). */
+  fromBuild?: { buildId: string; n: number };
   /** Added later to an open lot (lib/listings/open-lots.ts); a split sends
    *  it back to Ready like any combined piece. */
   addedOpen?: boolean;
@@ -138,7 +141,10 @@ export async function combineLot(
   ids: string[],
   who: string,
   reason?: string | null,
-  poolMemberIds: string[] = []
+  poolMemberIds: string[] = [],
+  /** Lot Builder: Todd built this lot from a sort session — the pieces are
+   *  "sorting" drafts, not a Claude batch. */
+  build: { buildId: string; name: string; numbers: Map<string, number> } | null = null
 ): Promise<{ lotDraftId: string; parts: number; photos: number; parked: number; bin: string | null; note: string }> {
   const queuedIds = Array.from(new Set(ids.filter((id) => UUID.test(id))));
   if (!queuedIds.length) throw new Error("Give at least one draft id from listing_queue (the lot is built on it).");
@@ -163,7 +169,11 @@ export async function combineLot(
   const byId = new Map(found.map((d) => [String(d.id), d]));
   const drafts = clean.map((id) => byId.get(id)!);
   const meta = (d: Row) => (d.ai_meta ?? {}) as Record<string, unknown>;
-  for (const d of drafts.filter((x) => !poolByDraft.has(String(x.id)))) {
+  for (const d of build ? drafts : []) {
+    if (String(d.status) !== "sorting") throw new Error(`Draft ${d.id} isn't a piece waiting in the Lot Builder.`);
+    if (meta(d).lot || meta(d).folderLot) throw new Error(`Draft ${d.id} is already a lot.`);
+  }
+  for (const d of build ? [] : drafts.filter((x) => !poolByDraft.has(String(x.id)))) {
     if (String(d.status) !== CLAUDE_STATUS) throw new Error(`Draft ${d.id} isn't waiting for Claude, so it can't go in a lot.`);
     if (meta(d).claudeLots !== true)
       throw new Error(
@@ -172,7 +182,7 @@ export async function combineLot(
     if (meta(d).lot) throw new Error(`Draft ${d.id} is already a lot.`);
   }
   const batch = new Set(drafts.filter((x) => !poolByDraft.has(String(x.id))).map((d) => String(meta(d).claudeBatch ?? "")));
-  if (batch.size !== 1 || batch.has("")) throw new Error("Only drafts Todd sent together (the same batch) can be combined.");
+  if (!build && (batch.size !== 1 || batch.has(""))) throw new Error("Only drafts Todd sent together (the same batch) can be combined.");
 
   const lot = drafts[0];
   const lotId = String(lot.id);
@@ -202,6 +212,7 @@ export async function combineLot(
       title: (d.title as string | null) ?? (d.title_hint as string | null) ?? null,
       bin: (d.bin_sku as string | null) ?? null,
       photos: perPart[i].map((p) => ({ id: p.id, position: p.position })),
+      ...(build ? { fromBuild: { buildId: build.buildId, n: build.numbers.get(String(d.id)) ?? 0 } } : {}),
       ...(poolByDraft.has(String(d.id))
         ? { fromPool: { memberId: String(poolByDraft.get(String(d.id))!.id), groupId: (poolByDraft.get(String(d.id))!.group_id as string | null) ?? null } }
         : {}),
@@ -212,7 +223,10 @@ export async function combineLot(
     reason: (reason ?? "").trim().slice(0, 600) || null,
     ...(pool.length ? { poolMemberIds: pool.map((p) => String(p.id)) } : {}),
   };
-  const hint = `Lot of ${drafts.length}: ${lotMeta.parts.map((p) => p.title ?? "item").join(" + ")}`.slice(0, 300);
+  const hint = (build
+    ? `Lot of ${drafts.length}: ${build.name}`
+    : `Lot of ${drafts.length}: ${lotMeta.parts.map((p) => p.title ?? "item").join(" + ")}`
+  ).slice(0, 300);
   await db.execute(sql`
     UPDATE listing_drafts SET title_hint = ${hint}, quantity = 1,
       ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('lot', ${JSON.stringify(lotMeta)}::jsonb),
@@ -286,7 +300,7 @@ export async function splitLot(lotId: string): Promise<{ restored: number }> {
 
   for (const p of lot.parts.slice(1)) {
     const [r] = await rows(sql`
-      UPDATE listing_drafts SET status = ${p.fromPool ? "pooled" : "ready"}, review_note = NULL, ai_meta = COALESCE(ai_meta, '{}'::jsonb) - 'combinedInto', updated_at = now()
+      UPDATE listing_drafts SET status = ${p.fromPool ? "pooled" : p.fromBuild ? "sorting" : "ready"}, review_note = NULL, ai_meta = COALESCE(ai_meta, '{}'::jsonb) - 'combinedInto', updated_at = now()
       WHERE id = ${p.draftId}::uuid AND status = 'discarded' RETURNING registry_item_id`);
     if (p.fromPool) {
       // Back in the lot pool, in the same forming lot.
@@ -299,10 +313,15 @@ export async function splitLot(lotId: string): Promise<{ restored: number }> {
   }
   // The lot's text described the whole lot, so the first part starts over.
   await db.execute(sql`
-    UPDATE listing_drafts SET status = 'ready', title = NULL, description = NULL, price = NULL, item_specifics = NULL,
+    UPDATE listing_drafts SET status = ${lot.parts[0].fromBuild ? "sorting" : "ready"}, title = NULL, description = NULL, price = NULL, item_specifics = NULL,
       written_by = NULL, title_hint = ${lot.parts[0].title}, review_note = NULL,
       ai_meta = (COALESCE(ai_meta, '{}'::jsonb) - 'lot') - 'lotOpen', updated_at = now()
     WHERE id = ${lotId}::uuid`);
+  // A Lot Builder lot: its pieces are back in their sort session.
+  if (lot.parts.some((p) => p.fromBuild)) {
+    const { afterSplit } = await import("./lot-build");
+    await afterSplit(lotId, lot);
+  }
   return { restored: lot.parts.length };
 }
 
