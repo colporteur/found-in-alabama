@@ -10,7 +10,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Build, BuildLot, BuildPiece } from "@/lib/listings/lot-build";
+import type { Build, BuildLot, BuildPiece, LeftoverSession } from "@/lib/listings/lot-build";
 import { sortingGuide, type GuideRow } from "@/lib/listings/lot-build-plan";
 import { downsize, sha256 } from "../../photoPrep";
 
@@ -51,6 +51,11 @@ function Tile({ p, ctx }: { p: BuildPiece; ctx: Ctx }) {
       </p>
       {p.verdict === "pull" && p.reason && <p className="mt-1 rounded bg-red-50 p-1 text-red-900">{p.reason}</p>}
       {p.verdict === "need_photo" && live && <p className="mt-1 rounded bg-amber-50 p-1 text-amber-900">Photo wanted: {p.photoRequest ?? "another photo"}</p>}
+      {p.origin && (
+        <p className="mt-1 rounded bg-teal-50 p-1 text-teal-900" title="A leftover carried over from an earlier session: fetch it from that wave's leftover pile">
+          From {p.origin.name} #{p.origin.n}
+        </p>
+      )}
       {p.needsLook && p.lookedAt && <p className="mt-1 rounded bg-sky-50 p-1 text-sky-900">New photo — waiting for Claude&rsquo;s second look</p>}
       {live && (
         <div className="mt-1 flex items-center justify-between gap-1">
@@ -82,7 +87,7 @@ function whereTone(r: GuideRow): string {
   return "bg-purple-800 text-white";
 }
 
-export function BuildBoard({ build }: { build: Build }) {
+export function BuildBoard({ build, others = [], leftovers = [] }: { build: Build; others?: Array<{ id: string; name: string }>; leftovers?: LeftoverSession[] }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null);
@@ -212,7 +217,11 @@ export function BuildBoard({ build }: { build: Build }) {
     else if (target === "need_photo") act({ action: "place", pieces: sel, verdict: "need_photo" }, () => `Marked ${sel.length} as needing a photo.`);
     else if (target === "none") act({ action: "place", pieces: sel }, () => `Took ${sel.length} out of their lot.`);
     else if (target === "unlock") act({ action: "unlock", pieces: sel }, () => `Claude may place ${sel.length === 1 ? "that piece" : "those pieces"} again.`);
-    else if (target === "release") {
+    else if (target.startsWith("to:")) {
+      const o = others.find((x) => x.id === target.slice(3));
+      if (o && window.confirm(`Carry ${sel.length} piece${sel.length === 1 ? "" : "s"} over to "${o.name}"? They get new numbers there and keep a "From ${build.name} #…" label.`))
+        act({ action: "carry", toBuildId: o.id, pieces: sel }, (out) => `Carried ${(out.moved as unknown[] | undefined)?.length ?? 0} over to "${o.name}".`);
+    } else if (target === "release") {
       if (window.confirm(`Take ${sel.length} piece${sel.length === 1 ? "" : "s"} out of the Lot Builder? They become ordinary Ready drafts.`))
         act({ action: "release", pieces: sel }, () => `Released ${sel.length} to Ready.`);
     } else if (/^\d+$/.test(target)) act({ action: "place", pieces: sel, lotNo: Number(target) }, () => `Moved ${sel.length} into lot ${target}.`);
@@ -336,6 +345,39 @@ export function BuildBoard({ build }: { build: Build }) {
             <b>Claude&rsquo;s plan note:</b> {build.planNote}
           </p>
         )}
+        {build.status === "open" &&
+          leftovers.map((s) => (
+            <div key={s.buildId} className="mb-4 max-w-4xl rounded border border-teal-700 bg-teal-50 p-3 text-sm text-teal-900">
+              <div className="flex flex-wrap items-center gap-3">
+                <b>
+                  {s.pieces.length} leftover{s.pieces.length === 1 ? "" : "s"} in &ldquo;{s.name}&rdquo;
+                </b>
+                <span>not in any lot there. Bring them in to place them in this session&rsquo;s lots.</span>
+                <button
+                  className={`${BTN} ml-auto bg-white`}
+                  disabled={busy}
+                  onClick={() =>
+                    act({ action: "carry", fromBuildId: s.buildId }, (out) => {
+                      const m = (out.moved as Array<{ from: number; to: number }> | undefined) ?? [];
+                      return `Brought in ${m.length} from "${s.name}": ${m.map((x) => `#${x.from} is now #${x.to}`).join(", ")}. They are under "Not in a lot yet".`;
+                    })
+                  }
+                >
+                  Bring all {s.pieces.length} in
+                </button>
+                <Link href={`/admin/listings/lot-builder/${s.buildId}`} className="underline">
+                  open that session
+                </Link>
+              </div>
+              <p className="mt-1 text-teal-900/80">
+                {s.pieces
+                  .slice(0, 12)
+                  .map((p) => `#${p.n} ${p.identification ?? "not identified"}`)
+                  .join(" · ")}
+                {s.pieces.length > 12 ? " …" : ""}
+              </p>
+            </div>
+          ))}
         {waiting.length > 0 && (
           <p className="mb-4 max-w-4xl rounded border border-sky-700 bg-sky-50 p-3 text-sm text-sky-900">
             {waiting.length} piece{waiting.length === 1 ? " is" : "s are"} waiting for Claude (#{waiting.slice(0, 30).map((p) => p.n).join(", #")}
@@ -362,6 +404,11 @@ export function BuildBoard({ build }: { build: Build }) {
               <option value="need_photo">Needs a photo</option>
               <option value="none">Not in a lot</option>
               <option value="unlock">Let Claude place them again</option>
+              {others.map((o) => (
+                <option key={o.id} value={`to:${o.id}`}>
+                  Carry over to session: {o.name}
+                </option>
+              ))}
               <option value="release">Out of the Lot Builder (ordinary drafts)</option>
             </select>
             {target === "new" && <input className="rounded border border-brand-ink/30 px-2 py-1" placeholder="Lot name" value={newLot} onChange={(e) => setNewLot(e.target.value)} />}
@@ -435,7 +482,10 @@ export function BuildBoard({ build }: { build: Build }) {
                         {(r.kind === "lot" || r.kind === "done") && p?.lotNo != null && (
                           <span className="ml-2 text-sm text-brand-ink/70">{build.lots.find((l) => l.no === p.lotNo)?.name}</span>
                         )}
-                        <span className="block truncate text-sm text-brand-ink/60">{r.what ?? "not identified yet"}</span>
+                        <span className="block truncate text-sm text-brand-ink/60">
+                          {p?.origin && <b className="text-teal-800">From {p.origin.name} #{p.origin.n} · </b>}
+                          {r.what ?? "not identified yet"}
+                        </span>
                       </span>
                       <span className="w-8 shrink-0 text-center text-2xl">{isPlaced ? "✓" : ""}</span>
                     </button>
@@ -531,6 +581,7 @@ export function BuildBoard({ build }: { build: Build }) {
             <li key={r.n} className="mb-0.5 break-inside-avoid">
               <b className="inline-block w-10">#{r.n}</b>
               <span className={r.kind === "pull" ? "font-bold text-red-800" : r.kind === "photo" ? "font-bold text-amber-800" : r.kind === "none" ? "text-brand-ink/50" : ""}>{r.where}</span>
+              {byN.get(r.n)?.origin && <span className="text-teal-800"> · from {byN.get(r.n)!.origin!.name} #{byN.get(r.n)!.origin!.n}</span>}
               {r.what && <span className="text-brand-ink/60"> · {r.what.slice(0, 60)}</span>}
             </li>
           ))}

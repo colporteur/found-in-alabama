@@ -110,7 +110,11 @@ export type BuildPiece = {
   front: string | null;
   /** Never looked at, or Todd added photos since Claude's last look. */
   needsLook: boolean;
+  /** Carried over from an earlier session (a leftover): where it started, so
+   *  Todd can find it in that wave's leftover pile. */
+  origin: PieceOrigin | null;
 };
+export type PieceOrigin = { buildId: string; name: string; n: number };
 export type BuildLot = {
   id: string;
   no: number;
@@ -228,6 +232,16 @@ export async function loadBuild(buildId: string): Promise<Build> {
       }
     }
   }
+  const originRows = ps.length
+    ? await rows(sql`
+        SELECT id, ai_meta->'lotBuild'->'from' AS origin FROM listing_drafts
+        WHERE id IN (SELECT draft_id FROM lot_build_pieces WHERE build_id = ${buildId}::uuid) AND ai_meta->'lotBuild' ? 'from'`)
+    : [];
+  const originOf = new Map<string, PieceOrigin>();
+  for (const r of originRows) {
+    const o = r.origin as { buildId?: unknown; name?: unknown; n?: unknown } | null;
+    if (o && typeof o.buildId === "string" && Number.isInteger(o.n)) originOf.set(String(r.id), { buildId: o.buildId, name: typeof o.name === "string" ? o.name : "an earlier session", n: o.n as number });
+  }
   const pieces: BuildPiece[] = ps.map((p) => {
     const list = byDraft.get(String(p.draft_id)) ?? [];
     const front = list.find((x) => x.role === "front") ?? list.find((x) => !["back", "inside", "detail"].includes(x.role ?? "")) ?? list[0] ?? null;
@@ -251,6 +265,7 @@ export async function loadBuild(buildId: string): Promise<Build> {
       photos: list,
       front: front?.url ?? null,
       needsLook: needsLook({ lookedAt, photos: list.length, photosSeen: Number(p.photos_seen ?? 0), state }),
+      origin: originOf.get(String(p.draft_id)) ?? null,
     };
   });
   const ls = await rows(sql`
@@ -337,9 +352,11 @@ export async function claudeBuildPacket(buildId: string): Promise<McpContent[]> 
     (p.estValue != null ? ` · alone ≈ $${p.estValue}` : "") +
     ` · ${p.photos.length} photo${p.photos.length === 1 ? "" : "s"}` +
     (p.verdict === "pull" ? ` · PULL: ${p.reason ?? ""}` : p.verdict === "need_photo" ? ` · NEEDS PHOTO: ${p.photoRequest ?? ""}` : p.lotNo ? ` · lot ${p.lotNo}` : p.verdict === "lot" ? " · lot (not placed)" : "") +
+    (p.origin ? ` · carried over from "${p.origin.name}" #${p.origin.n}` : "") +
     (p.locked ? " · locked by Todd" : "") +
     (p.needsLook ? (p.lookedAt ? " · NEW PHOTO — look again" : " · not looked at yet") : "");
   const done = b.pieces.filter((p) => p.state !== "sorting" && p.state !== "removed");
+  const elsewhere = await leftoversElsewhere(buildId).catch(() => []);
   const text = [
     `LOT BUILDER SESSION "${b.name}"${b.kind ? ` — ${b.kind}` : ""} (${b.pieces.filter((p) => p.state !== "removed").length} pieces, ${live.length} still to sort; one photo per piece unless Todd added more).` +
       (b.note ? `\nTodd's note: ${b.note}` : ""),
@@ -357,6 +374,11 @@ export async function claudeBuildPacket(buildId: string): Promise<McpContent[]> 
           .join("\n")}`
       : "No lots proposed yet.",
     b.planNote ? `Your last plan note: ${b.planNote}` : "",
+    elsewhere.length
+      ? `LEFTOVERS IN TODD'S OTHER OPEN SESSIONS (identified, not in any lot — they fit nothing in their own wave). If one would fit or complete a lot here, say so to Todd and, when he asks you to, bring it in with lot_build_carry_over; it then gets a number in this session and can go in lot_build_plan like any piece:\n${elsewhere
+          .map((s) => `"${s.name}" (build_id ${s.buildId}):\n${s.pieces.map((p) => `  #${p.n}: ${p.identification ?? "(not identified)"}${p.estValue != null ? ` · alone ≈ $${p.estValue}` : ""}`).join("\n")}`)
+          .join("\n")}`
+      : "",
     done.length ? `Already built or pulled (leave these): #${done.map((p) => p.n).join(", #")}` : "",
     guides.length
       ? `EXPERT GUIDE(S) FOR THIS BATCH — pull triggers, value bands, and lot type and size come from here:\n${guidePromptText(guides.map((g) => ({ id: g.id, name: g.name, content: g.content })), 26_000, 15_000)}\n(Other guides: listing_find_guide with a few words — e.g. a genre or maker once you see what's in the batch, or "lot building" for the lot playbooks.)`
@@ -614,6 +636,86 @@ export async function dissolveLot(buildId: string, no: number): Promise<void> {
   await db.execute(sql`UPDATE lot_build_pieces SET lot_no = NULL, updated_at = now() WHERE build_id = ${buildId}::uuid AND lot_no = ${no} AND state = 'sorting'`);
 }
 
+// ─── leftovers: carrying pieces from one wave into a later one ───────────────
+
+export type LeftoverSession = { buildId: string; name: string; kind: string | null; pieces: Array<{ n: number; identification: string | null; estValue: number | null }> };
+
+/** A session's leftovers: pieces still sorting that are lot material but in
+ *  no lot (not pulls, not waiting for a photo). */
+const LEFTOVER = sql`p.state = 'sorting' AND p.lot_no IS NULL AND COALESCE(p.verdict, 'lot') = 'lot'`;
+
+/** Leftovers sitting in Todd's OTHER open sessions, for a session's page and
+ *  Claude's packet. */
+export async function leftoversElsewhere(buildId: string): Promise<LeftoverSession[]> {
+  if (!UUID.test(buildId)) return [];
+  const list = await rows(sql`
+    SELECT b.id, b.name, b.kind, p.n, p.identification, p.est_value
+    FROM lot_build_pieces p JOIN lot_builds b ON b.id = p.build_id
+    WHERE b.status = 'open' AND b.id <> ${buildId}::uuid AND ${LEFTOVER}
+    ORDER BY b.created_at, p.n LIMIT 400`);
+  const out = new Map<string, LeftoverSession>();
+  for (const r of list) {
+    const k = String(r.id);
+    if (!out.has(k)) out.set(k, { buildId: k, name: String(r.name), kind: (r.kind as string | null) ?? null, pieces: [] });
+    out.get(k)!.pieces.push({ n: Number(r.n), identification: (r.identification as string | null) ?? null, estValue: num(r.est_value) });
+  }
+  return Array.from(out.values());
+}
+
+/** Carry pieces from one session into another (a later wave): each gets the
+ *  next number in the target, keeps what Claude said it is, remembers where
+ *  it started, and waits there unplaced and unlocked so it can go into any
+ *  lot that isn't built yet. ns = null carries every leftover. Only pieces
+ *  still sorting can move; built and pulled pieces stay. */
+export async function carryOver(fromBuildId: string, ns: number[] | null, toBuildId: string, who: string): Promise<{ moved: Array<{ from: number; to: number }>; fromName: string; toName: string }> {
+  if (!UUID.test(fromBuildId) || !UUID.test(toBuildId)) throw new Error("Bad session id");
+  if (fromBuildId === toBuildId) throw new Error("Those are the same session.");
+  const [src] = await rows(sql`SELECT id, name FROM lot_builds WHERE id = ${fromBuildId}::uuid`);
+  const [dst] = await rows(sql`SELECT id, name, status FROM lot_builds WHERE id = ${toBuildId}::uuid`);
+  if (!src || !dst) throw new Error("No such Lot Builder session");
+  if (String(dst.status) !== "open") throw new Error(`"${String(dst.name)}" is closed; reopen it first.`);
+  const ps = ns
+    ? await sortingPieces(fromBuildId, ns)
+    : await rows(sql`SELECT p.* FROM lot_build_pieces p WHERE p.build_id = ${fromBuildId}::uuid AND ${LEFTOVER}`);
+  if (!ps.length) throw new Error(`"${String(src.name)}" has no leftovers to carry over.`);
+  ps.sort((a, c) => Number(a.n) - Number(c.n));
+  const moved: Array<{ from: number; to: number }> = [];
+  for (const p of ps) {
+    let to = 0;
+    for (let attempt = 0; !to && attempt < 5; attempt++) {
+      const [mx] = await rows(sql`SELECT COALESCE(max(n), 0)::int + 1 AS n FROM lot_build_pieces WHERE build_id = ${toBuildId}::uuid`);
+      const done = await rows(sql`
+        UPDATE lot_build_pieces SET build_id = ${toBuildId}::uuid, n = ${Number(mx.n)}, lot_no = NULL, locked = false,
+          verdict = CASE WHEN verdict = 'pull' THEN verdict ELSE 'lot' END, photo_request = NULL, decided_by = ${who}, updated_at = now()
+        WHERE id = ${String(p.id)}::uuid AND build_id = ${fromBuildId}::uuid AND state = 'sorting'
+          AND NOT EXISTS (SELECT 1 FROM lot_build_pieces x WHERE x.build_id = ${toBuildId}::uuid AND x.n = ${Number(mx.n)})
+        RETURNING n`);
+      if (done.length) to = Number(done[0].n);
+    }
+    if (!to) continue;
+    // Where it first came from survives being carried more than once.
+    await db.execute(sql`
+      UPDATE listing_drafts SET updated_at = now(), ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('lotBuild',
+        jsonb_build_object('buildId', ${toBuildId}::text, 'n', ${to}::int,
+          'from', COALESCE(ai_meta->'lotBuild'->'from', jsonb_build_object('buildId', ${fromBuildId}::text, 'name', ${String(src.name)}::text, 'n', ${Number(p.n)}::int))))
+      WHERE id = ${String(p.draft_id)}::uuid`);
+    moved.push({ from: Number(p.n), to });
+  }
+  await touch(toBuildId);
+  await closeIfDone(fromBuildId);
+  return { moved, fromName: String(src.name), toName: String(dst.name) };
+}
+
+export async function claudeCarryOver(toBuildId: string, fromBuildId: string, pieces: unknown, who: string) {
+  const ns = Array.isArray(pieces) ? pieces.map(Number).filter((n) => Number.isInteger(n) && n >= 1) : [];
+  if (!ns.length) throw new Error("pieces: the piece numbers (in the session they are in now) to carry over.");
+  const out = await carryOver(fromBuildId, ns, toBuildId, `claude:${who}`);
+  return {
+    carried: out.moved.map((m) => ({ was: `"${out.fromName}" #${m.from}`, now: `#${m.to}` })),
+    note: `They are now pieces of "${out.toName}" under the new numbers, unplaced. Put them in lots with lot_build_plan (use the new numbers). Tell Todd which physical records to fetch from the "${out.fromName}" leftovers: the Lot Builder page shows each one's old number.`,
+  };
+}
+
 const batchOf = (buildId: string) => `lotbuild-${buildId.slice(0, 8)}`;
 
 async function closeIfDone(buildId: string): Promise<void> {
@@ -648,7 +750,7 @@ export async function buildLot(buildId: string, no: number, who: string, opts: {
     UPDATE listing_drafts SET status = ${CLAUDE_STATUS}, review_note = ${note}, generation_error = NULL, updated_at = now(),
       ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('claudeQueuedAt', now(), 'claudeQueuedBy', ${who}::text,
         'claudeBatch', ${batchOf(buildId)}::text, 'claudeLots', false,
-        'lotBuild', jsonb_build_object('buildId', ${buildId}::text, 'lotNo', ${no}::int, 'suggestedPrice', ${lot.suggestedPrice}::numeric))
+        'lotBuild', COALESCE(ai_meta->'lotBuild', '{}'::jsonb) || jsonb_build_object('buildId', ${buildId}::text, 'lotNo', ${no}::int, 'suggestedPrice', ${lot.suggestedPrice}::numeric))
     WHERE id = ${out.lotDraftId}::uuid`);
   await db.execute(sql`UPDATE lot_build_lots SET status = 'built', lot_draft_id = ${out.lotDraftId}::uuid, updated_at = now() WHERE id = ${lot.id}::uuid`);
   await db.execute(sql`UPDATE lot_build_pieces SET state = 'in_lot', updated_at = now() WHERE build_id = ${buildId}::uuid AND n IN (${ints(order.map((p) => p.n))})`);
@@ -738,7 +840,8 @@ export async function afterSplit(lotDraftId: string, lot: LotMeta): Promise<void
   const first = lot.parts[0];
   if (first?.fromBuild) {
     await db.execute(sql`
-      UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('lotBuild', jsonb_build_object('buildId', ${buildId}::text, 'n', ${first.fromBuild.n}::int))
+      UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('lotBuild',
+        ((COALESCE(ai_meta->'lotBuild', '{}'::jsonb) - 'lotNo') - 'suggestedPrice') || jsonb_build_object('buildId', ${buildId}::text, 'n', ${first.fromBuild.n}::int))
       WHERE id = ${lotDraftId}::uuid`);
   }
 }
