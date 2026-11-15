@@ -3,7 +3,7 @@
 
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { loadBuild, lotBuildReady } from "@/lib/listings/lot-build";
+import { leftoversElsewhere, listBuilds, loadBuild, lotBuildReady } from "@/lib/listings/lot-build";
 import { BuildBoard } from "./BuildBoard";
 
 export const dynamic = "force-dynamic";
@@ -12,6 +12,9 @@ export default async function LotBuildPage({ params }: { params: { id: string } 
   if (!/^[0-9a-f-]{36}$/i.test(params.id) || !(await lotBuildReady())) notFound();
   const build = await loadBuild(params.id).catch(() => null);
   if (!build) notFound();
+  // For carrying leftovers between waves: the other open sessions, and what they have left over.
+  const [open, leftovers] = await Promise.all([listBuilds().catch(() => []), leftoversElsewhere(build.id).catch(() => [])]);
+  const others = open.filter((b) => b.id !== build.id).map((b) => ({ id: b.id, name: b.name }));
   return (
     <section className="w-full px-4 md:px-6 py-10">
       <p className="text-xs uppercase tracking-wider text-brand-earth mb-3 print:hidden">
@@ -23,7 +26,7 @@ export default async function LotBuildPage({ params }: { params: { id: string } 
           Lot Builder
         </Link>
       </p>
-      <BuildBoard build={build} />
+      <BuildBoard build={build} others={others} leftovers={leftovers} />
     </section>
   );
 }

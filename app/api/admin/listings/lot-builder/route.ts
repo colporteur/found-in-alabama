@@ -1,6 +1,7 @@
 // POST /api/admin/listings/lot-builder — the Lot Builder (lib/listings/lot-build.ts).
 //   { action: "place", buildId, pieces: [n…], lotNo? | newLot? | verdict?: "pull" | "need_photo", note? }
 //        (none of lotNo / newLot / verdict = take the pieces out of their lot)
+//   { action: "carry", buildId, fromBuildId | toBuildId, pieces? }   leftovers between sessions
 //   { action: "unlock", buildId, pieces }          let Claude decide them again
 //   { action: "release", buildId, pieces }         out of the session → ordinary Ready drafts
 //   { action: "lot", buildId, no, name?, suggestedPrice?, reason? }
@@ -17,6 +18,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { listingCaller } from "@/lib/listings/auth";
 import {
+  carryOver,
   buildAll,
   buildLot,
   dissolveLot,
@@ -57,6 +59,15 @@ export async function POST(req: NextRequest) {
         const verdict = b.verdict === "pull" || b.verdict === "need_photo" ? b.verdict : null;
         const lotNo = Number.isInteger(b.lotNo) ? (b.lotNo as number) : null;
         return NextResponse.json({ ok: true, ...(await placePieces(buildId, nums(b.pieces), { lotNo, newLot: s(b.newLot), verdict, note: s(b.note) }, who)) });
+      }
+      case "carry": {
+        // Bring pieces INTO this session from another (fromBuildId), or send
+        // this session's pieces to another (toBuildId). No pieces = every leftover.
+        const other = String(b.fromBuildId ?? b.toBuildId ?? "");
+        if (!/^[0-9a-f-]{36}$/i.test(other)) return NextResponse.json({ error: "Bad session id" }, { status: 400 });
+        const list = Array.isArray(b.pieces) ? nums(b.pieces) : null;
+        const out = b.fromBuildId ? await carryOver(other, list, buildId, who) : await carryOver(buildId, list, other, who);
+        return NextResponse.json({ ok: true, ...out });
       }
       case "unlock":
         return NextResponse.json({ ok: true, unlocked: await unlockPieces(buildId, nums(b.pieces)) });

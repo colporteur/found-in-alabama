@@ -7,7 +7,7 @@
 // page, and they then come through listing_queue like any other draft.
 
 import { argStr, rawContent, type ToolDef } from "./protocol";
-import { claudeBuildIdentify, claudeBuildList, claudeBuildPacket, claudeBuildPiece, claudeBuildPlan, claudeBuildSheet } from "@/lib/listings/lot-build";
+import { claudeBuildIdentify, claudeBuildList, claudeCarryOver, claudeBuildPacket, claudeBuildPiece, claudeBuildPlan, claudeBuildSheet } from "@/lib/listings/lot-build";
 
 export function lotBuildTools(who: string): ToolDef[] {
   return [
@@ -87,6 +87,23 @@ export function lotBuildTools(who: string): ToolDef[] {
         },
       },
       run: async (a) => claudeBuildIdentify(argStr(a, "build_id", 40) ?? "", a.pieces, who),
+    },
+    {
+      name: "lot_build_carry_over",
+      title: "Carry leftovers into this session",
+      readOnly: false,
+      description:
+        "ONLY when Todd asks in this conversation. Moves leftover pieces from another open session (an earlier wave; lot_build_get lists them under LEFTOVERS IN TODD'S OTHER OPEN SESSIONS) into this one, so they can go into this session's lots that aren't built yet. Each gets the next piece number here, keeps its identification and remembers its old session and number; the reply gives old → new. Built and pulled pieces can't move. Then place them with lot_build_plan. Todd can do the same from the Lot Builder page, and can move them back.",
+      inputSchema: {
+        type: "object",
+        required: ["build_id", "from_build_id", "pieces"],
+        properties: {
+          build_id: { type: "string", description: "The session to bring them INTO" },
+          from_build_id: { type: "string", description: "The session they are in now" },
+          pieces: { type: "array", items: { type: "number" }, minItems: 1, maxItems: 100, description: "Piece numbers in the session they are in now" },
+        },
+      },
+      run: async (a) => claudeCarryOver(argStr(a, "build_id", 40) ?? "", argStr(a, "from_build_id", 40) ?? "", a.pieces, who),
     },
     {
       name: "lot_build_plan",
