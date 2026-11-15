@@ -72,6 +72,48 @@ function Tile({ p, ctx }: { p: BuildPiece; ctx: Ctx }) {
   );
 }
 
+/** One leftover from another session: choose one of THIS session's unbuilt
+ *  lots (or "not in a lot yet") and add it in one step. */
+function LeftoverRow({
+  p,
+  lots,
+  busy,
+  onAdd,
+}: {
+  p: LeftoverSession["pieces"][number];
+  lots: BuildLot[];
+  busy: boolean;
+  onAdd: (lotNo: number | null) => void;
+}) {
+  const [to, setTo] = useState("");
+  return (
+    <li className="flex flex-wrap items-center gap-2 rounded bg-white/70 p-1.5">
+      {p.front ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={p.front} alt="" loading="lazy" className="h-12 w-12 shrink-0 rounded bg-brand-ink/5 object-contain" />
+      ) : (
+        <span className="h-12 w-12 shrink-0 rounded bg-brand-ink/5" />
+      )}
+      <span className="min-w-0 flex-1">
+        <b>#{p.n}</b> {p.identification ?? "not identified"}
+        {p.estValue != null && <span className="text-teal-900/70"> · alone ${p.estValue.toFixed(2)}</span>}
+      </span>
+      <select className="max-w-xs rounded border border-brand-ink/30 px-2 py-1" value={to} onChange={(e) => setTo(e.target.value)}>
+        <option value="">Add to…</option>
+        {lots.map((l) => (
+          <option key={l.no} value={String(l.no)}>
+            Lot {l.no} — {l.name} ({l.pieces.length})
+          </option>
+        ))}
+        <option value="none">This session, not in a lot yet</option>
+      </select>
+      <button className={`${BTN} bg-white`} disabled={busy || !to} onClick={() => onAdd(to === "none" ? null : Number(to))}>
+        Add
+      </button>
+    </li>
+  );
+}
+
 /** "Lot 3" / "PULL" / "PHOTO" — the pile, short enough to read at arm's length. */
 function whereShort(r: GuideRow, lotNo: number | null): string {
   if (r.kind === "pull") return "PULL — sell alone";
@@ -352,7 +394,7 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
                 <b>
                   {s.pieces.length} leftover{s.pieces.length === 1 ? "" : "s"} in &ldquo;{s.name}&rdquo;
                 </b>
-                <span>not in any lot there. Bring them in to place them in this session&rsquo;s lots.</span>
+                <span>not in any lot there. Pick a lot for each below, or bring them all in and place them later.</span>
                 <button
                   className={`${BTN} ml-auto bg-white`}
                   disabled={busy}
@@ -369,13 +411,24 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
                   open that session
                 </Link>
               </div>
-              <p className="mt-1 text-teal-900/80">
-                {s.pieces
-                  .slice(0, 12)
-                  .map((p) => `#${p.n} ${p.identification ?? "not identified"}`)
-                  .join(" · ")}
-                {s.pieces.length > 12 ? " …" : ""}
-              </p>
+              <ul className="mt-2 space-y-1.5">
+                {s.pieces.map((p) => (
+                  <LeftoverRow
+                    key={p.n}
+                    p={p}
+                    lots={proposed}
+                    busy={busy}
+                    onAdd={(lotNo) =>
+                      act({ action: "carry", fromBuildId: s.buildId, pieces: [p.n], ...(lotNo != null ? { lotNo } : {}) }, (out) => {
+                        const m = ((out.moved as Array<{ from: number; to: number }> | undefined) ?? [])[0];
+                        return m
+                          ? `"${s.name}" #${m.from} is now #${m.to} here, ${lotNo != null ? `in lot ${lotNo}` : `under "Not in a lot yet"`}. Fetch the record from the ${s.name} leftovers.`
+                          : "Nothing moved.";
+                      })
+                    }
+                  />
+                ))}
+              </ul>
             </div>
           ))}
         {waiting.length > 0 && (

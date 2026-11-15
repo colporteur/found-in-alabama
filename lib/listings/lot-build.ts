@@ -638,7 +638,7 @@ export async function dissolveLot(buildId: string, no: number): Promise<void> {
 
 // ─── leftovers: carrying pieces from one wave into a later one ───────────────
 
-export type LeftoverSession = { buildId: string; name: string; kind: string | null; pieces: Array<{ n: number; identification: string | null; estValue: number | null }> };
+export type LeftoverSession = { buildId: string; name: string; kind: string | null; pieces: Array<{ n: number; identification: string | null; estValue: number | null; front?: string | null }> };
 
 /** A session's leftovers: pieces still sorting that are lot material but in
  *  no lot (not pulls, not waiting for a photo). */
@@ -649,7 +649,8 @@ const LEFTOVER = sql`p.state = 'sorting' AND p.lot_no IS NULL AND COALESCE(p.ver
 export async function leftoversElsewhere(buildId: string): Promise<LeftoverSession[]> {
   if (!UUID.test(buildId)) return [];
   const list = await rows(sql`
-    SELECT b.id, b.name, b.kind, p.n, p.identification, p.est_value
+    SELECT b.id, b.name, b.kind, p.n, p.identification, p.est_value,
+      (SELECT ph.url FROM draft_photos ph WHERE ph.draft_id = p.draft_id AND ph.uploaded_at IS NOT NULL AND ph.position < 1000 ORDER BY ph.position LIMIT 1) AS front
     FROM lot_build_pieces p JOIN lot_builds b ON b.id = p.build_id
     WHERE b.status = 'open' AND b.id <> ${buildId}::uuid AND ${LEFTOVER}
     ORDER BY b.created_at, p.n LIMIT 400`);
@@ -657,7 +658,7 @@ export async function leftoversElsewhere(buildId: string): Promise<LeftoverSessi
   for (const r of list) {
     const k = String(r.id);
     if (!out.has(k)) out.set(k, { buildId: k, name: String(r.name), kind: (r.kind as string | null) ?? null, pieces: [] });
-    out.get(k)!.pieces.push({ n: Number(r.n), identification: (r.identification as string | null) ?? null, estValue: num(r.est_value) });
+    out.get(k)!.pieces.push({ n: Number(r.n), identification: (r.identification as string | null) ?? null, estValue: num(r.est_value), front: (r.front as string | null) ?? null });
   }
   return Array.from(out.values());
 }
@@ -667,13 +668,24 @@ export async function leftoversElsewhere(buildId: string): Promise<LeftoverSessi
  *  it started, and waits there unplaced and unlocked so it can go into any
  *  lot that isn't built yet. ns = null carries every leftover. Only pieces
  *  still sorting can move; built and pulled pieces stay. */
-export async function carryOver(fromBuildId: string, ns: number[] | null, toBuildId: string, who: string): Promise<{ moved: Array<{ from: number; to: number }>; fromName: string; toName: string }> {
+export async function carryOver(
+  fromBuildId: string,
+  ns: number[] | null,
+  toBuildId: string,
+  who: string,
+  /** Straight into one of the target's lots that isn't built yet. */
+  intoLotNo: number | null = null
+): Promise<{ moved: Array<{ from: number; to: number }>; fromName: string; toName: string; lotNo: number | null }> {
   if (!UUID.test(fromBuildId) || !UUID.test(toBuildId)) throw new Error("Bad session id");
   if (fromBuildId === toBuildId) throw new Error("Those are the same session.");
   const [src] = await rows(sql`SELECT id, name FROM lot_builds WHERE id = ${fromBuildId}::uuid`);
   const [dst] = await rows(sql`SELECT id, name, status FROM lot_builds WHERE id = ${toBuildId}::uuid`);
   if (!src || !dst) throw new Error("No such Lot Builder session");
   if (String(dst.status) !== "open") throw new Error(`"${String(dst.name)}" is closed; reopen it first.`);
+  if (intoLotNo != null) {
+    const [l] = await rows(sql`SELECT no FROM lot_build_lots WHERE build_id = ${toBuildId}::uuid AND no = ${intoLotNo} AND status = 'proposed'`);
+    if (!l) throw new Error(`Lot ${intoLotNo} of "${String(dst.name)}" isn't open for pieces (it may already be built).`);
+  }
   const ps = ns
     ? await sortingPieces(fromBuildId, ns)
     : await rows(sql`SELECT p.* FROM lot_build_pieces p WHERE p.build_id = ${fromBuildId}::uuid AND ${LEFTOVER}`);
@@ -701,9 +713,10 @@ export async function carryOver(fromBuildId: string, ns: number[] | null, toBuil
       WHERE id = ${String(p.draft_id)}::uuid`);
     moved.push({ from: Number(p.n), to });
   }
+  if (intoLotNo != null && moved.length) await placePieces(toBuildId, moved.map((m) => m.to), { lotNo: intoLotNo }, who);
   await touch(toBuildId);
   await closeIfDone(fromBuildId);
-  return { moved, fromName: String(src.name), toName: String(dst.name) };
+  return { moved, fromName: String(src.name), toName: String(dst.name), lotNo: moved.length ? intoLotNo : null };
 }
 
 export async function claudeCarryOver(toBuildId: string, fromBuildId: string, pieces: unknown, who: string) {
