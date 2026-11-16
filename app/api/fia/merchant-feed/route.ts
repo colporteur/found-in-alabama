@@ -16,7 +16,8 @@
 // of just that item pays.
 
 import { NextResponse } from "next/server";
-import { gt } from "drizzle-orm";
+import { FEED_DESCRIPTION_CHARS, feedPart, inPart } from "@/lib/merchant-feed";
+import { asc, gt } from "drizzle-orm";
 import { db } from "@/db";
 import { ebayListings } from "@/db/schema";
 import { decodeEntities } from "@/lib/ebay/entities";
@@ -48,7 +49,8 @@ function tag(name: string, value: string): string {
   return `<${name}>${esc(value)}</${name}>`;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const part = feedPart(req.url);
   const [ctx, tesCats] = await Promise.all([
     loadFiaPricingContext(),
     loadTesCategories(),
@@ -62,10 +64,11 @@ export async function GET() {
       imageUrls: ebayListings.imageUrls,
     })
     .from(ebayListings)
-    .where(gt(ebayListings.quantity, 0));
+    .where(gt(ebayListings.quantity, 0))
+    .orderBy(asc(ebayListings.itemId));
 
   const items: string[] = [];
-  for (const row of rows) {
+  for (const row of inPart(rows, part)) {
     if (
       (row.cat1 && tesSet.has(row.cat1)) ||
       (row.cat2 && tesSet.has(row.cat2))
@@ -89,7 +92,7 @@ export async function GET() {
 
     const title = facts.title.trim().slice(0, 150);
     const description = row.description
-      ? plainTextFromHtml(decodeEntities(row.description), 4900)
+      ? plainTextFromHtml(decodeEntities(row.description), FEED_DESCRIPTION_CHARS)
       : title;
 
     items.push(

@@ -10,7 +10,8 @@
 // that's exactly what the buyer pays; multi-item carts only get cheaper.
 
 import { NextResponse } from "next/server";
-import { gt, inArray, and, or } from "drizzle-orm";
+import { FEED_DESCRIPTION_CHARS, feedPart, inPart } from "@/lib/merchant-feed";
+import { asc, gt, inArray, and, or } from "drizzle-orm";
 import { db } from "@/db";
 import { ebayListings } from "@/db/schema";
 import { getOnSaleLookup } from "@/lib/ebay/active-sales";
@@ -47,7 +48,8 @@ function tag(name: string, value: string): string {
   return `<${name}>${esc(value)}</${name}>`;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const part = feedPart(req.url);
   const [cats, onSale, flatPct] = await Promise.all([
     loadTesCategories(),
     getOnSaleLookup(),
@@ -81,10 +83,11 @@ export async function GET() {
               )
             )
           )
+          .orderBy(asc(ebayListings.itemId))
       : [];
 
   const items: string[] = [];
-  for (const row of rows) {
+  for (const row of inPart(rows, part)) {
     const price = row.price != null ? parseFloat(row.price) : NaN;
     if (!Number.isFinite(price) || price <= 0) continue;
 
@@ -106,7 +109,7 @@ export async function GET() {
     // exactly once for this document.
     const title = decodeEntities(row.title).trim().slice(0, 150);
     const description = row.description
-      ? plainTextFromHtml(decodeEntities(row.description), 4900)
+      ? plainTextFromHtml(decodeEntities(row.description), FEED_DESCRIPTION_CHARS)
       : title;
 
     // The site's effective price (same as the product page and checkout).
