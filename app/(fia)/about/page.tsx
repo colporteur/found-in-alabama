@@ -5,7 +5,7 @@ import { contact } from "@/lib/links";
 export const metadata: Metadata = {
   title: "About",
   description:
-    "Found in Alabama is a small, family-run reseller operating out of central Alabama. We rescue good things from estates, libraries, and auctions and find them new homes across six marketplaces.",
+    "Found in Alabama is a small, family-run reseller operating out of central Alabama. We rescue good things from estates, libraries, and auctions and find them new homes on our own site and across our marketplace stores.",
 };
 
 // NOTE FOR TODD: this is placeholder copy meant to capture the spirit
@@ -56,9 +56,12 @@ export default function AboutPage() {
           </p>
           <p>
             Every item we list is researched, priced, photographed, and put in
-            front of buyers across six marketplaces — eBay, Etsy, Poshmark,
-            Mercari, Depop, and Whatnot. We currently keep more than five
-            thousand items active, with new listings going up daily.
+            front of buyers here on our own site and across our marketplace
+            stores — eBay, Poshmark, Mercari, Depop, and Whatnot. When you buy
+            here, you buy directly from us: checkout runs on Stripe and we pack
+            and ship every order ourselves from Lineville, Alabama. We
+            currently keep thousands of items active, with new listings going
+            up daily.
           </p>
           <p>
             If you have an estate to clear out, a collection you're ready to

@@ -28,7 +28,9 @@ export async function GET(req: NextRequest) {
     entries.push(urlTag(`${base}/`, "hourly", "1.0"));
     entries.push(urlTag(`${base}/states`, "daily", "0.9"));
     entries.push(urlTag(`${base}/types`, "daily", "0.9"));
-    entries.push(urlTag(`${base}/returns`, "monthly", "0.3"));
+    for (const p of ["about", "contact", "shipping", "returns", "privacy"]) {
+      entries.push(urlTag(`${base}/${p}`, "monthly", "0.3"));
+    }
     const cats = await getStorefrontCategories({ segment: "tes" });
     for (const c of cats) {
       entries.push(urlTag(`${base}/shop/${c.slug}`, "hourly", "0.8"));
@@ -61,7 +63,7 @@ export async function GET(req: NextRequest) {
     for (const c of cats) {
       entries.push(urlTag(`${base}/shop/${c.slug}`, "hourly", "0.8"));
     }
-    for (const p of ["journal", "about", "we-buy", "find-me", "contact"]) {
+    for (const p of ["journal", "about", "we-buy", "find-me", "contact", "shipping", "returns", "privacy"]) {
       entries.push(urlTag(`${base}/${p}`, "weekly", "0.5"));
     }
   }

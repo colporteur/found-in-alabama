@@ -4,7 +4,7 @@ import { marketplaces, socials, comingSoonSocials } from "@/lib/links";
 export const metadata: Metadata = {
   title: "Find me",
   description:
-    "All the places to follow Found in Alabama and shop the inventory — eBay, Etsy, Poshmark, Mercari, Depop, Whatnot, plus Instagram and Bluesky.",
+    "All the places to follow Found in Alabama and shop the inventory — eBay, Poshmark, Mercari, Depop, Whatnot, plus Instagram and Bluesky.",
 };
 
 export default function FindMePage() {
@@ -18,8 +18,7 @@ export default function FindMePage() {
           Find our <span className="marker-highlight">hauls.</span>
         </h1>
         <p className="text-lg text-brand-ink/80 max-w-prose leading-relaxed">
-          Different finds end up in different places — vintage on Etsy,
-          clothing on Poshmark and Depop, books and collectibles on eBay,
+          Different finds end up in different places — clothing on Poshmark and Depop, books and collectibles on eBay,
           live show pieces on Whatnot, and a bit of everything on Mercari.
           Here's where to look for what.
         </p>

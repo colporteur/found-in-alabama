@@ -64,6 +64,7 @@ export default async function FiaItemPage({
       priceCurrency: "USD",
       price: item.price.toFixed(2),
       availability: "https://schema.org/InStock",
+      itemCondition: "https://schema.org/UsedCondition",
       url: `https://www.foundinalabama.com/item/${item.itemId}`,
     },
   };
@@ -90,8 +91,8 @@ export default async function FiaItemPage({
             <span className="font-marker text-3xl">{fmt(item.price)}</span>
             {item.discountPercent > 0 && (
               <>
-                <span className="text-brand-ink/50 line-through">
-                  {fmt(item.listPrice)}
+                <span className="text-brand-ink/50">
+                  eBay price <span className="line-through">{fmt(item.listPrice)}</span>
                 </span>
                 <span className="text-sm text-red-700 font-medium">
                   {Math.round(item.discountPercent)}% off

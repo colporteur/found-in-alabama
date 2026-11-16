@@ -1,3 +1,5 @@
+import Link from "next/link";
+import { BUSINESS, FIA_EMAIL } from "@/lib/business";
 import { marketplaces, socials, comingSoonSocials, contact } from "@/lib/links";
 import NewsletterSignup from "./NewsletterSignup";
 
@@ -90,15 +92,28 @@ export default function Footer() {
           >
             Text us: {contact.phone} →
           </a>
-          <p className="text-xs text-brand-paper/50">
-            © {new Date().getFullYear()} Found in Alabama ·{" "}
-            <a
-              href="/privacy"
-              className="hover:text-brand-yellow transition-colors"
-            >
-              Privacy
-            </a>
-          </p>
+          <div className="text-xs text-brand-paper/50 md:text-right space-y-1">
+            <nav aria-label="Store policies" className="flex flex-wrap md:justify-end gap-x-3 gap-y-1">
+              {[
+                ["About", "/about"],
+                ["Contact", "/contact"],
+                ["Shipping", "/shipping"],
+                ["Returns", "/returns"],
+                ["Privacy", "/privacy"],
+              ].map(([label, href]) => (
+                <Link key={href} href={href} className="hover:text-brand-yellow transition-colors">
+                  {label}
+                </Link>
+              ))}
+            </nav>
+            <p>
+              © {new Date().getFullYear()} Found in Alabama · Ships from{" "}
+              {BUSINESS.shipsFrom} ·{" "}
+              <a href={`mailto:${FIA_EMAIL}`} className="hover:text-brand-yellow transition-colors">
+                {FIA_EMAIL}
+              </a>
+            </p>
+          </div>
         </div>
       </div>
     </footer>

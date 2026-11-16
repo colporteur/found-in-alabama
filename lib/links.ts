@@ -16,13 +16,6 @@ export const marketplaces: LinkEntry[] = [
       "Books, collectibles, ephemera, and harder-to-find pieces. Watch for periodic sales — and we always take offers.",
   },
   {
-    name: "Etsy",
-    url: "https://www.etsy.com/shop/colporteurfinds",
-    handle: "colporteurfinds",
-    blurb:
-      "Vintage only — paper, advertising, small antiques, and the genuinely old.",
-  },
-  {
     name: "Poshmark",
     url: "https://poshmark.com/closet/colporteurbooks",
     handle: "@colporteurbooks",

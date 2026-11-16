@@ -1,4 +1,4 @@
-// One TES category's item grid. Items link out to their eBay listings.
+// One TES category's item grid.
 // Resolves slugs against the "tes" segment only, so FIA-only categories
 // 404 here even if their slug is guessed.
 
@@ -28,7 +28,7 @@ export async function generateMetadata({
   if (!cat) return { title: "Category not found" };
   return {
     title: `${cat.name} — The Ephemeral State`,
-    description: `Browse ${cat.count} ${cat.name.toLowerCase()} pieces at The Ephemeral State. Every item links to its eBay listing.`,
+    description: `Browse ${cat.count} ${cat.name.toLowerCase()} pieces at The Ephemeral State. Buy direct, shipped from Alabama.`,
     // Canonical to the real domain (guards the /tes preview path).
     alternates: { canonical: `/shop/${params.category}` },
   };

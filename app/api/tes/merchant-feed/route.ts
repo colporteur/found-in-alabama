@@ -4,8 +4,8 @@
 // a daily schedule, so it's generated fresh from the mirror on demand.
 //
 // Vintage/one-of-a-kind rules: condition=used, identifier_exists=false
-// (no GTIN/MPN/brand exists for a 1948 postcard). Sale pricing rides in
-// g:sale_price so Google shows the strike-through. Per-item shipping is
+// (no GTIN/MPN/brand exists for a 1948 postcard). g:price is the price
+// this site actually charges (discount already applied). Per-item shipping is
 // the first-item rate of the item's ship class — for a single-item order
 // that's exactly what the buyer pays; multi-item carts only get cheaper.
 
@@ -109,8 +109,7 @@ export async function GET() {
       ? plainTextFromHtml(decodeEntities(row.description), 4900)
       : title;
 
-    // Sale-aware pricing: g:price is the regular price; g:sale_price makes
-    // Google render the discount.
+    // The site's effective price (same as the product page and checkout).
     const badge =
       onSale.byListingId.get(row.itemId) ??
       (row.storeCategory1Id
@@ -141,10 +140,11 @@ export async function GET() {
         tag("g:link", `${BASE}/item/${row.itemId}`),
         tag("g:image_link", image),
         ...additional.map((u) => tag("g:additional_image_link", u)),
-        tag("g:price", `${price.toFixed(2)} USD`),
-        ...(salePrice != null && salePrice < price
-          ? [tag("g:sale_price", `${salePrice.toFixed(2)} USD`)]
-          : []),
+        // The price this site charges. No g:sale_price: the "regular" price
+        // would be the eBay price, which Google doesn't accept as a
+        // reference price (it must be a price charged on this site), and a
+        // permanent strike-through reads as a misleading discount.
+        tag("g:price", `${(salePrice != null && salePrice < price ? salePrice : price).toFixed(2)} USD`),
         tag("g:availability", "in_stock"),
         tag("g:condition", "used"),
         tag("g:identifier_exists", "false"),

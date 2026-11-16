@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { contact } from "@/lib/links";
+import { FIA_EMAIL } from "@/lib/business";
 
 export const metadata: Metadata = {
   title: "Privacy Policy",
@@ -8,8 +9,8 @@ export const metadata: Metadata = {
     "What information Found in Alabama collects, how we use it, and how to contact us about your data.",
 };
 
-const LAST_UPDATED = "June 9, 2026";
-const CONTACT_EMAIL = "hello@foundinalabama.com";
+const LAST_UPDATED = "November 16, 2026";
+const CONTACT_EMAIL = FIA_EMAIL;
 
 export default function PrivacyPage() {
   return (
@@ -37,12 +38,13 @@ export default function PrivacyPage() {
             The short version
           </p>
           <p>
-            We don&rsquo;t sell your data. We collect very little — basically
-            standard server logs and whatever you choose to send us by text or
-            email. Sales themselves happen on third-party marketplaces (eBay,
-            Etsy, Poshmark, Mercari, Depop, Whatnot) — those companies handle
-            customer information for the transaction; we never see your payment
-            details. We post about our inventory on social media (Pinterest,
+            We don&rsquo;t sell your data. We collect very little — standard
+            server logs, whatever you choose to send us by text or email, and,
+            when you buy directly on this site, the name, email, and shipping
+            address we need to fill your order. Payments on this site are
+            processed by Stripe; we never see your full card number. Purchases
+            on marketplaces (eBay, Poshmark, Mercari, Depop, Whatnot) are
+            handled by those companies. We post about our inventory on social media (Pinterest,
             BlueSky, Facebook, Instagram, X) and use a scheduling service to do
             so; we use those platforms&rsquo; APIs only to publish to our own
             accounts and do not access or store other users&rsquo; data.
@@ -54,7 +56,8 @@ export default function PrivacyPage() {
           Found in Alabama is a small reseller of estate finds, vintage, books,
           ephemera, and small antiques operating out of Alabama. This privacy
           policy applies to <code>foundinalabama.com</code> and any sub-paths
-          on it. For purchases made on a third-party marketplace, that
+          on it. Our sister shop, The Ephemeral State, has its own policy at{" "}
+          <code>theephemeralstate.com/privacy</code>. For purchases made on a third-party marketplace, that
           marketplace&rsquo;s own privacy policy governs the transaction.
         </p>
 
@@ -93,10 +96,23 @@ export default function PrivacyPage() {
         </p>
 
         <h3 className="font-medium text-lg mt-6 mb-2">
+          When you buy on this site
+        </h3>
+        <p>
+          Checkout runs on Stripe. You give Stripe your name, email, shipping
+          address, and payment details. We receive your name, email, shipping
+          address, and what you bought &mdash; never your full card number. We
+          use them to fill and ship your order, send order and shipping
+          emails, handle returns, and keep the records a business is required
+          to keep. If you arrive with a discount code, we set one cookie to
+          remember it for 30 days.
+        </p>
+
+        <h3 className="font-medium text-lg mt-6 mb-2">
           When you buy from us on a marketplace
         </h3>
         <p>
-          The marketplace (eBay, Etsy, Poshmark, Mercari, Depop, or Whatnot)
+          The marketplace (eBay, Poshmark, Mercari, Depop, or Whatnot)
           handles your order and shares your shipping address with us so we can
           ship to you. We see only what the marketplace shares. Payment details
           never come to us — the marketplace handles them.
@@ -104,8 +120,10 @@ export default function PrivacyPage() {
 
         <h3 className="font-medium text-lg mt-6 mb-2">Cookies</h3>
         <p>
-          We use one functional cookie when an administrator (currently the
-          owner) signs in to manage the site. We do not use tracking,
+          We use only functional cookies: one when an administrator
+          (currently the owner) signs in to manage the site, and one that
+          remembers a discount code for 30 days if you arrive with one. Your
+          cart is saved in your own browser. We do not use tracking,
           analytics, or advertising cookies.
         </p>
 
@@ -130,6 +148,29 @@ export default function PrivacyPage() {
           </li>
           <li>
             <a
+              href="https://stripe.com/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline decoration-brand-yellow decoration-2 underline-offset-2"
+            >
+              Stripe
+            </a>{" "}
+            — processes payments on this site. Card details go to Stripe,
+            never to us.
+          </li>
+          <li>
+            <a
+              href="https://www.pirateship.com/privacy"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline decoration-brand-yellow decoration-2 underline-offset-2"
+            >
+              Pirate Ship
+            </a>{" "}
+            — buys postage; receives the shipping address for your label.
+          </li>
+          <li>
+            <a
               href="https://neon.tech/privacy-policy"
               target="_blank"
               rel="noopener noreferrer"
@@ -137,8 +178,7 @@ export default function PrivacyPage() {
             >
               Neon
             </a>{" "}
-            — database for our inventory and saved drafts. Customer data is
-            not stored here.
+            — database for our inventory and the orders placed on this site.
           </li>
           <li>
             <a
@@ -149,7 +189,8 @@ export default function PrivacyPage() {
             >
               Resend
             </a>{" "}
-            — sends magic-link sign-in emails to the owner.
+            — sends order, shipping, and newsletter emails, and sign-in emails
+            to the owner.
           </li>
           <li>
             <a
@@ -171,8 +212,9 @@ export default function PrivacyPage() {
             >
               Anthropic
             </a>{" "}
-            — generates draft narrative copy from photos and notes the owner
-            provides. We do not send customer data to Anthropic.
+            — helps draft listing copy and run business reports. It never
+            receives payment details, and we don&rsquo;t send it customer
+            names or street addresses.
           </li>
           <li>
             The marketplaces we sell on:{" "}
@@ -183,15 +225,6 @@ export default function PrivacyPage() {
               className="underline decoration-brand-yellow decoration-2 underline-offset-2"
             >
               eBay
-            </a>
-            ,{" "}
-            <a
-              href="https://www.etsy.com/legal/privacy/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline decoration-brand-yellow decoration-2 underline-offset-2"
-            >
-              Etsy
             </a>
             ,{" "}
             <a
