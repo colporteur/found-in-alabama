@@ -240,6 +240,12 @@ export function ShipTable({
     window.open(`/admin/ship/invoices?ids=${ids.join(",")}`, "_blank");
   }
 
+  // COUPON-4: the same invoice codes on DYMO labels (57 × 32 mm).
+  function openCouponLabels() {
+    if (!ids.length) return;
+    window.open(`/admin/labels/coupon?ship=${ids.join(",")}`, "_blank");
+  }
+
   const needInvoice = orders.filter((o) => INVOICE_VENUES.has(o.venue) && !o.invoicePrintedAt).map((o) => o.id);
 
   const btn = "text-sm px-3 py-1.5 rounded border border-brand-ink/20 hover:border-brand-ink/50 disabled:opacity-40";
@@ -283,6 +289,15 @@ export function ShipTable({
         )}
         {(tab === "to_pick" || tab === "packed") && (
           <>
+            <button
+              type="button"
+              className={btn}
+              disabled={!ids.length}
+              onClick={openCouponLabels}
+              title="Print the selected packages' invoice coupon codes on DYMO labels (57 × 32 mm) — same codes as the invoices"
+            >
+              Coupon labels (DYMO)
+            </button>
             <button type="button" className={btn} disabled={busy || !ids.length} onClick={() => act("shipped")}>
               Mark shipped
             </button>
@@ -378,6 +393,16 @@ export function ShipTable({
                           onClick={(e) => e.stopPropagation()}
                         >
                           🏷️ label
+                        </a>
+                        <a
+                          href={`/admin/labels/coupon?ship=${o.id}`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="ml-2 underline text-brand-ink/70"
+                          title="Print this package's invoice coupon code on the DYMO (57 × 32 mm)"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          🎟️ code
                         </a>
                       </div>
                     )}

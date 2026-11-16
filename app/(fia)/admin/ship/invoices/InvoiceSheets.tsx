@@ -6,7 +6,7 @@
 // totals are editable before printing; Print records the packages as
 // invoiced.
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { couponFits } from "@/lib/shop/coupon-fit";
 
 const PICK_ORDER_KEY = "fia.invoices.pickOrder";
@@ -84,7 +84,7 @@ function Brand({ which }: { which: "fia" | "tes" }) {
   );
 }
 
-function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
+function Invoice({ inv, photos, onFit }: { inv: InvoiceData; photos: boolean; onFit?: (id: string, fits: boolean) => void }) {
   const [prices, setPrices] = useState<Record<string, number | null>>(
     Object.fromEntries(inv.lines.map((l) => [l.id, l.price == null ? null : l.price * l.qty]))
   );
@@ -103,6 +103,9 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
   const stockRef = useRef<HTMLParagraphElement>(null);
   const [fit, setFit] = useState<"full" | "short" | "none">("full");
   const fits = fit !== "none";
+  useEffect(() => {
+    if (inv.coupon) onFit?.(inv.id, fits);
+  }, [fits, inv.id, inv.coupon, onFit]);
   useLayoutEffect(() => {
     if (!inv.coupon || !bodyRef.current || !couponRef.current) return;
     const measure = () => {
@@ -258,7 +261,14 @@ function Invoice({ inv, photos }: { inv: InvoiceData; photos: boolean }) {
           </div>
         </div>
       )}
-      {inv.coupon && !fits && <p className="no-print inv-coupon-note">No room for the coupon code on this label — it will be left off.</p>}
+      {inv.coupon && !fits && (
+        <p className="no-print inv-coupon-note">
+          No room for the coupon code on this label — it will be left off.{" "}
+          <a href={`/admin/labels/coupon?ship=${inv.id}`} target="_blank" rel="noopener noreferrer">
+            Print it on a DYMO label
+          </a>
+        </p>
+      )}
       {inv.coupon && fit === "short" && <p className="no-print inv-coupon-note">Tight on room: the stock line is left off; the code still prints.</p>}
     </div>
   );
@@ -290,6 +300,19 @@ export function InvoiceSheets({ invoices }: { invoices: InvoiceData[] }) {
   );
   const missing = invoices.filter((i) => i.lines.some((l) => l.price == null)).length;
   const alabamaCount = invoices.filter((i) => i.alabama).length;
+  // COUPON-4: which codes won't fit on their invoice (measured per label).
+  const [noRoom, setNoRoom] = useState<Set<string>>(new Set());
+  const onFit = useCallback((id: string, fits: boolean) => {
+    setNoRoom((s) => {
+      if (fits === !s.has(id)) return s;
+      const n = new Set(s);
+      if (fits) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }, []);
+  const withCode = invoices.filter((i) => i.coupon).map((i) => i.id);
+  const couponHref = (ids: string[]) => `/admin/labels/coupon?ship=${ids.join(",")}`;
 
   async function print() {
     setBusy(true);
@@ -329,6 +352,22 @@ export function InvoiceSheets({ invoices }: { invoices: InvoiceData[] }) {
         <button type="button" onClick={print} disabled={busy || !invoices.length}>
           {busy ? "Loading photos…" : "Print"}
         </button>
+        {withCode.length > 0 && (
+          <span className="inv-dymo">
+            Coupon labels (DYMO):{" "}
+            {noRoom.size > 0 && (
+              <>
+                <a href={couponHref(Array.from(noRoom))} target="_blank" rel="noopener noreferrer">
+                  {noRoom.size} that don&apos;t fit
+                </a>
+                {" · "}
+              </>
+            )}
+            <a href={couponHref(withCode)} target="_blank" rel="noopener noreferrer">
+              all {withCode.length}
+            </a>
+          </span>
+        )}
         {note && <span>{note}</span>}
       </div>
       <p className="no-print inv-hint">
@@ -337,7 +376,7 @@ export function InvoiceSheets({ invoices }: { invoices: InvoiceData[] }) {
       </p>
       {!invoices.length && <p className="no-print inv-hint">No packages selected.</p>}
       {shown.map((inv) => (
-        <Invoice key={inv.id} inv={inv} photos={photos} />
+        <Invoice key={inv.id} inv={inv} photos={photos} onFit={onFit} />
       ))}
     </div>
   );
@@ -377,6 +416,8 @@ const INVOICE_CSS = `
     letter-spacing: .06em; text-transform: uppercase; line-height: 1.15; color: #000; }
   .inv-al-sub { display: block; margin-top: 1px; font-family: Arial, Helvetica, sans-serif; font-size: 11px;
     font-weight: 700; line-height: 1.2; color: #000; }
+  .inv-dymo { font-size: 13px; }
+  .inv-dymo a, .inv-coupon-note a { color: inherit; text-decoration: underline; font-weight: 600; }
   .inv-al-count { font-weight: 700; color: #7a4b00; }
   .inv-saleline { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 6px; margin-top: 8px; font-size: 11px; overflow-wrap: anywhere; }
   .inv-note { font-size: 10px; }
