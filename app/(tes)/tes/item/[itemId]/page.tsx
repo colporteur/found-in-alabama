@@ -68,6 +68,7 @@ export default async function TesItemPage({
       priceCurrency: "USD",
       price: effective.toFixed(2),
       availability: "https://schema.org/InStock",
+      itemCondition: "https://schema.org/UsedCondition",
       url: `https://theephemeralstate.com/item/${item.itemId}`,
     },
   };
@@ -100,8 +101,8 @@ export default async function TesItemPage({
             </span>
             {item.salePrice != null && (
               <>
-                <span className="text-tes-ink/50 line-through">
-                  {fmt(item.price)}
+                <span className="text-tes-ink/50">
+                  eBay price <span className="line-through">{fmt(item.price)}</span>
                 </span>
                 <span className="text-sm text-red-700 font-medium">
                   {Math.round(item.discountPercent ?? 0)}% off

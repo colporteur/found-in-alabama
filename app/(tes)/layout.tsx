@@ -11,6 +11,7 @@ import TesHeader from "@/components/tes/TesHeader";
 import TesFooter from "@/components/tes/TesFooter";
 import { CartProvider } from "@/components/tes/CartProvider";
 import { Analytics } from "@vercel/analytics/next";
+import { BUSINESS, TES_EMAIL } from "@/lib/business";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -65,8 +66,47 @@ export const metadata: Metadata = {
     card: "summary_large_image",
     title: "The Ephemeral State",
     description:
-      "Antique paper Americana, state by state. Every piece links to its live eBay listing.",
+      "Antique paper Americana, state by state. Postcards, photos, documents, and other paper survivors, shipped from Alabama.",
     images: ["/tes/og.png"],
+  },
+};
+
+// Organization identity for Google (Merchant Center / Search): who the
+// seller is, how to reach them, where they are, and the return policy.
+const ORG_JSONLD = {
+  "@context": "https://schema.org",
+  "@type": "OnlineStore",
+  name: "The Ephemeral State",
+  url: "https://theephemeralstate.com",
+  logo: "https://theephemeralstate.com/tes/favicon.png",
+  email: TES_EMAIL,
+  telephone: BUSINESS.phoneE164,
+  address: {
+    "@type": "PostalAddress",
+    addressLocality: "Lineville",
+    addressRegion: BUSINESS.region,
+    addressCountry: BUSINESS.country,
+  },
+  parentOrganization: {
+    "@type": "Organization",
+    name: "Found in Alabama",
+    url: "https://www.foundinalabama.com",
+  },
+  contactPoint: {
+    "@type": "ContactPoint",
+    contactType: "customer service",
+    email: TES_EMAIL,
+    telephone: BUSINESS.phoneE164,
+    areaServed: "US",
+  },
+  hasMerchantReturnPolicy: {
+    "@type": "MerchantReturnPolicy",
+    applicableCountry: "US",
+    returnPolicyCategory: "https://schema.org/MerchantReturnFiniteReturnWindow",
+    merchantReturnDays: BUSINESS.returnDays,
+    returnMethod: "https://schema.org/ReturnByMail",
+    returnFees: "https://schema.org/ReturnFeesCustomerResponsibility",
+    merchantReturnLink: "https://theephemeralstate.com/returns",
   },
 };
 
@@ -83,6 +123,10 @@ export default function TesRootLayout({
           <main className="flex-1">{children}</main>
           <TesFooter />
         </CartProvider>
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(ORG_JSONLD) }}
+        />
         <Analytics />
       </body>
     </html>

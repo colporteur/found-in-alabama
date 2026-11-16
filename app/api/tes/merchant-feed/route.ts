@@ -4,13 +4,14 @@
 // a daily schedule, so it's generated fresh from the mirror on demand.
 //
 // Vintage/one-of-a-kind rules: condition=used, identifier_exists=false
-// (no GTIN/MPN/brand exists for a 1948 postcard). Sale pricing rides in
-// g:sale_price so Google shows the strike-through. Per-item shipping is
+// (no GTIN/MPN/brand exists for a 1948 postcard). g:price is the price
+// this site actually charges (discount already applied). Per-item shipping is
 // the first-item rate of the item's ship class — for a single-item order
 // that's exactly what the buyer pays; multi-item carts only get cheaper.
 
 import { NextResponse } from "next/server";
-import { gt, inArray, and, or } from "drizzle-orm";
+import { FEED_DESCRIPTION_CHARS, feedPart, inPart } from "@/lib/merchant-feed";
+import { asc, gt, inArray, and, or } from "drizzle-orm";
 import { db } from "@/db";
 import { ebayListings } from "@/db/schema";
 import { getOnSaleLookup } from "@/lib/ebay/active-sales";
@@ -47,7 +48,8 @@ function tag(name: string, value: string): string {
   return `<${name}>${esc(value)}</${name}>`;
 }
 
-export async function GET() {
+export async function GET(req: Request) {
+  const part = feedPart(req.url);
   const [cats, onSale, flatPct] = await Promise.all([
     loadTesCategories(),
     getOnSaleLookup(),
@@ -81,10 +83,11 @@ export async function GET() {
               )
             )
           )
+          .orderBy(asc(ebayListings.itemId))
       : [];
 
   const items: string[] = [];
-  for (const row of rows) {
+  for (const row of inPart(rows, part)) {
     const price = row.price != null ? parseFloat(row.price) : NaN;
     if (!Number.isFinite(price) || price <= 0) continue;
 
@@ -106,11 +109,10 @@ export async function GET() {
     // exactly once for this document.
     const title = decodeEntities(row.title).trim().slice(0, 150);
     const description = row.description
-      ? plainTextFromHtml(decodeEntities(row.description), 4900)
+      ? plainTextFromHtml(decodeEntities(row.description), FEED_DESCRIPTION_CHARS)
       : title;
 
-    // Sale-aware pricing: g:price is the regular price; g:sale_price makes
-    // Google render the discount.
+    // The site's effective price (same as the product page and checkout).
     const badge =
       onSale.byListingId.get(row.itemId) ??
       (row.storeCategory1Id
@@ -141,10 +143,11 @@ export async function GET() {
         tag("g:link", `${BASE}/item/${row.itemId}`),
         tag("g:image_link", image),
         ...additional.map((u) => tag("g:additional_image_link", u)),
-        tag("g:price", `${price.toFixed(2)} USD`),
-        ...(salePrice != null && salePrice < price
-          ? [tag("g:sale_price", `${salePrice.toFixed(2)} USD`)]
-          : []),
+        // The price this site charges. No g:sale_price: the "regular" price
+        // would be the eBay price, which Google doesn't accept as a
+        // reference price (it must be a price charged on this site), and a
+        // permanent strike-through reads as a misleading discount.
+        tag("g:price", `${(salePrice != null && salePrice < price ? salePrice : price).toFixed(2)} USD`),
         tag("g:availability", "in_stock"),
         tag("g:condition", "used"),
         tag("g:identifier_exists", "false"),
