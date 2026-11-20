@@ -23,6 +23,17 @@ test("which template a draft uses", () => {
   assert.equal(pickTemplateKey({ kind: "other", categoryPath: "Collectibles > Advertising", shippingProfile: "calculated" }), "general");
 });
 
+test("private notes: haul slug first, then FIA id and bin", async () => {
+  const { niftyPrivateNotes } = await import("./nifty.ts");
+  const id = "16ac8099-ee60-460d-9f15-db1495288754";
+  const notes = niftyPrivateNotes(id, "C-12", "paper-patches-talladega-sale");
+  assert.equal(notes, "paper-patches-talladega-sale | FIA 16ac8099 | SKU: C-12");
+  // The Nifty capture takes the first word as the haul slug.
+  assert.equal(notes.trim().toLowerCase().split(/[\s,]+/)[0], "paper-patches-talladega-sale");
+  assert.equal(niftyPrivateNotes(id, "C-12", null), "FIA 16ac8099 | SKU: C-12");
+  assert.equal(niftyPrivateNotes(id, null, "Bad Slug!"), "FIA 16ac8099");
+});
+
 test("hashtagFreeDescription: Depop-safe card numbers", async () => {
   const { hashtagFreeDescription } = await import("./nifty.ts");
   assert.equal(

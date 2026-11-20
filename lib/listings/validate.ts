@@ -29,6 +29,8 @@ export type IntakeRequest = {
   titleHint: string | null;
   notes: string | null;
   binSku: string | null;
+  /** Journal haul post slug (optional); goes first in the Nifty Private Notes. */
+  haulSlug?: string | null;
   weightOz: number | null;
   quantity: number;
   facts: Record<string, unknown>;
@@ -139,6 +141,7 @@ export function parseIntakeRequest(body: unknown): Parsed {
         titleHint: str(b.titleHint, 300),
         notes: str(b.notes, 4000),
         binSku: str(b.binSku, 120),
+        haulSlug: ((s) => (s && /^[a-z0-9-]+$/.test(s) ? s : null))(str(b.haulSlug, 120)?.toLowerCase() ?? null),
         weightOz: num(b.weightOz, 0, 100000),
         quantity: Math.round(quantity),
         facts,

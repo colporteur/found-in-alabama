@@ -7,6 +7,7 @@ import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import type { IntakeRequest } from "./validate";
 import { draftPhotoKey, headObject, presignPut, publicUrl, r2Config, type R2Config } from "@/lib/storage/r2";
+import { getKnownSlugs } from "@/lib/posts-slugs";
 
 type Row = Record<string, unknown>;
 
@@ -140,9 +141,11 @@ export async function startIntake(req: IntakeRequest, who: string): Promise<Inta
   }
 
   const title = req.titleHint ?? "Untitled item";
+  // A journal haul slug is kept only when it names a published post.
+  const haulSlug = req.haulSlug && getKnownSlugs().has(req.haulSlug) ? req.haulSlug : null;
   const [item] = await rows(sql`
-    INSERT INTO registry_items (status, title, title_normalized, bin_sku, created_from)
-    VALUES ('draft', ${title}, ${normalize(title)}, ${req.binSku}, 'intake')
+    INSERT INTO registry_items (status, title, title_normalized, bin_sku, haul_post_slug, created_from)
+    VALUES ('draft', ${title}, ${normalize(title)}, ${req.binSku}, ${haulSlug}, 'intake')
     RETURNING id`);
   const registryItemId = String(item.id);
 

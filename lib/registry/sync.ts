@@ -167,14 +167,14 @@ export const REGISTRY_SYNC_STEPS: Step[] = [
         title = CASE WHEN {{LOCKED:title}} THEN r.title ELSE i.title END,
         title_normalized = CASE WHEN {{LOCKED:title}} THEN r.title_normalized ELSE i.title_normalized END,
         bin_sku = CASE WHEN {{LOCKED:bin_sku}} THEN r.bin_sku ELSE i.sku END,
-        haul_post_slug = i.haul_post_slug, updated_at = now()
+        haul_post_slug = COALESCE(i.haul_post_slug, r.haul_post_slug), updated_at = now()
       FROM items i
       WHERE r.nifty_item_ref = i.id AND r.status IN ('live', 'sold')
         AND NOT (i.status <> 'sold' AND r.status = 'sold' AND {{SALE_AFTER:i.updated_at}})
         AND ((NOT {{LOCKED:status}} AND r.status IS DISTINCT FROM CASE WHEN i.status = 'sold' THEN 'sold' ELSE 'live' END)
              OR (NOT {{LOCKED:title}} AND r.title IS DISTINCT FROM i.title)
              OR (NOT {{LOCKED:bin_sku}} AND r.bin_sku IS DISTINCT FROM i.sku)
-             OR r.haul_post_slug IS DISTINCT FROM i.haul_post_slug)`,
+             OR (i.haul_post_slug IS NOT NULL AND r.haul_post_slug IS DISTINCT FROM i.haul_post_slug))`,
   },
   {
     name: "eBay listings with no Nifty record",

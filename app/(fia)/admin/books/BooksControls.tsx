@@ -64,12 +64,51 @@ export type HaulFormValue = {
   kind: string;
   totalCost: string;
   notes: string;
+  postSlug: string;
 };
 
-export function HaulForm({ initial, onDone }: { initial?: HaulFormValue; onDone?: () => void }) {
+/** A published journal post, for the pickers. */
+export type PostOption = { slug: string; title: string; date: string };
+
+function JournalSelect({
+  posts,
+  value,
+  onChange,
+  className,
+  emptyLabel = "— none —",
+}: {
+  posts: PostOption[];
+  value: string;
+  onChange: (slug: string) => void;
+  className?: string;
+  emptyLabel?: string;
+}) {
+  const known = posts.some((p) => p.slug === value);
+  return (
+    <select className={className} value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">{emptyLabel}</option>
+      {value && !known && <option value={value}>{value} (not a published post)</option>}
+      {posts.map((p) => (
+        <option key={p.slug} value={p.slug}>
+          {p.title}
+          {p.date ? ` (${p.date})` : ""}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+export function HaulForm({ initial, onDone, posts = [] }: { initial?: HaulFormValue; onDone?: () => void; posts?: PostOption[] }) {
   const router = useRouter();
   const [f, setF] = useState<HaulFormValue>(
-    initial ?? { name: "", acquiredOn: new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" }), kind: "estate_sale", totalCost: "", notes: "" }
+    initial ?? {
+      name: "",
+      acquiredOn: new Date().toLocaleDateString("en-CA", { timeZone: "America/Chicago" }),
+      kind: "estate_sale",
+      totalCost: "",
+      notes: "",
+      postSlug: "",
+    }
   );
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -84,7 +123,7 @@ export function HaulForm({ initial, onDone }: { initial?: HaulFormValue; onDone?
         setErr(null);
         try {
           await post({ action: "haul", ...f, totalCost: f.totalCost.replace(/[^0-9.]/g, "") || null });
-          if (!initial) setF({ ...f, name: "", totalCost: "", notes: "" });
+          if (!initial) setF({ ...f, name: "", totalCost: "", notes: "", postSlug: "" });
           onDone?.();
           router.refresh();
         } catch (x) {
@@ -94,6 +133,24 @@ export function HaulForm({ initial, onDone }: { initial?: HaulFormValue; onDone?
         }
       }}
     >
+      <label className="text-sm">
+        <span className="block text-brand-ink/60 mb-1">Journal post</span>
+        <JournalSelect
+          className={`${input} w-64`}
+          posts={posts}
+          value={f.postSlug}
+          onChange={(slug) => {
+            const p = posts.find((x) => x.slug === slug);
+            setF({
+              ...f,
+              postSlug: slug,
+              // Fill in a blank name/date from the post.
+              name: p && !f.name.trim() ? p.title : f.name,
+              acquiredOn: !initial && p?.date ? p.date : f.acquiredOn,
+            });
+          }}
+        />
+      </label>
       <label className="text-sm">
         <span className="block text-brand-ink/60 mb-1">Name</span>
         <input className={`${input} w-64`} value={f.name} onChange={set("name")} placeholder="Smith estate sale, Anniston" />
@@ -128,11 +185,11 @@ export function HaulForm({ initial, onDone }: { initial?: HaulFormValue; onDone?
   );
 }
 
-export function EditHaul({ value }: { value: HaulFormValue }) {
+export function EditHaul({ value, posts = [] }: { value: HaulFormValue; posts?: PostOption[] }) {
   const [open, setOpen] = useState(false);
   return open ? (
     <div className="mt-2">
-      <HaulForm initial={value} onDone={() => setOpen(false)} />
+      <HaulForm initial={value} posts={posts} onDone={() => setOpen(false)} />
     </div>
   ) : (
     <button type="button" className="text-xs underline text-brand-ink/60" onClick={() => setOpen(true)}>
@@ -224,25 +281,37 @@ export function FeeForm({ fees, buyerPaid }: { fees: Record<string, FeeRule>; bu
   );
 }
 
-/** On a listing draft: which haul it came from (optional) and its own cost. */
+/** On a listing draft: its journal haul, which books haul it came from
+ *  (optional) and its own cost. */
 export function HaulCostPanel({
   registryItemId,
   hauls,
   acquisitionId,
   unitCost,
   splitCost,
+  posts = [],
+  haulPostSlug = null,
+  haulId = null,
+  haulName = null,
 }: {
   registryItemId: string;
-  hauls: Array<{ id: string; name: string; acquiredOn: string | null }>;
+  hauls: Array<{ id: string; name: string; acquiredOn: string | null; postSlug?: string | null }>;
   acquisitionId: string | null;
   unitCost: number | null;
   splitCost: number | null;
+  posts?: PostOption[];
+  haulPostSlug?: string | null;
+  haulId?: string | null;
+  haulName?: string | null;
 }) {
   const router = useRouter();
   const [acq, setAcq] = useState(acquisitionId ?? "");
+  const [slug, setSlug] = useState(haulPostSlug ?? "");
   const [cost, setCost] = useState(unitCost == null ? "" : unitCost.toFixed(2));
   const [msg, setMsg] = useState<string | null>(null);
-  async function save(next: { acquisitionId?: string | null; unitCost?: string | null }) {
+  const picked = hauls.find((h) => h.id === acq);
+  const notesSlug = slug || picked?.postSlug || "";
+  async function save(next: { acquisitionId?: string | null; unitCost?: string | null; haulPostSlug?: string | null }) {
     setMsg(null);
     try {
       await post({ action: "item_cost", ids: [registryItemId], ...next });
@@ -254,10 +323,25 @@ export function HaulCostPanel({
   }
   return (
     <div className="bg-white border border-brand-ink/15 rounded-lg p-4 text-sm">
-      <p className="font-medium mb-2">Haul & cost <span className="font-normal text-brand-ink/50">(optional — for the books)</span></p>
+      <p className="font-medium mb-2">Haul & cost <span className="font-normal text-brand-ink/50">(optional)</span></p>
       <div className="flex flex-wrap items-end gap-3">
+        {posts.length > 0 && (
+          <label>
+            <span className="block text-brand-ink/60 mb-1">Journal haul</span>
+            <JournalSelect
+              className="border rounded px-2 py-1.5 max-w-xs"
+              posts={posts}
+              value={slug}
+              emptyLabel="— none —"
+              onChange={(s) => {
+                setSlug(s);
+                save({ haulPostSlug: s || null });
+              }}
+            />
+          </label>
+        )}
         <label>
-          <span className="block text-brand-ink/60 mb-1">Haul</span>
+          <span className="block text-brand-ink/60 mb-1">Books haul</span>
           <select
             className="border rounded px-2 py-1.5 max-w-xs"
             value={acq}
@@ -266,7 +350,7 @@ export function HaulCostPanel({
               save({ acquisitionId: e.target.value || null });
             }}
           >
-            <option value="">— not tracked —</option>
+            <option value="">{haulId && !acquisitionId && haulName ? `— from journal: ${haulName} —` : "— not tracked —"}</option>
             {hauls.map((h) => (
               <option key={h.id} value={h.id}>
                 {h.name}
@@ -291,8 +375,14 @@ export function HaulCostPanel({
         </label>
         {msg && <span className="text-brand-ink/60">{msg}</span>}
       </div>
+      {notesSlug && (
+        <p className="text-xs text-brand-ink/60 mt-2">
+          Nifty Private Notes will start with <code>{notesSlug}</code> when this is sent to Nifty.
+        </p>
+      )}
       <p className="text-xs text-brand-ink/50 mt-2">
-        Leave both blank if you don&apos;t know. With a haul and no cost of its own, the item gets an even share of the
+        Leave these blank if you don&apos;t know. With no books haul picked, an item with a journal haul counts toward
+        the books haul tied to that post. With a haul and no cost of its own, the item gets an even share of the
         haul&apos;s total{splitCost != null ? ` (now $${splitCost.toFixed(2)})` : ""}.{" "}
         <a href="/admin/books/hauls" className="underline">Add a haul</a>
       </p>

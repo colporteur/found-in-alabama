@@ -2,13 +2,19 @@
 // sale from the to-ship packages. FIA tables only; nothing leaves FIA.
 //
 // Item cost basis = registry_items.unit_cost when set, else the haul's
-// total cost split evenly across the items tied to it, else unknown.
+// total cost split evenly across the items in it, else unknown.
+//
+// An item is in a haul when it was tied to it by hand (acquisition_id), or,
+// failing that, when its journal slug (registry_items.haul_post_slug, from
+// the Nifty Private Notes) is the haul's journal post (acquisitions.post_slug).
 // Sales come from ship_orders (Phase 4a/4b), so the books start on the
 // to-ship queue's start date.
 
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { DEFAULT_BOOKS_SETTINGS, orderProfit, parseBooksSettings, type BooksSettings, type Profit } from "./fees";
+import { getAllPosts } from "@/lib/posts";
+import { getKnownSlugs } from "@/lib/posts-slugs";
 
 type Row = Record<string, unknown>;
 async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
@@ -21,6 +27,37 @@ async function exec(q: ReturnType<typeof sql>): Promise<number> {
 }
 const numOrNull = (v: unknown) => (v == null || v === "" ? null : Number(v));
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const SLUG = /^[a-z0-9-]{1,120}$/;
+
+/** SQL: registry item alias `r` belongs to haul alias `a` — tied by hand, or
+ *  (when not tied by hand) carrying the haul's journal slug. With post_slug
+ *  unique, a LEFT JOIN on this matches at most one haul per item. */
+export function inHaul(r: string, a: string) {
+  if (!/^[a-z][a-z0-9_]*$/.test(r) || !/^[a-z][a-z0-9_]*$/.test(a)) throw new Error("bad alias");
+  return sql.raw(
+    `(${r}.acquisition_id = ${a}.id OR (${r}.acquisition_id IS NULL AND ${a}.post_slug IS NOT NULL AND ${r}.haul_post_slug = ${a}.post_slug))`
+  );
+}
+
+/** Published journal posts, newest first, for the haul pickers. */
+export type JournalPost = { slug: string; title: string; date: string; type: string };
+export function journalPosts(): JournalPost[] {
+  try {
+    return getAllPosts()
+      .map((p) => ({ slug: p.slug, title: p.title, date: p.date, type: p.type }))
+      .sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : 0));
+  } catch {
+    return [];
+  }
+}
+
+function checkSlug(raw: unknown): string | null {
+  const s = raw == null ? "" : String(raw).trim().toLowerCase();
+  if (!s) return null;
+  if (!SLUG.test(s)) throw new Error("That isn't a journal post slug.");
+  if (!getKnownSlugs().has(s)) throw new Error(`No published journal post "${s}".`);
+  return s;
+}
 
 export async function booksReady(): Promise<boolean> {
   const [r] = await rows(sql`SELECT to_regclass('public.acquisitions') IS NOT NULL AS ok`);
@@ -53,7 +90,10 @@ export type Acquisition = {
   kind: string | null;
   totalCost: number | null;
   notes: string | null;
+  postSlug: string | null;
   items: number;
+  /** Of `items`, how many are in it through the journal slug only. */
+  itemsViaJournal: number;
   itemsSold: number;
   revenue: number;
 };
@@ -61,12 +101,14 @@ export type Acquisition = {
 export async function listAcquisitions(limit = 200): Promise<Acquisition[]> {
   const list = await rows(sql`
     SELECT a.*, to_char(a.acquired_on, 'YYYY-MM-DD') AS on_day,
-      (SELECT count(*)::int FROM registry_items r WHERE r.acquisition_id = a.id) AS items,
-      (SELECT count(*)::int FROM registry_items r WHERE r.acquisition_id = a.id AND r.status IN ('sold', 'shipped')) AS items_sold,
+      (SELECT count(*)::int FROM registry_items r WHERE ${inHaul("r", "a")}) AS items,
+      (SELECT count(*)::int FROM registry_items r WHERE r.acquisition_id IS NULL AND a.post_slug IS NOT NULL
+         AND r.haul_post_slug = a.post_slug) AS items_via_journal,
+      (SELECT count(*)::int FROM registry_items r WHERE ${inHaul("r", "a")} AND r.status IN ('sold', 'shipped')) AS items_sold,
       (SELECT COALESCE(sum(l.price * l.quantity), 0) FROM ship_order_lines l
          JOIN ship_orders o ON o.id = l.order_id AND o.status NOT IN ('cancelled', 'merged')
          JOIN registry_items r ON r.id = l.registry_item_id
-        WHERE r.acquisition_id = a.id) AS revenue
+        WHERE ${inHaul("r", "a")}) AS revenue
     FROM acquisitions a
     ORDER BY a.acquired_on DESC NULLS LAST, a.created_at DESC LIMIT ${limit}`);
   return list.map((r) => ({
@@ -76,7 +118,9 @@ export async function listAcquisitions(limit = 200): Promise<Acquisition[]> {
     kind: (r.kind as string | null) ?? null,
     totalCost: numOrNull(r.total_cost),
     notes: (r.notes as string | null) ?? null,
+    postSlug: (r.post_slug as string | null) ?? null,
     items: Number(r.items ?? 0),
+    itemsViaJournal: Number(r.items_via_journal ?? 0),
     itemsSold: Number(r.items_sold ?? 0),
     revenue: Number(r.revenue ?? 0),
   }));
@@ -89,6 +133,8 @@ export async function saveAcquisition(input: {
   kind?: string | null;
   totalCost?: number | string | null;
   notes?: string | null;
+  /** Journal post slug; "" or null = none. */
+  postSlug?: string | null;
 }): Promise<string> {
   const name = String(input.name ?? "").trim().slice(0, 200);
   if (!name) throw new Error("Give the haul a name.");
@@ -97,34 +143,55 @@ export async function saveAcquisition(input: {
   const cost = input.totalCost == null || input.totalCost === "" ? null : Number(input.totalCost);
   if (cost != null && (!Number.isFinite(cost) || cost < 0)) throw new Error("Total cost must be a number.");
   const notes = input.notes ? String(input.notes).slice(0, 2000) : null;
-  if (input.id) {
-    if (!UUID.test(input.id)) throw new Error("Bad haul id");
-    await exec(sql`
-      UPDATE acquisitions SET name = ${name}, acquired_on = ${day}::date, kind = ${kind},
-        total_cost = ${cost}::numeric, notes = ${notes}, updated_at = now()
-      WHERE id = ${input.id}::uuid`);
-    return input.id;
+  const slug = checkSlug(input.postSlug);
+  try {
+    if (input.id) {
+      if (!UUID.test(input.id)) throw new Error("Bad haul id");
+      await exec(sql`
+        UPDATE acquisitions SET name = ${name}, acquired_on = ${day}::date, kind = ${kind},
+          total_cost = ${cost}::numeric, notes = ${notes}, post_slug = ${slug}, updated_at = now()
+        WHERE id = ${input.id}::uuid`);
+      return input.id;
+    }
+    const [r] = await rows(sql`
+      INSERT INTO acquisitions (name, acquired_on, kind, total_cost, notes, post_slug)
+      VALUES (${name}, ${day}::date, ${kind}, ${cost}::numeric, ${notes}, ${slug}) RETURNING id`);
+    return String(r.id);
+  } catch (err) {
+    if (/acquisitions_post_slug_uq|duplicate key/i.test(String((err as Error).message))) {
+      throw new Error("Another haul is already tied to that journal post.");
+    }
+    throw err;
   }
-  const [r] = await rows(sql`
-    INSERT INTO acquisitions (name, acquired_on, kind, total_cost, notes)
-    VALUES (${name}, ${day}::date, ${kind}, ${cost}::numeric, ${notes}) RETURNING id`);
-  return String(r.id);
 }
 
 // ─── item cost ───────────────────────────────────────────────────────────────
 
-export type ItemCost = { acquisitionId: string | null; unitCost: number | null; splitCost: number | null };
+export type ItemCost = {
+  /** Haul picked by hand (null = none picked). */
+  acquisitionId: string | null;
+  /** The haul it counts toward: the one picked, else the one for its journal post. */
+  haulId: string | null;
+  haulName: string | null;
+  /** Its journal post slug (goes first in the Nifty Private Notes). */
+  haulPostSlug: string | null;
+  unitCost: number | null;
+  splitCost: number | null;
+};
 
 export async function itemCost(registryItemId: string): Promise<ItemCost | null> {
   if (!UUID.test(registryItemId)) return null;
   const [r] = await rows(sql`
-    SELECT r.acquisition_id, r.unit_cost,
-      a.total_cost / NULLIF((SELECT count(*) FROM registry_items r2 WHERE r2.acquisition_id = a.id), 0) AS split
-    FROM registry_items r LEFT JOIN acquisitions a ON a.id = r.acquisition_id
+    SELECT r.acquisition_id, r.unit_cost, r.haul_post_slug, a.id AS haul_id, a.name AS haul_name,
+      a.total_cost / NULLIF((SELECT count(*) FROM registry_items r2 WHERE ${inHaul("r2", "a")}), 0) AS split
+    FROM registry_items r LEFT JOIN acquisitions a ON ${inHaul("r", "a")}
     WHERE r.id = ${registryItemId}::uuid`);
   if (!r) return null;
   return {
     acquisitionId: (r.acquisition_id as string | null) ?? null,
+    haulId: (r.haul_id as string | null) ?? null,
+    haulName: (r.haul_name as string | null) ?? null,
+    haulPostSlug: (r.haul_post_slug as string | null) ?? null,
     unitCost: numOrNull(r.unit_cost),
     splitCost: r.split == null ? null : Math.round(Number(r.split) * 100) / 100,
   };
@@ -134,7 +201,7 @@ export async function itemCost(registryItemId: string): Promise<ItemCost | null>
  *  leave as is; null = clear. */
 export async function setItemCost(
   registryItemIds: string[],
-  edit: { acquisitionId?: string | null; unitCost?: number | string | null }
+  edit: { acquisitionId?: string | null; unitCost?: number | string | null; haulPostSlug?: string | null }
 ): Promise<number> {
   const ids = registryItemIds.filter((i) => UUID.test(i)).slice(0, 500);
   if (!ids.length) return 0;
@@ -147,6 +214,9 @@ export async function setItemCost(
     const c = edit.unitCost === null || edit.unitCost === "" ? null : Number(edit.unitCost);
     if (c != null && (!Number.isFinite(c) || c < 0)) throw new Error("Cost must be a number.");
     sets.push(sql`unit_cost = ${c}::numeric`);
+  }
+  if (edit.haulPostSlug !== undefined) {
+    sets.push(sql`haul_post_slug = ${checkSlug(edit.haulPostSlug)}`);
   }
   if (!sets.length) return 0;
   sets.push(sql`updated_at = now()`);
@@ -191,11 +261,11 @@ export async function monthReport(month: string): Promise<MonthReport> {
         SELECT jsonb_agg(jsonb_build_object(
           'title', l.title, 'bin', l.bin_sku, 'qty', l.quantity, 'price', l.price,
           'cost', COALESCE(r.unit_cost,
-                  a.total_cost / NULLIF((SELECT count(*) FROM registry_items r2 WHERE r2.acquisition_id = a.id), 0)) * l.quantity)
+                  a.total_cost / NULLIF((SELECT count(*) FROM registry_items r2 WHERE ${inHaul("r2", "a")}), 0)) * l.quantity)
           ORDER BY l.created_at)
         FROM ship_order_lines l
         LEFT JOIN registry_items r ON r.id = l.registry_item_id
-        LEFT JOIN acquisitions a ON a.id = r.acquisition_id
+        LEFT JOIN acquisitions a ON ${inHaul("r", "a")}
         WHERE l.order_id = o.id), '[]'::jsonb) AS lines
     FROM ship_orders o
     WHERE o.status NOT IN ('cancelled', 'merged') AND o.sold_at >= ${start} AND o.sold_at < ${end}

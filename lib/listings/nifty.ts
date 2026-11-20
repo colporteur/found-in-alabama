@@ -138,6 +138,19 @@ export function hashtagFreeDescription(text: string): string {
     .replace(/#(?=[A-Za-z])/g, "");
 }
 
+/** Pure: the Nifty "Private Notes" for a draft. The journal haul slug goes
+ *  FIRST: the Nifty capture reads only the first word of Private Notes to
+ *  tie the item to its haul post (lib/posts-slugs.ts). Then the FIA draft
+ *  id and the bin. */
+export function niftyPrivateNotes(draftId: string, binSku: string | null, haulSlug: string | null): string {
+  const parts: string[] = [];
+  const slug = (haulSlug ?? "").trim().toLowerCase();
+  if (/^[a-z0-9-]+$/.test(slug)) parts.push(slug);
+  parts.push(`FIA ${String(draftId).slice(0, 8)}`);
+  if (binSku) parts.push(`SKU: ${binSku}`);
+  return parts.join(" | ");
+}
+
 /** Approved drafts not yet in Nifty, oldest first. */
 export async function niftyQueue(limit = 300): Promise<NiftyQueueItem[]> {
   const templates = await niftyTemplates();
@@ -145,7 +158,10 @@ export async function niftyQueue(limit = 300): Promise<NiftyQueueItem[]> {
   const road = ebayRoadSql(await ebaySettings());
   const found = await rows(sql`
     SELECT d.*, (SELECT json_agg(p.url ORDER BY p.position) FROM draft_photos p
-                 WHERE p.draft_id = d.id AND p.uploaded_at IS NOT NULL) AS photo_urls
+                 WHERE p.draft_id = d.id AND p.uploaded_at IS NOT NULL) AS photo_urls,
+           (SELECT COALESCE(r.haul_post_slug, ha.post_slug) FROM registry_items r
+              LEFT JOIN acquisitions ha ON ha.id = r.acquisition_id
+             WHERE r.id = d.registry_item_id) AS haul_slug
     FROM listing_drafts d
     WHERE d.status = 'approved' AND d.nifty_item_id IS NULL AND NOT ${road}
     ORDER BY d.approved_at NULLS LAST, d.created_at
@@ -158,7 +174,10 @@ export async function queueItemForDraft(draftId: string): Promise<(NiftyQueueIte
   const templates = await niftyTemplates();
   const [d] = await rows(sql`
     SELECT d.*, (SELECT json_agg(p.url ORDER BY p.position) FROM draft_photos p
-                 WHERE p.draft_id = d.id AND p.uploaded_at IS NOT NULL) AS photo_urls
+                 WHERE p.draft_id = d.id AND p.uploaded_at IS NOT NULL) AS photo_urls,
+           (SELECT COALESCE(r.haul_post_slug, ha.post_slug) FROM registry_items r
+              LEFT JOIN acquisitions ha ON ha.id = r.acquisition_id
+             WHERE r.id = d.registry_item_id) AS haul_slug
     FROM listing_drafts d WHERE d.id = ${draftId}::uuid`);
   if (!d) return null;
   return {
@@ -179,7 +198,6 @@ function queueItemFromRow(d: Row, templates: Record<TemplateKey, string>): Nifty
       shippingProfile: d.shipping_profile as string | null,
       title: d.title as string | null,
     });
-    const id8 = String(d.id).slice(0, 8);
     return {
       draftId: String(d.id),
       templateKey: key,
@@ -192,7 +210,7 @@ function queueItemFromRow(d: Row, templates: Record<TemplateKey, string>): Nifty
       venuePrices: (d.venue_prices as Record<string, number> | null) ?? null,
       quantity: Number(d.quantity ?? 1),
       sku: (d.bin_sku as string | null) ?? null,
-      privateNotes: `FIA ${id8}${d.bin_sku ? ` | SKU: ${d.bin_sku}` : ""}`,
+      privateNotes: niftyPrivateNotes(String(d.id), (d.bin_sku as string | null) ?? null, (d.haul_slug as string | null) ?? null),
       photos: ((d.photo_urls as string[] | null) ?? []).slice(0, 24),
       ebayCategoryPath: (d.ebay_category_name as string | null) ?? null,
       itemSpecifics: (d.item_specifics as Record<string, string | string[]> | null) ?? {},

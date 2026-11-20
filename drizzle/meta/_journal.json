@@ -400,6 +400,13 @@
       "when": 1794668400000,
       "tag": "0055_lot_builder",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1795180000000,
+      "tag": "0056_haul_journal_link",
+      "breakpoints": true
     }
   ]
 }
