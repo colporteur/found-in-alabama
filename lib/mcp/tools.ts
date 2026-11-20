@@ -6,7 +6,7 @@
 import { db } from "@/db";
 import { sql, type SQL } from "drizzle-orm";
 import { argDate, argEnum, argNum, argStr, type ToolDef } from "./protocol";
-import { inHaul, monthReport } from "@/lib/books/books";
+import { inHaul, journalPosts, monthReport } from "@/lib/books/books";
 import { staleReport } from "@/lib/stale/report";
 import { readinessReport } from "@/lib/sales/readiness";
 import { guideReadTools } from "./guide-tools";
@@ -611,7 +611,23 @@ const hauls: ToolDef = {
     }
     const [untied] = await rows(sql`SELECT count(*)::int AS n FROM registry_items r WHERE r.status IN ('live', 'draft')
       AND NOT EXISTS (SELECT 1 FROM acquisitions a WHERE ${inHaul("r", "a")})`);
-    return { hauls: out, untiedLiveItems: untied?.n ?? 0, note: "Revenue here is before fees and postage." };
+    // Journal haul posts (newest first) with how many items carry each slug,
+    // so Claude can match "these came from the X sale" to a slug.
+    const counts = await rows(sql`
+      SELECT haul_post_slug AS slug, count(*)::int AS n FROM registry_items
+      WHERE haul_post_slug IS NOT NULL GROUP BY 1`);
+    const bySlug = new Map(counts.map((c) => [String(c.slug), Number(c.n)]));
+    const booked = new Map(out.filter((h) => h.journalSlug).map((h) => [String(h.journalSlug), String(h.name)]));
+    const posts = journalPosts()
+      .filter((p) => p.type === "haul")
+      .slice(0, 60)
+      .map((p) => ({ slug: p.slug, title: p.title, date: p.date, items: bySlug.get(p.slug) ?? 0, booksHaul: booked.get(p.slug) ?? null }));
+    return {
+      hauls: out,
+      journalPosts: posts,
+      untiedLiveItems: untied?.n ?? 0,
+      note: "Revenue here is before fees and postage. To tie a listing draft to a haul, use listing_set_haul (or the haul field) with a journalPosts slug — only when Todd says which haul.",
+    };
   },
 };
 

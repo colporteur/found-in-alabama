@@ -6,7 +6,8 @@
 // (no photos until Todd adds them), and listing_combine_lot, which merges drafts Todd sent with
 // "combine lots" on into one lot draft, and listing_add_to_lot, which adds
 // queued pieces to a lot Todd is holding open; nothing here approves, sends to Nifty
-// or publishes.
+// or publishes. The `haul` field (and listing_set_haul) sets a draft's
+// journal haul — only when Todd says which haul an item came from.
 
 import { argStr, rawContent, type ToolDef } from "./protocol";
 import {
@@ -33,6 +34,23 @@ import { addToLot } from "@/lib/listings/open-lots";
 import { completeFixes, fixPhotos, fixQueue, hasOpenFix } from "@/lib/listings/fixes";
 import { updateDraft } from "@/lib/listings/drafts";
 import { claudeCreateDraft } from "@/lib/listings/claude-create";
+import { checkSlug, draftHaul, setDraftHaul } from "@/lib/books/books";
+
+const HAUL_FIELD = {
+  type: "string",
+  description:
+    "Journal haul slug (e.g. \"paper-patches-talladega-sale\"). Set it ONLY when Todd has told you which haul this item came from — never guess from bins, photos or folder names. \"none\" clears it. Slugs: the hauls tool's journalPosts list. It goes first in the Nifty Private Notes and ties the item to that haul's costs.",
+};
+
+/** Pull `haul` out of the tool args. undefined = not sent; null = clear. */
+function takeHaul(a: Record<string, unknown>): { rest: Record<string, unknown>; haul: string | null | undefined } {
+  if (!("haul" in a)) return { rest: a, haul: undefined };
+  const { haul, ...rest } = a;
+  const s = haul == null ? "" : String(haul).trim().toLowerCase();
+  const value = !s || s === "none" ? null : s;
+  checkSlug(value); // fail before anything is written
+  return { rest, haul: value };
+}
 
 export function listingTools(who: string): ToolDef[] {
   const tools = buildTools(who);
@@ -68,7 +86,49 @@ function buildTools(who: string): ToolDef[] {
       description:
         "Everything needed to write one queued draft (or to revise one you wrote that's still in Review — then it also shows the current listing): Todd's instructions, intake facts, the matched Expert Guide(s), the eBay supply snapshot and pricing policy, candidate eBay categories, the store's shelves, the writing rules and the expected fields — followed by the photos. Look at every photo (backs, labels, postmarks) before writing. You may use web search to identify places, makers and dates, but only state as fact what the photos or facts show; hedge anything else.",
       inputSchema: { type: "object", properties: { draft_id: { type: "string" } }, required: ["draft_id"] },
-      run: async (a) => rawContent(await claudeDraftPacket(argStr(a, "draft_id", 40) ?? "")),
+      run: async (a) => {
+        const id = argStr(a, "draft_id", 40) ?? "";
+        const packet = await claudeDraftPacket(id);
+        const h = await draftHaul(id).catch(() => ({ slug: null, title: null }));
+        const line = h.slug
+          ? `JOURNAL HAUL: ${h.slug}${h.title ? ` (${h.title})` : ""}. Leave it unless Todd says otherwise.`
+          : "JOURNAL HAUL: none set. Set one (haul field or listing_set_haul) only if Todd tells you which haul this came from.";
+        return rawContent([{ type: "text", text: line }, ...packet]);
+      },
+    },
+    {
+      name: "listing_set_haul",
+      title: "Set a draft's haul",
+      readOnly: false,
+      description:
+        "Tie a listing draft to the journal haul Todd says it came from (or clear it with \"none\"). Use ONLY when Todd tells you the haul — never guess. Works on any draft, written or not; drafts already sent to Nifty need Todd to update Private Notes there (the result says so). Find slugs with the hauls tool (journalPosts).",
+      inputSchema: {
+        type: "object",
+        required: ["haul"],
+        properties: {
+          draft_id: { type: "string", description: "One draft" },
+          draft_ids: { type: "array", items: { type: "string" }, maxItems: 100, description: "Or several drafts from the same haul" },
+          haul: HAUL_FIELD,
+        },
+      },
+      run: async (a) => {
+        const { haul } = takeHaul(a);
+        if (haul === undefined) throw new Error('Send haul: a journal post slug, or "none" to clear.');
+        const ids = [
+          ...(Array.isArray(a.draft_ids) ? (a.draft_ids as unknown[]).map(String) : []),
+          ...(typeof a.draft_id === "string" ? [a.draft_id] : []),
+        ].slice(0, 100);
+        if (!ids.length) throw new Error("Send draft_id or draft_ids.");
+        const results = [];
+        for (const id of ids) {
+          try {
+            results.push({ draftId: id, ...(await setDraftHaul(id, haul ?? null)) });
+          } catch (err) {
+            results.push({ draftId: id, error: (err as Error).message });
+          }
+        }
+        return { haul: haul ?? null, results };
+      },
     },
     {
       name: "listing_get_photos",
@@ -264,10 +324,13 @@ function buildTools(who: string): ToolDef[] {
       inputSchema: { type: "object", required: ["draft_id"], properties: {} as Record<string, unknown> },
       run: async (a) => {
         const id = argStr(a, "draft_id", 40) ?? "";
-        const { draft_id: _drop, ...changes } = a;
+        const { rest, haul } = takeHaul(a);
+        const { draft_id: _drop, ...changes } = rest;
         void _drop;
-        if (!Object.keys(changes).length) throw new Error("Send at least one field to change.");
-        return reviseClaudeWrite(id, changes, who);
+        if (!Object.keys(changes).length && haul === undefined) throw new Error("Send at least one field to change.");
+        if (!Object.keys(changes).length) return setDraftHaul(id, haul ?? null);
+        const r = await reviseClaudeWrite(id, changes, who);
+        return haul === undefined ? r : { ...r, haul: await setDraftHaul(id, haul) };
       },
     },
     {
@@ -372,7 +435,12 @@ function buildTools(who: string): ToolDef[] {
           quantity: { type: "number" },
         },
       },
-      run: async (a) => claudeCreateDraft(a, who),
+      run: async (a) => {
+        const { rest, haul } = takeHaul(a);
+        const r = await claudeCreateDraft(rest, who);
+        if (haul === undefined || !r?.draftId) return r;
+        return { ...r, haul: await setDraftHaul(String(r.draftId), haul) };
+      },
     },
     {
       name: "listing_save",
@@ -385,6 +453,7 @@ function buildTools(who: string): ToolDef[] {
         required: ["draft_id", "title", "description", "condition", "price"],
         properties: {
           draft_id: { type: "string" },
+          haul: HAUL_FIELD,
           title: { type: "string", description: "≤ 80 characters; aim for 70–80" },
           description: { type: "string", description: "Plain text, ≤ 1,400 characters; first paragraph says what it is + a condition sentence" },
           condition: { type: "string", enum: CONDITIONS },
@@ -427,9 +496,11 @@ function buildTools(who: string): ToolDef[] {
       },
       run: async (a) => {
         const id = argStr(a, "draft_id", 40) ?? "";
-        const { draft_id: _drop, ...listing } = a;
+        const { rest, haul } = takeHaul(a);
+        const { draft_id: _drop, ...listing } = rest;
         void _drop;
-        return saveClaudeWrite(id, listing, who);
+        const r = await saveClaudeWrite(id, listing, who);
+        return haul === undefined ? r : { ...r, haul: await setDraftHaul(id, haul) };
       },
     },
   ];
