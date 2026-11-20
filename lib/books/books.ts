@@ -51,7 +51,8 @@ export function journalPosts(): JournalPost[] {
   }
 }
 
-function checkSlug(raw: unknown): string | null {
+/** "" / null → null; otherwise a published journal post slug, or an error. */
+export function checkSlug(raw: unknown): string | null {
   const s = raw == null ? "" : String(raw).trim().toLowerCase();
   if (!s) return null;
   if (!SLUG.test(s)) throw new Error("That isn't a journal post slug.");
@@ -228,6 +229,45 @@ export async function setShippingCost(orderId: string, cost: number | string | n
   const c = cost === null || cost === "" ? null : Number(cost);
   if (c != null && (!Number.isFinite(c) || c < 0)) throw new Error("Postage must be a number.");
   return exec(sql`UPDATE ship_orders SET shipping_cost = ${c}::numeric, updated_at = now() WHERE id = ${orderId}::uuid`);
+}
+
+/** Set (slug) or clear (null) the journal haul of a listing draft's item.
+ *  Used by Claude's listing tools — only when Todd says which haul it is. */
+export async function setDraftHaul(draftId: string, haul: string | null) {
+  if (!UUID.test(draftId)) throw new Error("draft_id must be a draft uuid");
+  const slug = checkSlug(haul);
+  const [d] = await rows(sql`
+    SELECT registry_item_id, nifty_item_id, status FROM listing_drafts WHERE id = ${draftId}::uuid`);
+  if (!d) throw new Error("No such draft.");
+  if (!d.registry_item_id) throw new Error("This draft has no item record, so it can't carry a haul.");
+  await setItemCost([String(d.registry_item_id)], { haulPostSlug: slug });
+  const cost = await itemCost(String(d.registry_item_id));
+  const title = slug ? journalPosts().find((p) => p.slug === slug)?.title ?? slug : null;
+  const sent = !!d.nifty_item_id;
+  return {
+    haul: slug,
+    journalPost: title,
+    booksHaul: cost?.haulName ?? null,
+    note: !slug
+      ? "Journal haul cleared."
+      : sent
+      ? `Set. This draft is already in Nifty, so its Private Notes there don't change — Todd should put "${slug}" first in Private Notes in Nifty.`
+      : `Set. "${slug}" will go first in Nifty Private Notes when the draft is sent.${
+          cost?.haulName ? ` It counts toward the books haul "${cost.haulName}".` : " No books haul is tied to this post yet."
+        }`,
+  };
+}
+
+/** The journal haul of a draft's item (for showing Claude what's set). */
+export async function draftHaul(draftId: string): Promise<{ slug: string | null; title: string | null }> {
+  if (!UUID.test(draftId)) return { slug: null, title: null };
+  const [r] = await rows(sql`
+    SELECT COALESCE(r.haul_post_slug, a.post_slug) AS slug
+    FROM listing_drafts d JOIN registry_items r ON r.id = d.registry_item_id
+    LEFT JOIN acquisitions a ON a.id = r.acquisition_id
+    WHERE d.id = ${draftId}::uuid`);
+  const slug = (r?.slug as string | null) ?? null;
+  return { slug, title: slug ? journalPosts().find((p) => p.slug === slug)?.title ?? null : null };
 }
 
 // ─── month report ────────────────────────────────────────────────────────────
