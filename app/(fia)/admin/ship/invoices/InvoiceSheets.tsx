@@ -7,7 +7,7 @@
 // invoiced.
 
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { couponFits } from "@/lib/shop/coupon-fit";
+import { planCouponLayout, type CouponLayout } from "@/lib/shop/coupon-fit";
 
 const PICK_ORDER_KEY = "fia.invoices.pickOrder";
 
@@ -95,14 +95,22 @@ function Invoice({ inv, photos, onFit }: { inv: InvoiceData; photos: boolean; on
     ? (all as number[]).reduce((a, b) => a + b, 0) + (inv.shipping ?? 0) + (inv.salesTax ?? 0) + (inv.buyerFee ?? 0) - (inv.discount ?? 0)
     : null;
   const total = totalOverride ?? computed;
+  const [mainSite, otherSite] =
+    inv.coupon?.site === "tes" ? ["theephemeralstate.com", "foundinalabama.com"] : ["foundinalabama.com", "theephemeralstate.com"];
 
-  // The code prints only when it fits in the room left on the last label;
-  // when it's tight the stock line goes first and the code stays.
+  // The code prints only when it fits in the room left on the last label.
+  // When it's tight: the stock line goes first; on Alabama invoices the
+  // thank-you footer goes next; then the small code box (no QR); then the
+  // code is left off (planCouponLayout).
   const bodyRef = useRef<HTMLDivElement>(null);
   const couponRef = useRef<HTMLDivElement>(null);
+  const compactRef = useRef<HTMLDivElement>(null);
   const stockRef = useRef<HTMLParagraphElement>(null);
-  const [fit, setFit] = useState<"full" | "short" | "none">("full");
+  const footerRef = useRef<HTMLDivElement>(null);
+  const [layout, setLayout] = useState<CouponLayout>({ fit: "full", footer: true });
+  const fit = layout.fit;
   const fits = fit !== "none";
+  const bigBox = fit === "full" || fit === "short";
   useEffect(() => {
     if (inv.coupon) onFit?.(inv.id, fits);
   }, [fits, inv.id, inv.coupon, onFit]);
@@ -110,18 +118,34 @@ function Invoice({ inv, photos, onFit }: { inv: InvoiceData; photos: boolean; on
     if (!inv.coupon || !bodyRef.current || !couponRef.current) return;
     const measure = () => {
       const label = LABEL_CONTENT_IN * 96;
-      const body = bodyRef.current!.offsetHeight;
+      // Every candidate stays in the layout (hidden ones are absolute and
+      // invisible), so these heights don't depend on the current choice.
+      const ft = footerRef.current;
+      const footerH = ft ? ft.offsetHeight + (parseFloat(getComputedStyle(ft).marginTop) || 0) : 0;
+      const footerInFlow = !!ft && !ft.classList.contains("inv-footer-skip");
+      const body = bodyRef.current!.offsetHeight + (footerInFlow ? 0 : footerH);
       const st = stockRef.current;
       const stockH = st ? st.offsetHeight + 3 : 0;
       const inFlow = !!st && !st.classList.contains("inv-stock-skip");
       const base = couponRef.current!.offsetHeight - (inFlow ? stockH : 0);
-      setFit(st && couponFits(body, base + stockH, label) ? "full" : couponFits(body, base, label) ? (st ? "short" : "full") : "none");
+      const cp = compactRef.current;
+      const compactH = cp ? cp.offsetHeight + (parseFloat(getComputedStyle(cp).marginTop) || 0) : 0;
+      const next = planCouponLayout({
+        bodyPx: body,
+        footerPx: footerH,
+        fullPx: base,
+        stockPx: stockH,
+        compactPx: compactH,
+        labelPx: label,
+        alabama: !!inv.alabama,
+      });
+      setLayout((prev) => (prev.fit === next.fit && prev.footer === next.footer ? prev : next));
     };
     measure();
     const imgs = Array.from(bodyRef.current.querySelectorAll("img"));
     imgs.forEach((i) => i.addEventListener("load", measure));
     return () => imgs.forEach((i) => i.removeEventListener("load", measure));
-  }, [inv.coupon, photos, prices]);
+  }, [inv.coupon, inv.alabama, photos, prices]);
 
   return (
     <div className="invoice">
@@ -229,7 +253,7 @@ function Invoice({ inv, photos, onFit }: { inv: InvoiceData; photos: boolean; on
           {total == null ? "$" : money(total)}
         </span>
       </div>
-      <div className="inv-footer">
+      <div ref={footerRef} className={`inv-footer ${layout.footer ? "" : "inv-footer-skip"}`}>
         {inv.brand === "tes"
           ? "Thank you for supporting The Ephemeral State!"
           : inv.brand === "fia"
@@ -238,17 +262,14 @@ function Invoice({ inv, photos, onFit }: { inv: InvoiceData; photos: boolean; on
       </div>
       </div>
       {inv.coupon && (
-        <div ref={couponRef} className={`inv-coupon ${fits ? "" : "inv-coupon-skip"} ${inv.coupon.qrSvg ? "inv-coupon-withqr" : ""}`}>
+        <div ref={couponRef} className={`inv-coupon ${bigBox ? "" : "inv-coupon-skip"} ${inv.coupon.qrSvg ? "inv-coupon-withqr" : ""}`}>
           {inv.coupon.qrSvg && <div className="inv-coupon-qr" dangerouslySetInnerHTML={{ __html: inv.coupon.qrSvg }} />}
           <div className="inv-coupon-text">
             <p className="inv-coupon-head">{inv.coupon.percent}% OFF your next order</p>
             <p className="inv-coupon-code">{inv.coupon.code}</p>
             <p className="inv-coupon-sites">
-              {(() => {
-                const [main, other] = inv.coupon.site === "tes" ? ["theephemeralstate.com", "foundinalabama.com"] : ["foundinalabama.com", "theephemeralstate.com"];
-                // The stock line already names the main site.
-                return inv.coupon.stock && fit === "full" ? `Good at ${main} or ${other}` : `${main} or ${other}`;
-              })()}
+              {/* The stock line already names the main site. */}
+              {inv.coupon.stock && fit === "full" ? `Good at ${mainSite} or ${otherSite}` : `${mainSite} or ${otherSite}`}
             </p>
             {inv.coupon.stock && (
               <p ref={stockRef} className={`inv-coupon-stock ${fit === "short" ? "inv-stock-skip" : ""}`}>
@@ -261,6 +282,15 @@ function Invoice({ inv, photos, onFit }: { inv: InvoiceData; photos: boolean; on
           </div>
         </div>
       )}
+      {inv.coupon && (
+        <div ref={compactRef} className={`inv-coupon inv-coupon-sm ${fit === "compact" ? "" : "inv-coupon-skip"}`}>
+          <p className="inv-coupon-sm-head">{inv.coupon.percent}% OFF your next order</p>
+          <p className="inv-coupon-code">{inv.coupon.code}</p>
+          <p className="inv-coupon-sm-fine">
+            {mainSite} or {otherSite} · enter at checkout · one use · good through {inv.coupon.expires}
+          </p>
+        </div>
+      )}
       {inv.coupon && !fits && (
         <p className="no-print inv-coupon-note">
           No room for the coupon code on this label — it will be left off.{" "}
@@ -269,7 +299,19 @@ function Invoice({ inv, photos, onFit }: { inv: InvoiceData; photos: boolean; on
           </a>
         </p>
       )}
-      {inv.coupon && fit === "short" && <p className="no-print inv-coupon-note">Tight on room: the stock line is left off; the code still prints.</p>}
+      {inv.coupon && (fit === "short" || fit === "compact" || !layout.footer) && (
+        <p className="no-print inv-coupon-note">
+          Tight on room:{" "}
+          {[
+            fit === "short" && "the stock line is left off",
+            !layout.footer && "the thank-you line is left off",
+            fit === "compact" && "the code prints in the small box (no QR)",
+          ]
+            .filter(Boolean)
+            .join("; ")}
+          {fit === "short" && "; the code still prints"}.
+        </p>
+      )}
     </div>
   );
 }
@@ -451,6 +493,12 @@ const INVOICE_CSS = `
   .inv-coupon-stock { margin-top: 3px !important; font-size: 11px; font-weight: 700; line-height: 1.25; }
   .inv-stock-skip { position: absolute; visibility: hidden; left: 0; right: 0; }
   .inv-coupon-skip { position: absolute; left: 0.15in; right: 0.15in; visibility: hidden; }
+  /* Small code box for tight labels: no QR, no stock line. */
+  .inv-coupon-sm { margin-top: 6px; padding: 3px 4px; border-width: 2px; }
+  .inv-coupon-sm-head { font-size: 11px; font-weight: 800; letter-spacing: .02em; }
+  .inv-coupon-sm .inv-coupon-code { margin: 1px 0 !important; font-size: 20px; letter-spacing: .06em; }
+  .inv-coupon-sm-fine { font-size: 8.5px; line-height: 1.2; }
+  .inv-footer-skip { position: absolute; left: 0.15in; right: 0.15in; visibility: hidden; }
   .inv-coupon-note { margin: 8px 0 0; font-size: 11px; color: #b00020; text-align: center; }
   @page { size: 4in 6in; margin: 0.15in; }
   @media print {
@@ -463,6 +511,6 @@ const INVOICE_CSS = `
     .inv-brands, .inv-saleline { break-after: avoid; }
     .inv-total, .inv-footer { break-before: avoid; }
     .inv-price, .inv-line-price { border-color: transparent !important; color: #000 !important; }
-    .inv-coupon-skip, .inv-stock-skip { display: none !important; }
+    .inv-coupon-skip, .inv-stock-skip, .inv-footer-skip { display: none !important; }
   }
 `;
