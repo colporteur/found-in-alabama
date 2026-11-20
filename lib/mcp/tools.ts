@@ -6,7 +6,7 @@
 import { db } from "@/db";
 import { sql, type SQL } from "drizzle-orm";
 import { argDate, argEnum, argNum, argStr, type ToolDef } from "./protocol";
-import { monthReport } from "@/lib/books/books";
+import { inHaul, monthReport } from "@/lib/books/books";
 import { staleReport } from "@/lib/stale/report";
 import { readinessReport } from "@/lib/sales/readiness";
 import { guideReadTools } from "./guide-tools";
@@ -294,9 +294,10 @@ const itemDetails: ToolDef = {
     const [r] = await rows(sql`
       SELECT r.id, r.status, r.title, r.bin_sku, r.isbn, r.origin_country, r.primary_ebay_item_id, r.haul_post_slug,
              r.sold_at, r.sold_on_venue, r.created_from, r.unit_cost, a.name AS haul, a.acquired_on AS haul_date,
+             (r.acquisition_id IS NULL AND a.id IS NOT NULL) AS haul_via_journal,
              it.price AS nifty_price, it.captured_at AS nifty_captured_at, it.sku AS nifty_sku, it.marketplace_urls
       FROM registry_items r
-      LEFT JOIN acquisitions a ON a.id = r.acquisition_id
+      LEFT JOIN acquisitions a ON ${inHaul("r", "a")}
       LEFT JOIN items it ON it.id = r.nifty_item_ref
       WHERE ${id ? sql`r.id = ${id}::uuid` : sql`r.primary_ebay_item_id = ${ebayId} OR r.id IN (SELECT registry_item_id FROM venue_listings WHERE venue = 'ebay' AND venue_listing_id = ${ebayId})`}
       LIMIT 1`);
@@ -591,24 +592,25 @@ const hauls: ToolDef = {
   name: "hauls",
   title: "Hauls",
   description:
-    "Hauls (estate sales, auctions, thrift runs…) with their cost, how many items are tied to each, how many sold, revenue from those sales and the return so far. Most older inventory isn't tied to a haul.",
+    "Hauls (estate sales, auctions, thrift runs…) with their cost, journal post, how many items are in each (tied by hand, or carrying the haul's journal slug in Nifty Private Notes), how many sold, revenue from those sales and the return so far. Most older inventory isn't tied to a haul.",
   inputSchema: { type: "object", properties: { limit: { type: "number", default: 25, description: "≤ 100" } } },
   run: async (a) => {
     const limit = argNum(a, "limit", 25, 1, 100)!;
     const list = await rows(sql`
-      SELECT a.id, a.name, a.kind, to_char(a.acquired_on, 'YYYY-MM-DD') AS acquired_on, a.total_cost,
+      SELECT a.id, a.name, a.kind, a.post_slug, to_char(a.acquired_on, 'YYYY-MM-DD') AS acquired_on, a.total_cost,
              count(r.id)::int AS items, count(r.id) FILTER (WHERE r.status = 'live')::int AS live,
              count(r.id) FILTER (WHERE r.status = 'sold')::int AS sold
-      FROM acquisitions a LEFT JOIN registry_items r ON r.acquisition_id = a.id
+      FROM acquisitions a LEFT JOIN registry_items r ON ${inHaul("r", "a")}
       GROUP BY a.id ORDER BY a.acquired_on DESC NULLS LAST, a.created_at DESC LIMIT ${limit}`);
     const out = [];
     for (const h of list) {
-      const [rev] = await rows(sql`WITH s AS (${soldBase(sql`r.acquisition_id = ${String(h.id)}::uuid`)}) SELECT COALESCE(sum(price), 0) AS v FROM s`);
+      const [rev] = await rows(sql`WITH s AS (${soldBase(sql`(r.acquisition_id = ${String(h.id)}::uuid OR (r.acquisition_id IS NULL AND r.haul_post_slug IS NOT NULL AND r.haul_post_slug = ${(h.post_slug as string | null) ?? null}))`)}) SELECT COALESCE(sum(price), 0) AS v FROM s`);
       const cost = num(h.total_cost);
       const revenue = num(rev?.v) ?? 0;
-      out.push({ name: h.name, kind: h.kind, acquiredOn: h.acquired_on, cost, items: h.items, live: h.live, sold: h.sold, revenue, revenueMinusCost: cost == null ? null : num(revenue - cost) });
+      out.push({ name: h.name, kind: h.kind, journalSlug: h.post_slug ?? null, acquiredOn: h.acquired_on, cost, items: h.items, live: h.live, sold: h.sold, revenue, revenueMinusCost: cost == null ? null : num(revenue - cost) });
     }
-    const [untied] = await rows(sql`SELECT count(*)::int AS n FROM registry_items WHERE acquisition_id IS NULL AND status IN ('live', 'draft')`);
+    const [untied] = await rows(sql`SELECT count(*)::int AS n FROM registry_items r WHERE r.status IN ('live', 'draft')
+      AND NOT EXISTS (SELECT 1 FROM acquisitions a WHERE ${inHaul("r", "a")})`);
     return { hauls: out, untiedLiveItems: untied?.n ?? 0, note: "Revenue here is before fees and postage." };
   },
 };

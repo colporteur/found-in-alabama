@@ -1,7 +1,7 @@
 // POST /api/admin/books — books (Phase 4e). FIA tables only.
 // { action: "settings", settings }
-// { action: "haul", id?, name, acquiredOn?, kind?, totalCost?, notes? }
-// { action: "item_cost", ids: registryItemIds[], acquisitionId?: id|null, unitCost?: n|null }
+// { action: "haul", id?, name, acquiredOn?, kind?, totalCost?, notes?, postSlug? }
+// { action: "item_cost", ids: registryItemIds[], acquisitionId?: id|null, unitCost?: n|null, haulPostSlug?: slug|null }
 // { action: "postage", orderId, cost: n|null }
 
 import { NextRequest, NextResponse } from "next/server";
@@ -34,13 +34,15 @@ export async function POST(req: NextRequest) {
             kind: (b.kind as string) || null,
             totalCost: (b.totalCost as string | number | null) ?? null,
             notes: (b.notes as string) || null,
+            postSlug: (b.postSlug as string) || null,
           }),
         });
       case "item_cost": {
         const ids = Array.isArray(b.ids) ? b.ids.map(String) : [];
-        const edit: { acquisitionId?: string | null; unitCost?: number | string | null } = {};
+        const edit: { acquisitionId?: string | null; unitCost?: number | string | null; haulPostSlug?: string | null } = {};
         if ("acquisitionId" in b) edit.acquisitionId = (b.acquisitionId as string) || null;
         if ("unitCost" in b) edit.unitCost = (b.unitCost as string | number | null) ?? null;
+        if ("haulPostSlug" in b) edit.haulPostSlug = (b.haulPostSlug as string) || null;
         return NextResponse.json({ ok: true, updated: await setItemCost(ids, edit) });
       }
       case "postage":

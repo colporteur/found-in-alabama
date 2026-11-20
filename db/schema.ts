@@ -1391,6 +1391,7 @@ export const registryItems = pgTable(
     binIdx: index("registry_items_bin_idx").on(t.binSku),
     titleNormIdx: index("registry_items_title_norm_idx").on(t.titleNormalized),
     acqIdx: index("registry_items_acquisition_idx").on(t.acquisitionId),
+    haulSlugIdx: index("registry_items_haul_post_slug_idx").on(t.haulPostSlug),
   })
 );
 
@@ -1829,9 +1830,15 @@ export const acquisitions = pgTable("acquisitions", {
   kind: text("kind"),
   totalCost: numeric("total_cost", { precision: 10, scale: 2 }),
   notes: text("notes"),
+  /** The journal post for this haul (its URL slug). Items whose Nifty
+   *  Private Notes carry that slug count toward this haul unless they
+   *  were tied to a haul by hand. One books haul per journal post. */
+  postSlug: text("post_slug"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
   updatedAt: timestamp("updated_at").defaultNow().notNull(),
-});
+}, (t) => ({
+  postSlugUq: uniqueIndex("acquisitions_post_slug_uq").on(t.postSlug).where(sql`${t.postSlug} IS NOT NULL`),
+}));
 
 // ── Shake-up (Phase 5a) ─────────────────────────────────────────────────────
 // What the stale-inventory report did to an item and when, so the 180-day

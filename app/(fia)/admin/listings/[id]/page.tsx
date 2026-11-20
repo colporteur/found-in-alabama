@@ -32,7 +32,7 @@ import { draftRoute, ebaySettings } from "@/lib/ebay/publish-settings";
 import { isCardSingle } from "@/lib/ebay/publish-core";
 import { ROTATABLE } from "@/lib/listings/photos";
 import { buildCategoryOptions } from "@/lib/ebay/auto-categorize";
-import { booksReady, itemCost, listAcquisitions } from "@/lib/books/books";
+import { booksReady, itemCost, journalPosts, listAcquisitions } from "@/lib/books/books";
 import { HaulCostPanel } from "../../books/BooksControls";
 
 export const dynamic = "force-dynamic";
@@ -45,7 +45,7 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
     .map((o) => ({ id: o.id, path: o.path.replace(/&amp;/g, "&") }))
     .sort((a, b) => a.path.localeCompare(b.path));
   const books = d.registryItemId && (await booksReady().catch(() => false))
-    ? { cost: await itemCost(d.registryItemId), hauls: await listAcquisitions(100) }
+    ? { cost: await itemCost(d.registryItemId), hauls: await listAcquisitions(100), posts: journalPosts() }
     : null;
   const next = await nextReviewId(d.id).catch(() => ({ id: null, left: 0 }));
   const fixes = await fixesForDraft(d.id).catch(() => []);
@@ -172,10 +172,14 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
         {books?.cost && d.registryItemId && (
           <HaulCostPanel
             registryItemId={d.registryItemId}
-            hauls={books.hauls.map((h) => ({ id: h.id, name: h.name, acquiredOn: h.acquiredOn }))}
+            hauls={books.hauls.map((h) => ({ id: h.id, name: h.name, acquiredOn: h.acquiredOn, postSlug: h.postSlug }))}
             acquisitionId={books.cost.acquisitionId}
             unitCost={books.cost.unitCost}
             splitCost={books.cost.splitCost}
+            posts={books.posts}
+            haulPostSlug={books.cost.haulPostSlug}
+            haulId={books.cost.haulId}
+            haulName={books.cost.haulName}
           />
         )}
         {pool && ["ready", "review", "sent_back", "with_claude"].includes(d.status) && !d.aiMeta?.lot && !d.aiMeta?.folderLot && <AddToPool draftId={d.id} groups={pool.groups} />}

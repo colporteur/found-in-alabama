@@ -5,7 +5,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { VENUE_NAME, editsReady, loadItem } from "@/lib/inventory/browse";
-import { booksReady, itemCost, listAcquisitions } from "@/lib/books/books";
+import { booksReady, itemCost, journalPosts, listAcquisitions } from "@/lib/books/books";
 import { HaulCostPanel } from "../../books/BooksControls";
 import { ItemEditor } from "./ItemEditor";
 import { AddToPool } from "../../listings/pool/AddToPool";
@@ -24,7 +24,7 @@ export default async function ItemPage({ params }: { params: { id: string } }) {
   const it = await loadItem(params.id);
   if (!it) notFound();
   const ready = await editsReady();
-  const books = (await booksReady().catch(() => false)) ? { cost: await itemCost(it.id), hauls: await listAcquisitions(100) } : null;
+  const books = (await booksReady().catch(() => false)) ? { cost: await itemCost(it.id), hauls: await listAcquisitions(100), posts: journalPosts() } : null;
   // Stale or not, a live item can be suggested for a lot (it stays listed until delisted by hand).
   const pool =
     it.status === "live" && (await poolReady().catch(() => false))
@@ -155,10 +155,14 @@ export default async function ItemPage({ params }: { params: { id: string } }) {
           {books?.cost && (
             <HaulCostPanel
               registryItemId={it.id}
-              hauls={books.hauls.map((h) => ({ id: h.id, name: h.name, acquiredOn: h.acquiredOn }))}
+              hauls={books.hauls.map((h) => ({ id: h.id, name: h.name, acquiredOn: h.acquiredOn, postSlug: h.postSlug }))}
               acquisitionId={books.cost.acquisitionId}
               unitCost={books.cost.unitCost}
               splitCost={books.cost.splitCost}
+              posts={books.posts}
+              haulPostSlug={books.cost.haulPostSlug}
+              haulId={books.cost.haulId}
+              haulName={books.cost.haulName}
             />
           )}
           {pool &&
