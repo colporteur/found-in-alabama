@@ -117,6 +117,8 @@ export type NiftyQueueItem = {
   venuePrices: Record<string, number> | null;
   quantity: number;
   sku: string | null;
+  /** Pieces combined into this lot, or null for a single item (for label printing). */
+  lotOf: number | null;
   privateNotes: string;
   photos: string[];
   ebayCategoryPath: string | null;
@@ -210,6 +212,7 @@ function queueItemFromRow(d: Row, templates: Record<TemplateKey, string>): Nifty
       venuePrices: (d.venue_prices as Record<string, number> | null) ?? null,
       quantity: Number(d.quantity ?? 1),
       sku: (d.bin_sku as string | null) ?? null,
+      lotOf: (((meta.lot ?? {}) as { parts?: unknown[] }).parts ?? []).length || null,
       privateNotes: niftyPrivateNotes(String(d.id), (d.bin_sku as string | null) ?? null, (d.haul_slug as string | null) ?? null),
       photos: ((d.photo_urls as string[] | null) ?? []).slice(0, 24),
       ebayCategoryPath: (d.ebay_category_name as string | null) ?? null,
