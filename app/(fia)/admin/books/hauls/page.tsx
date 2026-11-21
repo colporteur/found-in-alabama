@@ -57,6 +57,8 @@ export default async function HaulsPage() {
               <th className="py-2 text-right">Items</th>
               <th className="py-2 text-right">Sold</th>
               <th className="py-2 text-right">Sales so far</th>
+              <th className="py-2 text-right" title="Asking prices of the items not yet sold">Unsold asking</th>
+              <th className="py-2 text-right" title="Unsold asking prices plus sales so far">Unsold + sales</th>
             </tr>
           </thead>
           <tbody>
@@ -99,6 +101,21 @@ export default async function HaulsPage() {
                 </td>
                 <td className="py-2 text-right">{h.itemsSold}</td>
                 <td className="py-2 text-right">{money(h.revenue)}</td>
+                <td className="py-2 text-right">
+                  {money(h.unsoldAsking)}
+                  <div className="text-xs text-brand-ink/50">
+                    {h.itemsUnsold} unsold
+                    {h.unsoldUnpriced > 0 && ` · ${h.unsoldUnpriced} unpriced`}
+                  </div>
+                </td>
+                <td className="py-2 text-right">
+                  {money(h.unsoldAsking + h.revenue)}
+                  {h.totalCost != null && h.totalCost > 0 && (
+                    <div className="text-xs text-brand-ink/50" title="Unsold asking plus sales, divided by what you paid">
+                      {((h.unsoldAsking + h.revenue) / h.totalCost).toFixed(1)}× cost
+                    </div>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>

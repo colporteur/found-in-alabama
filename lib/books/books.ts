@@ -97,7 +97,20 @@ export type Acquisition = {
   itemsViaJournal: number;
   itemsSold: number;
   revenue: number;
+  /** Unsold items (not sold, shipped or archived) and their asking prices. */
+  itemsUnsold: number;
+  unsoldAsking: number;
+  /** Unsold items with no asking price yet (e.g. drafts not priced). */
+  unsoldUnpriced: number;
 };
+
+// An item's asking price: its Nifty capture price, else its newest priced
+// venue listing that hasn't ended (eBay first). Joined as "ap" on registry_items r.
+const askingPrice = sql.raw(`LEFT JOIN LATERAL (SELECT COALESCE(
+    (SELECT i.price FROM items i WHERE i.id = r.nifty_item_ref),
+    (SELECT v.price FROM venue_listings v
+      WHERE v.registry_item_id = r.id AND v.price IS NOT NULL AND v.status <> 'ended'
+      ORDER BY (v.venue = 'ebay') DESC, v.updated_at DESC LIMIT 1)) AS price) ap ON true`);
 
 export async function listAcquisitions(limit = 200): Promise<Acquisition[]> {
   const list = await rows(sql`
@@ -109,7 +122,13 @@ export async function listAcquisitions(limit = 200): Promise<Acquisition[]> {
       (SELECT COALESCE(sum(l.price * l.quantity), 0) FROM ship_order_lines l
          JOIN ship_orders o ON o.id = l.order_id AND o.status NOT IN ('cancelled', 'merged')
          JOIN registry_items r ON r.id = l.registry_item_id
-        WHERE ${inHaul("r", "a")}) AS revenue
+        WHERE ${inHaul("r", "a")}) AS revenue,
+      (SELECT count(*)::int FROM registry_items r
+        WHERE ${inHaul("r", "a")} AND r.status NOT IN ('sold', 'shipped', 'archived')) AS items_unsold,
+      (SELECT COALESCE(sum(ap.price), 0) FROM registry_items r ${askingPrice}
+        WHERE ${inHaul("r", "a")} AND r.status NOT IN ('sold', 'shipped', 'archived')) AS unsold_asking,
+      (SELECT count(*)::int FROM registry_items r ${askingPrice}
+        WHERE ${inHaul("r", "a")} AND r.status NOT IN ('sold', 'shipped', 'archived') AND ap.price IS NULL) AS unsold_unpriced
     FROM acquisitions a
     ORDER BY a.acquired_on DESC NULLS LAST, a.created_at DESC LIMIT ${limit}`);
   return list.map((r) => ({
@@ -124,6 +143,9 @@ export async function listAcquisitions(limit = 200): Promise<Acquisition[]> {
     itemsViaJournal: Number(r.items_via_journal ?? 0),
     itemsSold: Number(r.items_sold ?? 0),
     revenue: Number(r.revenue ?? 0),
+    itemsUnsold: Number(r.items_unsold ?? 0),
+    unsoldAsking: Number(r.unsold_asking ?? 0),
+    unsoldUnpriced: Number(r.unsold_unpriced ?? 0),
   }));
 }
 
