@@ -15,7 +15,7 @@ export function lotBuildTools(who: string): ToolDef[] {
       name: "lot_build_list",
       title: "Lot Builder sessions",
       description:
-        "Todd's open Lot Builder sessions: big batches of one item type (LP records, sewing patterns…) he already knows are lot material and wants sorted into smaller lots. Shows how many pieces each has, how many are waiting for your look, pulls, pieces needing a photo, and lots proposed or built.",
+        "Todd's open Lot Builder and Preview sessions. A Lot Builder session is a big batch of one item type (LP records, sewing patterns…) he already knows is lot material and wants sorted into smaller lots. A PREVIEW session (type says so) is a mixed batch he isn't optimistic about: a first pass that sorts each piece into its own listing, a lot with others in the batch, the lot pool, or discard, before anything is written. Shows how many pieces each has, how many are waiting for your look, pulls, pieces needing a photo, and lots proposed or built.",
       inputSchema: { type: "object", properties: {} },
       run: async () => claudeBuildList(),
     },
@@ -23,7 +23,7 @@ export function lotBuildTools(who: string): ToolDef[] {
       name: "lot_build_get",
       title: "Open a Lot Builder session",
       description:
-        "Everything about one session, as text: the sorting rules, every piece (number, identification, value alone, verdict, lot, whether it's waiting for your look), the lots so far, and the Expert Guide(s) for the item type — the guide decides what to pull and the type and size of lot. Read it first, then look at the pieces with lot_build_sheet.",
+        "Everything about one session (Lot Builder or Preview), as text — the rules differ by type, so follow the ones it returns: the sorting rules, every piece (number, identification, value alone, verdict, lot, whether it's waiting for your look), the lots so far, and the Expert Guide(s) for the item type — the guide decides what to pull and the type and size of lot. Read it first, then look at the pieces with lot_build_sheet.",
       inputSchema: { type: "object", properties: { build_id: { type: "string" } }, required: ["build_id"] },
       run: async (a) => rawContent(await claudeBuildPacket(argStr(a, "build_id", 40) ?? "")),
     },
@@ -61,7 +61,7 @@ export function lotBuildTools(who: string): ToolDef[] {
       title: "Save what pieces are, and pull / photo alerts",
       readOnly: false,
       description:
-        "Save your read of pieces (many per call): identification (what a buyer would search), est_value_usd (what it would sell for alone, from the Expert Guide's bands) and a verdict — 'lot' (stays lot material), 'pull' (earns its own listing; reason required — Todd sees it as an alert) or 'need_photo' (the photo doesn't settle what it is or whether it's a pull; photo_request required: exactly what to photograph). Pieces Todd decided himself keep his verdict. Only Todd's Lot Builder page changes; nothing is combined or listed.",
+        "Save your read of pieces (many per call): identification (what a buyer would search), est_value_usd (what it would sell for alone, from the Expert Guide's bands) and a verdict — 'lot' (stays lot material), 'pull' (earns its own listing; reason required — Todd sees it as an alert) or 'need_photo' (the photo doesn't settle what it is or whether it's a pull; photo_request required: exactly what to photograph). In a PREVIEW session two more verdicts apply: 'pool' (some value in a lot, but no partners in this batch — it waits in the lot pool) and 'discard' (not worth listing even in a lot; reason required; only when confident — when in doubt use 'pool'). Pieces Todd decided himself keep his verdict. Only Todd's Lot Builder / Preview page changes; nothing is combined, pooled, discarded or listed until he applies it there.",
       inputSchema: {
         type: "object",
         required: ["build_id", "pieces"],
@@ -78,8 +78,8 @@ export function lotBuildTools(who: string): ToolDef[] {
                 n: { type: "number", description: "Piece number" },
                 identification: { type: "string", description: "One line: e.g. artist – title, label + catalogue no., format" },
                 est_value_usd: { type: "number" },
-                verdict: { type: "string", enum: ["lot", "pull", "need_photo"] },
-                reason: { type: "string", description: "Required for pull: why it sells better alone (name the guide rule)" },
+                verdict: { type: "string", enum: ["lot", "pull", "need_photo", "pool", "discard"], description: "pool and discard only in a Preview session" },
+                reason: { type: "string", description: "Required for pull (why it sells better alone; name the guide rule) and for discard (why it isn't worth listing)" },
                 photo_request: { type: "string", description: "Required for need_photo: exactly what to photograph" },
               },
             },

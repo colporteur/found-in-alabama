@@ -3,8 +3,23 @@
 // against the pieces, lot numbers that never change, contact-sheet pages and
 // the sorting guide Todd reads at the table.
 
-export const VERDICTS = ["lot", "pull", "need_photo"] as const;
+export const VERDICTS = ["lot", "pull", "need_photo", "pool", "discard"] as const;
 export type Verdict = (typeof VERDICTS)[number];
+
+/** A session is a Lot Builder sort ("lots": one item type, already lot
+ *  material) or a Preview ("preview": a mixed batch Todd isn't optimistic
+ *  about, sorted into discard / lot pool / lot with this batch / single). */
+export const MODES = ["lots", "preview"] as const;
+export type Mode = (typeof MODES)[number];
+/** Verdicts each kind of session takes. "pool" and "discard" are Preview only. */
+export const MODE_VERDICTS: Record<Mode, readonly Verdict[]> = {
+  lots: ["lot", "pull", "need_photo"],
+  preview: ["pull", "lot", "pool", "discard", "need_photo"],
+};
+/** Preview thresholds (Todd, Nov 23, 2026): worth this much alone → its own
+ *  listing; under the discard line with no lot it fits → discard. */
+export const PREVIEW_SINGLE_MIN = 10;
+export const PREVIEW_DISCARD_MAX = 2;
 
 export const LOT_MAX_PIECES = 60; // keep in step with FIT_MAX_PIECES (photo-fit-plan.ts)
 export const SHEET_MAX = 16; // pieces on one contact sheet
@@ -41,7 +56,8 @@ const money = (v: unknown): number | null => {
 
 /** What Claude sent to lot_build_identify, cleaned. A "pull" needs a reason
  *  (Todd reads it as the alert) and a "need_photo" needs to say which photo. */
-export function cleanIdentify(input: unknown, known: Set<number>): { ok: IdentifyIn[]; errors: string[] } {
+export function cleanIdentify(input: unknown, known: Set<number>, mode: Mode = "lots"): { ok: IdentifyIn[]; errors: string[] } {
+  const allowed = MODE_VERDICTS[mode] as readonly string[];
   const ok: IdentifyIn[] = [];
   const errors: string[] = [];
   const seen = new Set<number>();
@@ -57,15 +73,19 @@ export function cleanIdentify(input: unknown, known: Set<number>): { ok: Identif
       continue;
     }
     seen.add(n);
-    const verdict = (VERDICTS as readonly string[]).includes(String(r.verdict)) ? (String(r.verdict) as Verdict) : null;
+    const verdict = allowed.includes(String(r.verdict)) ? (String(r.verdict) as Verdict) : null;
     if (r.verdict != null && !verdict) {
-      errors.push(`#${n}: verdict must be lot, pull or need_photo`);
+      errors.push(`#${n}: verdict must be ${mode === "preview" ? "pull, lot, pool, discard or need_photo" : "lot, pull or need_photo"}`);
       continue;
     }
     const reason = text(r.reason, 400);
     const photoRequest = text(r.photo_request ?? r.photoRequest, 300);
     if (verdict === "pull" && !reason) {
       errors.push(`#${n}: a pull needs a reason (why it sells better alone)`);
+      continue;
+    }
+    if (verdict === "discard" && !reason) {
+      errors.push(`#${n}: a discard needs a reason (why it isn't worth listing, even in a lot)`);
       continue;
     }
     if (verdict === "need_photo" && !photoRequest) {
@@ -149,7 +169,7 @@ export function checkPlan(lots: PlanLotIn[], pieces: PieceLite[], existing: Arra
         continue;
       }
       if (p.locked && !(lot.no != null && p.lotNo === lot.no)) {
-        skipped.push(`#${n} (Todd placed it${p.verdict === "pull" ? " as a pull" : p.lotNo ? ` in lot ${p.lotNo}` : ""})`);
+        skipped.push(`#${n} (Todd placed it${p.verdict === "pull" ? " as a pull" : p.verdict === "pool" ? " in the lot pool" : p.verdict === "discard" ? " in discards" : p.lotNo ? ` in lot ${p.lotNo}` : ""})`);
         continue;
       }
       taken.set(n, i);
@@ -179,7 +199,7 @@ export function sheetPages(numbers: number[], from: number, count: number, per: 
   return pages;
 }
 
-export type GuideRow = { n: number; where: string; kind: "lot" | "pull" | "photo" | "none" | "done"; what: string | null };
+export type GuideRow = { n: number; where: string; kind: "lot" | "pull" | "photo" | "pool" | "discard" | "none" | "done"; what: string | null };
 
 /** The sorting guide: every piece in number order with the pile it goes on. */
 export function sortingGuide(pieces: PieceLite[], lotNames: Map<number, string>): GuideRow[] {
@@ -189,6 +209,8 @@ export function sortingGuide(pieces: PieceLite[], lotNames: Map<number, string>)
     .map((p) => {
       const what = p.identification ?? null;
       if (p.state === "pulled" || (p.state === "sorting" && p.verdict === "pull")) return { n: p.n, where: "PULL — sell alone", kind: "pull" as const, what };
+      if (p.state === "pooled" || (p.state === "sorting" && p.verdict === "pool")) return { n: p.n, where: "LOT POOL bin", kind: "pool" as const, what };
+      if (p.state === "discarded" || (p.state === "sorting" && p.verdict === "discard")) return { n: p.n, where: "DISCARD", kind: "discard" as const, what };
       if (p.lotNo != null && (p.state === "in_lot" || p.verdict === "lot" || p.verdict == null))
         return { n: p.n, where: `Lot ${p.lotNo}${lotNames.get(p.lotNo) ? ` — ${lotNames.get(p.lotNo)}` : ""}`, kind: p.state === "in_lot" ? ("done" as const) : ("lot" as const), what };
       if (p.verdict === "need_photo") return { n: p.n, where: "NEEDS PHOTO", kind: "photo" as const, what };
@@ -219,15 +241,48 @@ export function lotInstructions(lot: { no: number; name: string; reason: string 
 }
 
 /** Todd's instructions on a piece pulled out of a sort session to sell alone. */
-export function pullInstructions(p: { n: number; identification: string | null; estValue: number | null; reason: string | null }, build: { name: string; kind: string | null }): string {
+export function pullInstructions(p: { n: number; identification: string | null; estValue: number | null; reason: string | null }, build: { name: string; kind: string | null; mode?: Mode }): string {
+  const preview = build.mode === "preview";
   return [
-    `Pulled from the Lot Builder session "${build.name}"${build.kind ? ` (${build.kind})` : ""}, piece #${p.n}, to sell on its own.`,
-    p.identification ? `Identified during the sort as: ${p.identification}.` : "",
-    p.reason ? `Why it was pulled: ${p.reason}` : "",
+    preview
+      ? `From the Preview session "${build.name}", piece #${p.n}: Todd approved it for its own listing.`
+      : `Pulled from the Lot Builder session "${build.name}"${build.kind ? ` (${build.kind})` : ""}, piece #${p.n}, to sell on its own.`,
+    p.identification ? `Identified during the ${preview ? "preview" : "sort"} as: ${p.identification}.` : "",
+    p.reason ? `Why it ${preview ? "earns its own listing" : "was pulled"}: ${p.reason}` : "",
     p.estValue != null ? `Estimated alone: about $${p.estValue}.` : "",
     `Write it as a single listing. If the photos don't show what a single listing needs (a label, a back, a grade), say so in flags.`,
   ]
     .filter(Boolean)
     .join(" ")
     .slice(0, 1900);
+}
+
+export type PreviewBucket = "single" | "lot" | "pool" | "discard" | "look" | "undecided";
+export const PREVIEW_BUCKETS: readonly PreviewBucket[] = ["single", "lot", "pool", "discard", "look", "undecided"];
+
+/** Which Preview pile a piece is in (also once it has been sent on). */
+export function previewBucket(p: PieceLite): PreviewBucket | null {
+  if (p.state === "removed") return null;
+  if (p.state === "pulled") return "single";
+  if (p.state === "in_lot") return "lot";
+  if (p.state === "pooled") return "pool";
+  if (p.state === "discarded") return "discard";
+  if (p.verdict === "pull") return "single";
+  if (p.verdict === "pool") return "pool";
+  if (p.verdict === "discard") return "discard";
+  if (p.verdict === "need_photo") return "look";
+  if (p.lotNo != null) return "lot";
+  return "undecided"; // not looked at, or lot material with no lot yet
+}
+
+/** The Preview report: how many pieces and how much value (alone) per pile. */
+export function previewSummary(pieces: PieceLite[]): Record<PreviewBucket, { pieces: number; est: number }> {
+  const out = Object.fromEntries(PREVIEW_BUCKETS.map((b) => [b, { pieces: 0, est: 0 }])) as Record<PreviewBucket, { pieces: number; est: number }>;
+  for (const p of pieces) {
+    const b = previewBucket(p);
+    if (!b) continue;
+    out[b].pieces += 1;
+    out[b].est = Math.round((out[b].est + (p.estValue ?? 0)) * 100) / 100;
+  }
+  return out;
 }

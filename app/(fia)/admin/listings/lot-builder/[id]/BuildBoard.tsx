@@ -6,12 +6,16 @@
 // already built or sent on, and the sorting guide (also the print view).
 // Tick pieces, then use the bar to move them; anything Todd places is locked
 // so Claude's later passes leave it alone. Photos can be added to any piece.
+//
+// A Preview session (build.mode === "preview") uses the same board for a mixed
+// batch: a report strip on top (pieces and value per pile), two more piles
+// (lot pool, discard), and one "Apply preview" button that sends every pile on.
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Build, BuildLot, BuildPiece, LeftoverSession } from "@/lib/listings/lot-build";
-import { sortingGuide, type GuideRow } from "@/lib/listings/lot-build-plan";
+import { previewSummary, sortingGuide, PREVIEW_DISCARD_MAX, PREVIEW_SINGLE_MIN, type GuideRow } from "@/lib/listings/lot-build-plan";
 import { downsize, sha256 } from "../../photoPrep";
 
 const money = (n: number | null) => (n == null ? "—" : `$${n.toFixed(2)}`);
@@ -28,7 +32,18 @@ type Ctx = {
 function Tile({ p, ctx }: { p: BuildPiece; ctx: Ctx }) {
   const live = p.state === "sorting";
   const on = ctx.picked.has(p.n);
-  const tone = p.verdict === "pull" || p.state === "pulled" ? "border-red-700" : p.verdict === "need_photo" && live ? "border-amber-600" : on ? "border-green-800" : "border-brand-ink/15";
+  const tone =
+    p.verdict === "pull" || p.state === "pulled"
+      ? "border-red-700"
+      : p.verdict === "need_photo" && live
+        ? "border-amber-600"
+        : p.verdict === "pool" || p.state === "pooled"
+          ? "border-teal-700"
+          : p.verdict === "discard" || p.state === "discarded"
+            ? "border-stone-500"
+            : on
+              ? "border-green-800"
+              : "border-brand-ink/15";
   return (
     <div className={`w-40 rounded border-2 bg-white p-1.5 text-xs ${tone} ${on ? "ring-2 ring-green-800/40" : ""}`}>
       <button type="button" disabled={!live} onClick={() => ctx.toggle(p.n)} className="relative block w-full" title={live ? "Tick to move" : undefined}>
@@ -50,6 +65,8 @@ function Tile({ p, ctx }: { p: BuildPiece; ctx: Ctx }) {
         {p.locked && <span title="You placed this; Claude leaves it alone"> · 🔒</span>}
       </p>
       {p.verdict === "pull" && p.reason && <p className="mt-1 rounded bg-red-50 p-1 text-red-900">{p.reason}</p>}
+      {p.verdict === "pool" && p.reason && <p className="mt-1 rounded bg-teal-50 p-1 text-teal-900">{p.reason}</p>}
+      {p.verdict === "discard" && p.reason && <p className="mt-1 rounded bg-stone-100 p-1 text-stone-800">{p.reason}</p>}
       {p.verdict === "need_photo" && live && <p className="mt-1 rounded bg-amber-50 p-1 text-amber-900">Photo wanted: {p.photoRequest ?? "another photo"}</p>}
       {p.origin && (
         <p className="mt-1 rounded bg-teal-50 p-1 text-teal-900" title="A leftover carried over from an earlier session: fetch it from that wave's leftover pile">
@@ -118,12 +135,16 @@ function LeftoverRow({
 function whereShort(r: GuideRow, lotNo: number | null): string {
   if (r.kind === "pull") return "PULL — sell alone";
   if (r.kind === "photo") return "NEEDS PHOTO — set aside";
+  if (r.kind === "pool") return "LOT POOL bin";
+  if (r.kind === "discard") return "DISCARD";
   if (r.kind === "none") return "Not placed yet";
   return lotNo != null ? `Lot ${lotNo}${r.kind === "done" ? " (built)" : ""}` : r.where;
 }
 function whereTone(r: GuideRow): string {
   if (r.kind === "pull") return "bg-red-700 text-white";
   if (r.kind === "photo") return "bg-amber-600 text-white";
+  if (r.kind === "pool") return "bg-teal-700 text-white";
+  if (r.kind === "discard") return "bg-stone-600 text-white";
   if (r.kind === "none") return "bg-brand-ink/10 text-brand-ink/70";
   if (r.kind === "done") return "bg-green-800 text-white";
   return "bg-purple-800 text-white";
@@ -159,12 +180,19 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
     }
   }
 
+  const preview = build.mode === "preview";
+  const what = preview ? "Preview" : "Lot Builder";
   const live = build.pieces.filter((p) => p.state === "sorting");
   const pulls = live.filter((p) => p.verdict === "pull");
   const needPhoto = live.filter((p) => p.verdict === "need_photo");
+  const pools = live.filter((p) => p.verdict === "pool");
+  const discards = live.filter((p) => p.verdict === "discard");
+  const pooledDone = build.pieces.filter((p) => p.state === "pooled");
+  const discardedDone = build.pieces.filter((p) => p.state === "discarded");
+  const report = useMemo(() => previewSummary(build.pieces), [build.pieces]);
   const proposed = build.lots.filter((l) => l.status === "proposed");
   const built = build.lots.filter((l) => l.status === "built");
-  const unplaced = live.filter((p) => p.lotNo == null && p.verdict !== "pull" && p.verdict !== "need_photo");
+  const unplaced = live.filter((p) => p.lotNo == null && p.verdict !== "pull" && p.verdict !== "need_photo" && p.verdict !== "pool" && p.verdict !== "discard");
   const waiting = live.filter((p) => p.needsLook);
   const sent = build.pieces.filter((p) => p.state === "pulled");
   const byN = useMemo(() => new Map(build.pieces.map((p) => [p.n, p])), [build.pieces]);
@@ -255,7 +283,9 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
       if (!newLot.trim()) return setMsg({ ok: false, text: "Name the new lot." });
       act({ action: "place", pieces: sel, newLot }, (o) => `Moved ${sel.length} into new lot ${String(o.lotNo)}.`);
       setNewLot("");
-    } else if (target === "pull") act({ action: "place", pieces: sel, verdict: "pull" }, () => `Marked ${sel.length} to pull.`);
+    } else if (target === "pull") act({ action: "place", pieces: sel, verdict: "pull" }, () => (preview ? `Marked ${sel.length} for an individual listing.` : `Marked ${sel.length} to pull.`));
+    else if (target === "pool") act({ action: "place", pieces: sel, verdict: "pool" }, () => `Marked ${sel.length} for the lot pool.`);
+    else if (target === "discard") act({ action: "place", pieces: sel, verdict: "discard" }, () => `Marked ${sel.length} to discard. Nothing is discarded until you apply the preview.`);
     else if (target === "need_photo") act({ action: "place", pieces: sel, verdict: "need_photo" }, () => `Marked ${sel.length} as needing a photo.`);
     else if (target === "none") act({ action: "place", pieces: sel }, () => `Took ${sel.length} out of their lot.`);
     else if (target === "unlock") act({ action: "unlock", pieces: sel }, () => `Claude may place ${sel.length === 1 ? "that piece" : "those pieces"} again.`);
@@ -264,7 +294,7 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
       if (o && window.confirm(`Carry ${sel.length} piece${sel.length === 1 ? "" : "s"} over to "${o.name}"? They get new numbers there and keep a "From ${build.name} #…" label.`))
         act({ action: "carry", toBuildId: o.id, pieces: sel }, (out) => `Carried ${(out.moved as unknown[] | undefined)?.length ?? 0} over to "${o.name}".`);
     } else if (target === "release") {
-      if (window.confirm(`Take ${sel.length} piece${sel.length === 1 ? "" : "s"} out of the Lot Builder? They become ordinary Ready drafts.`))
+      if (window.confirm(`Take ${sel.length} piece${sel.length === 1 ? "" : "s"} out of the ${what}? They become ordinary Ready drafts.`))
         act({ action: "release", pieces: sel }, () => `Released ${sel.length} to Ready.`);
     } else if (/^\d+$/.test(target)) act({ action: "place", pieces: sel, lotNo: Number(target) }, () => `Moved ${sel.length} into lot ${target}.`);
   }
@@ -332,7 +362,8 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
           <div>
             <h1 className="font-marker text-4xl md:text-5xl">{build.name}</h1>
             <p className="mt-1 text-sm text-brand-ink/70">
-              {build.kind ?? "Item type not set"} · {build.pieces.filter((p) => p.state !== "removed").length} pieces · {live.length} still sorting ·{" "}
+              {preview && <span className="mr-2 rounded bg-sky-800 px-1.5 py-0.5 font-bold text-white">Preview</span>}
+              {build.kind ?? (preview ? "Mixed batch" : "Item type not set")} · {build.pieces.filter((p) => p.state !== "removed").length} pieces · {live.length} still sorting ·{" "}
               {proposed.length} lot{proposed.length === 1 ? "" : "s"} proposed · {built.length} built
               {build.status !== "open" && <span className="ml-2 rounded bg-brand-ink/10 px-1.5 py-0.5">closed</span>}
             </p>
@@ -364,6 +395,29 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
             <button className={BTN} disabled={busy} onClick={() => act({ action: "session", status: build.status === "open" ? "closed" : "open" }, undefined, true)}>
               {build.status === "open" ? "Close session" : "Reopen"}
             </button>
+            {preview && (
+              <button
+                className={BTN_DARK}
+                disabled={busy || (!proposed.some((l) => l.pieces.length >= 2) && !pulls.length && !pools.length && !discards.length)}
+                onClick={() =>
+                  window.confirm(
+                    `Apply this preview?\n\n` +
+                      `• ${pulls.length} to Claude to write as individual listings\n` +
+                      `• ${proposed.filter((l) => l.pieces.length >= 2).length} lot(s) built and sent to Claude to write\n` +
+                      `• ${pools.length} into the lot pool (bin LOTPOOL)\n` +
+                      `• ${discards.length} discarded (kept on record; restorable from the draft)\n\n` +
+                      `${needPhoto.length + unplaced.length} piece(s) that need a better look or have no pile yet stay here.`
+                  ) &&
+                  act({ action: "apply" }, (o) => {
+                    const left = (o.left as string[] | undefined) ?? [];
+                    return `Applied: ${String(o.singles ?? 0)} single(s) and ${String(o.built ?? 0)} lot(s) sent to Claude, ${String(o.pooled ?? 0)} into the lot pool, ${String(o.discarded ?? 0)} discarded.${left.length ? ` Left: ${left.join(" ")}` : ""}`;
+                  })
+                }
+              >
+                Apply preview
+              </button>
+            )}
+            {!preview && (
             <button
               className={BTN_DARK}
               disabled={busy || (!proposed.some((l) => l.pieces.length >= 2) && !pulls.length)}
@@ -378,9 +432,36 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
             >
               Build all + send pulls
             </button>
+            )}
           </div>
         </div>
 
+        {preview && (
+          <div className="mb-4 max-w-5xl">
+            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+              {(
+                [
+                  ["single", "Individual listing", "bg-red-700"],
+                  ["lot", "Lot from this batch", "bg-purple-800"],
+                  ["pool", "Lot pool", "bg-teal-700"],
+                  ["discard", "Discard", "bg-stone-600"],
+                  ["look", "Needs a better look", "bg-amber-600"],
+                  ["undecided", "No pile yet", "bg-brand-ink/40"],
+                ] as const
+              ).map(([key, label, tone]) => (
+                <div key={key} className="rounded border border-brand-ink/15 bg-white p-2 text-sm">
+                  <span className={`inline-block rounded px-1.5 py-0.5 text-xs font-bold text-white ${tone}`}>{label}</span>
+                  <p className="mt-1 text-2xl font-bold tabular-nums">{report[key].pieces}</p>
+                  <p className="text-xs text-brand-ink/60">alone ≈ {money(report[key].est)}</p>
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-brand-ink/60">
+              Claude&rsquo;s rule of thumb: about ${PREVIEW_SINGLE_MIN} or more alone earns its own listing; under about ${PREVIEW_DISCARD_MAX} with no lot it would help is a
+              discard; when in doubt it goes to the lot pool. Tick pieces to overrule any of it. Nothing moves until you press Apply preview.
+            </p>
+          </div>
+        )}
         {build.note && <p className="mb-3 max-w-4xl text-sm text-brand-ink/70">Your note: {build.note}</p>}
         {build.planNote && (
           <p className="mb-4 max-w-4xl rounded border border-brand-ink/15 bg-white p-3 text-sm">
@@ -434,7 +515,7 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
         {waiting.length > 0 && (
           <p className="mb-4 max-w-4xl rounded border border-sky-700 bg-sky-50 p-3 text-sm text-sky-900">
             {waiting.length} piece{waiting.length === 1 ? " is" : "s are"} waiting for Claude (#{waiting.slice(0, 30).map((p) => p.n).join(", #")}
-            {waiting.length > 30 ? "…" : ""}). In the Claude app, ask it to work the Lot Builder session &ldquo;{build.name}&rdquo;.
+            {waiting.length > 30 ? "…" : ""}). In the Claude app, ask it to work the {what} session &ldquo;{build.name}&rdquo;.
           </p>
         )}
         {msg && <p className={`mb-4 rounded p-3 text-sm ${msg.ok ? "bg-green-50 text-green-900" : "bg-red-50 text-red-900"}`}>{msg.text}</p>}
@@ -453,8 +534,10 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
                 </option>
               ))}
               <option value="new">A new lot…</option>
-              <option value="pull">PULL — sell alone</option>
-              <option value="need_photo">Needs a photo</option>
+              <option value="pull">{preview ? "Individual listing" : "PULL — sell alone"}</option>
+              {preview && <option value="pool">Lot pool</option>}
+              {preview && <option value="discard">Discard</option>}
+              <option value="need_photo">{preview ? "Needs a better look" : "Needs a photo"}</option>
               <option value="none">Not in a lot</option>
               <option value="unlock">Let Claude place them again</option>
               {others.map((o) => (
@@ -462,7 +545,7 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
                   Carry over to session: {o.name}
                 </option>
               ))}
-              <option value="release">Out of the Lot Builder (ordinary drafts)</option>
+              <option value="release">Out of the {what} (ordinary drafts)</option>
             </select>
             {target === "new" && <input className="rounded border border-brand-ink/30 px-2 py-1" placeholder="Lot name" value={newLot} onChange={(e) => setNewLot(e.target.value)} />}
             <button className={BTN_DARK} disabled={busy || !target} onClick={move}>
@@ -554,20 +637,28 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
         {pulls.length > 0 && (
           <div className="mb-6 rounded border-2 border-red-700 bg-red-50/60 p-3">
             <div className="mb-2 flex flex-wrap items-center gap-3">
-              <h2 className="text-xl font-bold text-red-900">Pull these — sell individually ({pulls.length})</h2>
+              <h2 className="text-xl font-bold text-red-900">{preview ? "Individual listings" : "Pull these — sell individually"} ({pulls.length})</h2>
               <button className={`${BTN} ml-auto`} disabled={busy} onClick={() => act({ action: "pulls" }, (o) => `Sent ${String(o.sent)} to Claude to write as single listings.`)}>
                 Send all pulls to Claude
               </button>
             </div>
-            <p className="mb-2 text-sm text-red-900/80">Take these out of the pile. Add a label or back photo first if a single listing needs it. Disagree? Tick it and move it to a lot.</p>
+            <p className="mb-2 text-sm text-red-900/80">
+              {preview
+                ? "Worth a listing of their own. They go to Claude to write with the photos they already have. Disagree? Tick it and move it."
+                : "Take these out of the pile. Add a label or back photo first if a single listing needs it. Disagree? Tick it and move it to a lot."}
+            </p>
             {tiles(pulls.map((p) => p.n))}
           </div>
         )}
 
         {needPhoto.length > 0 && (
           <div className="mb-6 rounded border-2 border-amber-600 bg-amber-50/60 p-3">
-            <h2 className="mb-1 text-xl font-bold text-amber-900">One photo wasn&rsquo;t enough ({needPhoto.length})</h2>
-            <p className="mb-2 text-sm text-amber-900/80">Use &ldquo;+ photo&rdquo; on each (phone or PC). Claude looks again and decides: pull or lot.</p>
+            <h2 className="mb-1 text-xl font-bold text-amber-900">{preview ? "Needs a better look" : "One photo wasn\u2019t enough"} ({needPhoto.length})</h2>
+            <p className="mb-2 text-sm text-amber-900/80">
+              {preview
+                ? "The scans don\u2019t settle these. Use \u201c+ photo\u201d (phone or PC) and Claude looks again, or tick one and choose its pile yourself."
+                : "Use \u201c+ photo\u201d on each (phone or PC). Claude looks again and decides: pull or lot."}
+            </p>
             {tiles(needPhoto.map((p) => p.n))}
           </div>
         )}
@@ -579,14 +670,47 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
           {proposed.length === 0 && live.length > 0 && <p className="text-sm text-brand-ink/60">No lots proposed yet. Claude proposes them once it has identified the pieces, or tick pieces and start one yourself.</p>}
         </div>
 
+        {pools.length > 0 && (
+          <div className="mb-6 rounded border-2 border-teal-700 bg-teal-50/60 p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-3">
+              <h2 className="text-xl font-bold text-teal-900">Lot pool ({pools.length})</h2>
+              <button className={`${BTN} ml-auto`} disabled={busy} onClick={() => act({ action: "pool" }, (o) => `Sent ${String(o.pooled)} to the lot pool.${((o.left as string[] | undefined) ?? []).length ? ` Left: ${(o.left as string[]).join(" ")}` : ""}`)}>
+                Send these to the lot pool now
+              </button>
+            </div>
+            <p className="mb-2 text-sm text-teal-900/80">Some value in a lot, but nothing in this batch goes with them. They wait in the lot pool (bin LOTPOOL) with these photos for partners from other batches.</p>
+            {tiles(pools.map((p) => p.n))}
+          </div>
+        )}
+
+        {discards.length > 0 && (
+          <div className="mb-6 rounded border-2 border-stone-500 bg-stone-100/70 p-3">
+            <div className="mb-2 flex flex-wrap items-center gap-3">
+              <h2 className="text-xl font-bold text-stone-800">Discard ({discards.length})</h2>
+              <button
+                className={`${BTN} ml-auto`}
+                disabled={busy}
+                onClick={() =>
+                  window.confirm(`Discard ${discards.length} piece${discards.length === 1 ? "" : "s"}? Each is kept on record with what it was and why, and can be restored from its draft page.`) &&
+                  act({ action: "discard" }, (o) => `Discarded ${String(o.discarded)}.`)
+                }
+              >
+                Discard these now
+              </button>
+            </div>
+            <p className="mb-2 text-sm text-stone-700">Not worth more of your time, even in a lot. Check these before applying: a wrong discard is the costly mistake. Tick any you&rsquo;d keep and move it to the lot pool.</p>
+            {tiles(discards.map((p) => p.n))}
+          </div>
+        )}
+
         {unplaced.length > 0 && (
           <div className="mb-6 rounded border border-brand-ink/15 p-3">
-            <h2 className="mb-2 text-xl font-bold">Not in a lot yet ({unplaced.length})</h2>
+            <h2 className="mb-2 text-xl font-bold">{preview ? "No pile yet" : "Not in a lot yet"} ({unplaced.length})</h2>
             {tiles(unplaced.map((p) => p.n))}
           </div>
         )}
 
-        {(built.length > 0 || sent.length > 0) && (
+        {(built.length > 0 || sent.length > 0 || pooledDone.length > 0 || discardedDone.length > 0) && (
           <div className="mb-6 rounded border border-green-800/40 bg-green-50/40 p-3 text-sm">
             <h2 className="mb-2 text-xl font-bold">Built and sent on</h2>
             <ul className="space-y-1">
@@ -605,10 +729,29 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
               {sent.map((p) => (
                 <li key={p.n}>
                   <span className="mr-2 rounded bg-red-700 px-1.5 py-0.5 font-bold text-white">#{p.n}</span>
-                  pulled:{" "}
+                  {preview ? "individual listing" : "pulled"}:{" "}
                   <Link href={`/admin/listings/${p.draftId}`} className="underline">
                     {p.identification ?? "single listing"}
                   </Link>
+                </li>
+              ))}
+              {pooledDone.length > 0 && (
+                <li>
+                  <span className="mr-2 rounded bg-teal-700 px-1.5 py-0.5 font-bold text-white">Lot pool</span>
+                  {pooledDone.length} piece{pooledDone.length === 1 ? "" : "s"} (#{pooledDone.map((p) => p.n).join(", #")}) ·{" "}
+                  <Link href="/admin/listings/pool" className="underline">
+                    open the lot pool
+                  </Link>
+                </li>
+              )}
+              {discardedDone.map((p) => (
+                <li key={p.n}>
+                  <span className="mr-2 rounded bg-stone-600 px-1.5 py-0.5 font-bold text-white">#{p.n}</span>
+                  discarded:{" "}
+                  <Link href={`/admin/listings/${p.draftId}`} className="underline">
+                    {p.identification ?? "open the draft"}
+                  </Link>
+                  {p.reason && <span className="text-brand-ink/60"> — {p.reason}</span>}
                 </li>
               ))}
             </ul>
@@ -633,7 +776,7 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
           {ordered.map((r) => (
             <li key={r.n} className="mb-0.5 break-inside-avoid">
               <b className="inline-block w-10">#{r.n}</b>
-              <span className={r.kind === "pull" ? "font-bold text-red-800" : r.kind === "photo" ? "font-bold text-amber-800" : r.kind === "none" ? "text-brand-ink/50" : ""}>{r.where}</span>
+              <span className={r.kind === "pull" ? "font-bold text-red-800" : r.kind === "photo" ? "font-bold text-amber-800" : r.kind === "pool" ? "font-bold text-teal-800" : r.kind === "discard" ? "font-bold text-stone-600" : r.kind === "none" ? "text-brand-ink/50" : ""}>{r.where}</span>
               {byN.get(r.n)?.origin && <span className="text-teal-800"> · from {byN.get(r.n)!.origin!.name} #{byN.get(r.n)!.origin!.n}</span>}
               {r.what && <span className="text-brand-ink/60"> · {r.what.slice(0, 60)}</span>}
             </li>

@@ -144,7 +144,7 @@ export async function claudeQueue(limit = 50) {
     ...(builds.length
       ? {
           lotBuilderNote:
-            "Todd has Lot Builder sessions waiting for you: batches of one item type he wants sorted into smaller lots. For each: lot_build_get (rules, pieces, the Expert Guide), lot_build_sheet to look, lot_build_identify to save what each piece is with pull / need-photo alerts, then lot_build_plan. He builds the lots himself; they then appear in this queue to write.",
+            "Todd has Lot Builder or Preview sessions waiting for you. A Lot Builder session is a batch of one item type he wants sorted into smaller lots; a Preview session (type: preview) is a mixed batch to sort into single / lot / lot pool / discard before anything is written. For each: lot_build_get (the rules for that type, pieces, the Expert Guide), lot_build_sheet to look, lot_build_identify to save what each piece is with its verdict, then lot_build_plan. He applies the result himself; lots and singles then appear in this queue to write.",
           lotBuilder: builds,
         }
       : {}),

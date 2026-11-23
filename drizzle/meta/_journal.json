@@ -407,6 +407,13 @@
       "when": 1795180000000,
       "tag": "0056_haul_journal_link",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1795480000000,
+      "tag": "0057_preview_mode",
+      "breakpoints": true
     }
   ]
 }

@@ -1,7 +1,7 @@
 // Run: npx tsx --test lib/listings/lot-build-plan.test.mts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { checkPlan, cleanIdentify, cleanPlan, lotInstructions, needsLook, nextLotNo, pullInstructions, sheetPages, sortingGuide, type PieceLite } from "./lot-build-plan";
+import { checkPlan, cleanIdentify, cleanPlan, lotInstructions, needsLook, nextLotNo, previewBucket, previewSummary, pullInstructions, sheetPages, sortingGuide, PREVIEW_DISCARD_MAX, PREVIEW_SINGLE_MIN, type PieceLite } from "./lot-build-plan";
 import { parseIntakeRequest } from "./validate";
 
 const piece = (n: number, over: Partial<PieceLite> = {}): PieceLite => ({ n, state: "sorting", verdict: null, lotNo: null, locked: false, ...over });
@@ -150,4 +150,86 @@ test("intake: after.lotBuild makes the draft a piece of a sort session", () => {
   // Unchanged: the older "after" shapes.
   const claude = parseIntakeRequest({ ...base, after: { claude: { lots: true, batch: "b1" } } });
   assert.deepEqual(claude.ok && claude.value.after, { claude: { lots: true, batch: "b1" } });
+});
+
+// ─── Preview Mode ────────────────────────────────────────────────────────────
+
+test("preview: pool and discard are only verdicts in a preview session", () => {
+  const known = new Set([1, 2, 3, 4]);
+  const input = [
+    { n: 1, verdict: "pool", reason: "would suit a Birmingham advertising lot" },
+    { n: 2, verdict: "discard", reason: "common, torn, under $1" },
+    { n: 3, verdict: "discard" },
+    { n: 4, verdict: "pool" },
+  ];
+  const lots = cleanIdentify(input, known);
+  assert.equal(lots.ok.length, 0);
+  assert.match(lots.errors.join("|"), /#1: verdict must be lot, pull or need_photo/);
+
+  const pv = cleanIdentify(input, known, "preview");
+  assert.deepEqual(pv.ok.map((x) => [x.n, x.verdict]), [[1, "pool"], [2, "discard"], [4, "pool"]]);
+  assert.equal(pv.errors.length, 1);
+  assert.match(pv.errors[0], /#3: a discard needs a reason/);
+  assert.equal(pv.ok[1].reason, "common, torn, under $1");
+});
+
+test("preview: thresholds are $10 for a single and $2 for a discard", () => {
+  assert.equal(PREVIEW_SINGLE_MIN, 10);
+  assert.equal(PREVIEW_DISCARD_MAX, 2);
+});
+
+test("preview: every piece lands in one pile, before and after it is sent on", () => {
+  const ps: PieceLite[] = [
+    piece(1, { verdict: "pull", estValue: 14 }),
+    piece(2, { verdict: "lot", lotNo: 1, estValue: 3 }),
+    piece(3, { verdict: "lot", lotNo: 1, estValue: 4 }),
+    piece(4, { verdict: "pool", estValue: 2.5 }),
+    piece(5, { verdict: "discard", estValue: 0.5 }),
+    piece(6, { verdict: "need_photo" }),
+    piece(7),
+    piece(8, { verdict: "lot" }),
+    piece(9, { state: "pooled", verdict: "pool", estValue: 3 }),
+    piece(10, { state: "discarded", verdict: "discard", estValue: 1 }),
+    piece(11, { state: "pulled", verdict: "pull", estValue: 20 }),
+    piece(12, { state: "in_lot", verdict: "lot", lotNo: 2, estValue: 5 }),
+    piece(13, { state: "removed", estValue: 99 }),
+  ];
+  assert.deepEqual(ps.map(previewBucket), ["single", "lot", "lot", "pool", "discard", "look", "undecided", "undecided", "pool", "discard", "single", "lot", null]);
+  const r = previewSummary(ps);
+  assert.deepEqual(r.single, { pieces: 2, est: 34 });
+  assert.deepEqual(r.lot, { pieces: 3, est: 12 });
+  assert.deepEqual(r.pool, { pieces: 2, est: 5.5 });
+  assert.deepEqual(r.discard, { pieces: 2, est: 1.5 });
+  assert.equal(r.look.pieces, 1);
+  assert.equal(r.undecided.pieces, 2);
+  assert.equal(Object.values(r).reduce((a, x) => a + x.pieces, 0), 12);
+});
+
+test("preview: the sorting guide names the lot pool bin and the discard pile", () => {
+  const g = sortingGuide([piece(1, { verdict: "pool" }), piece(2, { verdict: "discard" }), piece(3, { state: "pooled", verdict: "pool" }), piece(4, { state: "discarded", verdict: "discard" })], new Map());
+  assert.deepEqual(g.map((r) => r.kind), ["pool", "discard", "pool", "discard"]);
+  assert.equal(g[0].where, "LOT POOL bin");
+  assert.equal(g[1].where, "DISCARD");
+});
+
+test("preview: a plan leaves pieces Todd put in the pool or discards where they are", () => {
+  const ps = [piece(1), piece(2), piece(3, { locked: true, verdict: "pool" }), piece(4, { locked: true, verdict: "discard" })];
+  const c = checkPlan([{ no: null, name: "Alabama trade cards", pieces: [1, 2, 3, 4], reason: null, suggestedPrice: 12, guideId: null }], ps, []);
+  assert.deepEqual(c.lots[0].pieces, [1, 2]);
+  assert.match(c.skipped.join("|"), /#3 \(Todd placed it in the lot pool\)/);
+  assert.match(c.skipped.join("|"), /#4 \(Todd placed it in discards\)/);
+});
+
+test("preview: a single's instructions say it came from a preview", () => {
+  const t = pullInstructions({ n: 7, identification: "1908 RPPC, Lineville depot", estValue: 18, reason: "real photo, named small-town depot" }, { name: "Box 4", kind: null, mode: "preview" });
+  assert.match(t, /Preview session "Box 4", piece #7/);
+  assert.doesNotMatch(t, /Lot Builder/);
+});
+
+test("intake: after.lotBuild carries the preview mode, and only that value", () => {
+  const body = (mode: unknown) => ({ source: "scans", photos: [{ name: "a.jpg", sha256: sha(1), bytes: 10, contentType: "image/jpeg" }], after: { lotBuild: { key: "pv-box-4-abc123", name: "Box 4", n: 3, mode } } });
+  const a = parseIntakeRequest(body("preview"));
+  assert.ok(a.ok && a.value.after.lotBuild?.mode === "preview" && a.value.after.lotBuild.n === 3);
+  const b = parseIntakeRequest(body("anything"));
+  assert.ok(b.ok && b.value.after.lotBuild && b.value.after.lotBuild.mode === undefined);
 });

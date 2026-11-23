@@ -10,16 +10,26 @@
 //   { action: "pulls", buildId, pieces? }                 → pulled pieces queued as singles
 //   { action: "build_all", buildId }
 //   { action: "session", buildId, name?, kind?, note?, status?: "open" | "closed" }
+// Preview Mode sessions (lot_builds.mode = "preview") also take:
+//   place with verdict "pool" | "discard"
+//   { action: "pool", buildId, pieces? }       → "pool" pieces into the lot pool (bin LOTPOOL)
+//   { action: "discard", buildId, pieces? }    → "discard" pieces set aside as discarded drafts
+//   { action: "apply", buildId }               → build ready lots, send singles, pool, discard
 // Signed-in admin only. Nothing is approved or published from here.
-// GET (admin or the PC sender's API key): { ready } — the Scans page asks
-// before sending a batch, so an FIA without the tables is never sent to.
+// GET (admin or the PC sender's API key): { ready, preview } — the Scans page
+// asks before sending a batch, so an FIA without the tables (or without
+// Preview Mode's column, migration 0057) is never sent to.
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { listingCaller } from "@/lib/listings/auth";
 import {
+  applyPreview,
   carryOver,
   buildAll,
+  discardPieces,
+  poolPieces,
+  previewReady,
   buildLot,
   dissolveLot,
   editLot,
@@ -42,7 +52,8 @@ const nums = (v: unknown) => (Array.isArray(v) ? v.map(Number).filter(Number.isI
 export async function GET(req: NextRequest) {
   const who = await listingCaller(req);
   if (!who) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  return NextResponse.json({ ok: true, ready: await lotBuildReady() });
+  const ready = await lotBuildReady();
+  return NextResponse.json({ ok: true, ready, preview: ready && (await previewReady()) });
 }
 
 export async function POST(req: NextRequest) {
@@ -56,7 +67,7 @@ export async function POST(req: NextRequest) {
   try {
     switch (b.action) {
       case "place": {
-        const verdict = b.verdict === "pull" || b.verdict === "need_photo" ? b.verdict : null;
+        const verdict = b.verdict === "pull" || b.verdict === "need_photo" || b.verdict === "pool" || b.verdict === "discard" ? b.verdict : null;
         const lotNo = Number.isInteger(b.lotNo) ? (b.lotNo as number) : null;
         return NextResponse.json({ ok: true, ...(await placePieces(buildId, nums(b.pieces), { lotNo, newLot: s(b.newLot), verdict, note: s(b.note) }, who)) });
       }
@@ -93,6 +104,12 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ ok: true, ...(await sendPulls(buildId, Array.isArray(b.pieces) ? nums(b.pieces) : null, who)) });
       case "build_all":
         return NextResponse.json({ ok: true, ...(await buildAll(buildId, who)) });
+      case "pool":
+        return NextResponse.json({ ok: true, ...(await poolPieces(buildId, Array.isArray(b.pieces) ? nums(b.pieces) : null, who)) });
+      case "discard":
+        return NextResponse.json({ ok: true, ...(await discardPieces(buildId, Array.isArray(b.pieces) ? nums(b.pieces) : null, who)) });
+      case "apply":
+        return NextResponse.json({ ok: true, ...(await applyPreview(buildId, who)) });
       case "session":
         await updateBuild(buildId, {
           name: s(b.name),
