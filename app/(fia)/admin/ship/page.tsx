@@ -17,6 +17,7 @@ import { shelfChoices } from "@/lib/shop/invoice-pitch";
 import { searchChoices } from "@/lib/shop/invoice-search-server";
 import { couponSettings } from "@/lib/shop/coupons";
 import { alabamaOrderIds } from "@/lib/shop/alabama";
+import { webOrderExtras, type WebOrderExtra } from "@/lib/fulfillment/web-orders";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,10 @@ export default async function ShipPage({ searchParams }: { searchParams: { tab?:
   const ebayAccess = await hasGrantedScope(FULFILLMENT_SCOPE).catch(() => false);
   const tab: ShipTab = SHIP_TABS.includes(searchParams.tab as ShipTab) ? (searchParams.tab as ShipTab) : "to_pick";
   const { orders, counts } = await loadShipQueue(tab);
+  // Website / Hip packages: the delist toggle and the Pirate Ship handoff.
+  const web: Record<string, WebOrderExtra[]> = await webOrderExtras(
+    orders.filter((o) => o.venue === "tes" || o.venue === "fia" || o.venue === "hip").map((o) => o.id)
+  ).catch((err) => (console.error("[ship] website order extras failed", err), {}));
   // COUPON-3: packages going to Alabama (sticker chip; FIA code by default).
   const alabama =
     tab === "to_pick" || tab === "packed"
@@ -138,6 +143,7 @@ export default async function ShipPage({ searchParams }: { searchParams: { tab?:
         shelves={shelves}
         searches={searches}
         alabama={Array.from(alabama)}
+        web={web}
       />
     </section>
   );
