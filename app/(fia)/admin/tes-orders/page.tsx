@@ -42,6 +42,9 @@ function hipLabel(decision: string): { text: string; cls: string; action: string
 
 export const dynamic = "force-dynamic";
 
+// This page renders on the server (UTC), so times are pinned to US Central.
+const central = (d: Date) => d.toLocaleString("en-US", { timeZone: "America/Chicago" });
+
 type Addr = {
   line1?: string;
   line2?: string;
@@ -153,7 +156,7 @@ export default async function TesOrdersPage() {
                       <span className="text-brand-ink/50 font-normal">{h.buyerEmail ?? ""}</span>
                     </p>
                     <p className="text-sm text-brand-ink/60">
-                      {(h.hipCreatedAt ?? h.createdAt).toLocaleString()}
+                      {central(h.hipCreatedAt ?? h.createdAt)}
                       {h.total ? ` · $${h.total}` : ""}
                     </p>
                   </div>
@@ -241,7 +244,7 @@ export default async function TesOrdersPage() {
                     </span>
                   </p>
                   <p className="text-sm text-brand-ink/60">
-                    {o.createdAt.toLocaleString()} ·{" "}
+                    {central(o.createdAt)} ·{" "}
                     <span
                       className={
                         o.status === "paid"

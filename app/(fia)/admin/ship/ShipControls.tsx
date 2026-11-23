@@ -6,6 +6,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { ShipOrder, ShipTab } from "@/lib/fulfillment/queue";
+import type { WebOrderExtra } from "@/lib/fulfillment/web-orders";
 
 const VENUE: Record<string, string> = {
   ebay: "eBay",
@@ -169,6 +170,71 @@ type PSearch = { site: "fia" | "tes"; q: string; category?: string | null; min?:
 type Counted = { search: PSearch; count: number };
 type Searches = { suggested: Record<string, Counted[]>; current: Record<string, Counted>; recent: Counted[] } | null;
 
+/** Website / Hip orders: the same delist flag as /admin/tes-orders, plus the
+ *  Pirate Ship single-label handoff. The link carries the address and package
+ *  in data-lc-pirateship; the Label Combiner extension picks it up and fills
+ *  Pirate Ship's form. Without the extension it just copies the address and
+ *  opens Pirate Ship. */
+function WebOrderActions({ w, many }: { w: WebOrderExtra; many: boolean }) {
+  const router = useRouter();
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function toggleDelist() {
+    setSaving(true);
+    setErr(null);
+    try {
+      const res = await fetch(`/api/admin/tes-orders/${w.tesOrderId}/handled`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ handled: !w.delistDone }),
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      router.refresh();
+    } catch (x) {
+      setErr(`Failed: ${(x as Error).message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="text-xs mt-1 flex flex-wrap items-center gap-2" onClick={(e) => e.stopPropagation()}>
+      {many && <span className="text-brand-ink/50">#{w.tesOrderId.slice(0, 8)}</span>}
+      <button
+        type="button"
+        onClick={toggleDelist}
+        disabled={saving}
+        title={w.delistDone ? "Marked delisted in Nifty. Click to undo." : "Mark this order's items delisted in Nifty"}
+        className={`px-2 py-0.5 rounded font-medium disabled:opacity-50 ${
+          w.delistDone ? "bg-green-100 text-green-800 hover:bg-green-200" : "bg-red-700 text-white hover:bg-red-800"
+        }`}
+      >
+        {saving ? "Saving…" : w.delistDone ? "✓ Delisted (undo)" : "Mark delisted in Nifty"}
+      </button>
+      {w.pirate && (
+        <>
+          <a
+            href="https://ship.pirateship.com/ship/single"
+            target="_blank"
+            rel="noopener noreferrer"
+            data-lc-pirateship={JSON.stringify({ address: w.pirate.address, package: w.pirate.package })}
+            title={`Copy the address and open a Pirate Ship single label (${w.pirate.summary})`}
+            className="px-2 py-0.5 rounded-full border border-brand-ink/60 text-brand-ink hover:bg-brand-ink/5"
+            onClick={() => {
+              navigator.clipboard?.writeText(w.pirate!.address).catch(() => {});
+            }}
+          >
+            → Pirate Ship
+          </a>
+          <span className="text-brand-ink/50">{w.pirate.summary}</span>
+        </>
+      )}
+      {err && <span className="text-red-700">{err}</span>}
+    </div>
+  );
+}
+
 export function ShipTable({
   orders,
   tab,
@@ -176,6 +242,7 @@ export function ShipTable({
   shelves = null,
   searches = null,
   alabama = [],
+  web = {},
 }: {
   orders: ShipOrder[];
   tab: ShipTab;
@@ -184,6 +251,8 @@ export function ShipTable({
   searches?: Searches;
   /** COUPON-3: packages shipping to an Alabama address. */
   alabama?: string[];
+  /** Website / Hip packages: delist state and Pirate Ship handoff, by package id. */
+  web?: Record<string, WebOrderExtra[]>;
 }) {
   const alSet = useMemo(() => new Set(alabama), [alabama]);
   const router = useRouter();
@@ -406,6 +475,9 @@ export function ShipTable({
                         </a>
                       </div>
                     )}
+                    {(web[o.id] ?? []).map((w) => (
+                      <WebOrderActions key={w.tesOrderId} w={w} many={(web[o.id] ?? []).length > 1} />
+                    ))}
                     {alSet.has(o.id) && (
                       <div className="text-xs mt-1">
                         <span
