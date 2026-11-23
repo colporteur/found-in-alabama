@@ -218,7 +218,12 @@ function WebOrderActions({ w, many }: { w: WebOrderExtra; many: boolean }) {
             href="https://ship.pirateship.com/ship/single"
             target="_blank"
             rel="noopener noreferrer"
-            data-lc-pirateship={JSON.stringify({ address: w.pirate.address, package: w.pirate.package })}
+            data-lc-pirateship={JSON.stringify({
+              address: w.pirate.address,
+              package: w.pirate.package,
+              // Lets the extension send the label's tracking back to this order.
+              order: { id: w.tesOrderId, source: w.source },
+            })}
             title={`Copy the address and open a Pirate Ship single label (${w.pirate.summary})`}
             className="px-2 py-0.5 rounded-full border border-brand-ink/60 text-brand-ink hover:bg-brand-ink/5"
             onClick={() => {
