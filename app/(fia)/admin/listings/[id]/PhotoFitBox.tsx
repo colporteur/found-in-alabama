@@ -14,7 +14,17 @@ export function PhotoFitBox({
   dropped,
   error,
   canEdit,
+  backs = null,
+  backsKeep = [],
+  backsText = "",
+  pieces = 0,
 }: {
+  /** "one" = one representative back + the backs that matter; "all" / null = every back. */
+  backs?: "one" | "all" | null;
+  /** Piece numbers (as on the cover) whose backs are listed under "one". */
+  backsKeep?: number[];
+  backsText?: string;
+  pieces?: number;
   id: string;
   soloOnly: boolean;
   /** "photo 2: #1; photo 3: #2 + #3 (merged, 4 scans); …" — empty when everything fits. */
@@ -67,6 +77,7 @@ export function PhotoFitBox({
           Pieces {dropped.map((n) => `#${n}`).join(", ")} are only on the cover — there&rsquo;s no room for them in the 24.
         </p>
       )}
+      {backsText && <p className="mt-1 text-purple-900/80">{backsText}.</p>}
       {error && <p className="mt-1 text-red-800">Merged photos couldn&rsquo;t be made ({error}), so this fell back to solo photos. Try &ldquo;Re-fit photos&rdquo;.</p>}
       {canEdit && (
         <div className="mt-2 flex flex-wrap items-center gap-3">
@@ -74,6 +85,24 @@ export function PhotoFitBox({
             <input type="checkbox" checked={soloOnly} disabled={busy} onChange={(e) => fit({ soloOnly: e.target.checked })} />
             Solo photos only (no merged photos)
           </label>
+          <label className="flex items-center gap-1.5" title="Fronts fill the gallery; one back stands for the plain ones. Backs with writing are still listed.">
+            <input type="checkbox" checked={backs === "one"} disabled={busy} onChange={(e) => fit({ backs: e.target.checked ? "one" : "all" })} />
+            One representative back (plain backs not listed)
+          </label>
+          {backs === "one" && (
+            <button
+              type="button"
+              disabled={busy}
+              className="underline"
+              title="Piece numbers as on the cover"
+              onClick={() => {
+                const v = window.prompt(`Which pieces' backs should be listed too (handwriting, captions, printing that matters)? Piece numbers 1–${pieces || "N"} as on the cover, separated by commas. Blank for none.`, backsKeep.join(", "));
+                if (v !== null) fit({ backsKeep: v.split(/[^0-9]+/).filter(Boolean).map(Number) });
+              }}
+            >
+              Backs that matter{backsKeep.length ? `: #${backsKeep.join(", #")}` : ": none"}
+            </button>
+          )}
           <button
             type="button"
             disabled={busy}

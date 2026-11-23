@@ -113,7 +113,7 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
             additions={lot.additions ?? []}
             fit={(() => {
               const f = photoFitOf(d.aiMeta);
-              return { soloOnly: f.soloOnly === true, text: f.text ?? "", dropped: f.dropped ?? [], error: f.error ?? null };
+              return { soloOnly: f.soloOnly === true, text: f.text ?? "", dropped: f.dropped ?? [], error: f.error ?? null, backs: f.backs ?? null, backsKeep: f.backsKeep ?? [], backsText: f.backsText ?? "", pieces: lot.parts.length };
             })()}
             canFit={ROTATABLE.includes(d.status)}
           />

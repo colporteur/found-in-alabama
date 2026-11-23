@@ -233,3 +233,22 @@ test("intake: after.lotBuild carries the preview mode, and only that value", () 
   const b = parseIntakeRequest(body("anything"));
   assert.ok(b.ok && b.value.after.lotBuild && b.value.after.lotBuild.mode === undefined);
 });
+
+test("identify: back_matters and its note are kept; unsaid stays null", () => {
+  const r = cleanIdentify(
+    [
+      { n: 1, verdict: "lot", back_matters: true, back_note: "ink caption:  Aunt Ruth, Mobile 1952" },
+      { n: 2, verdict: "lot", back_matters: false },
+      { n: 3, verdict: "lot" },
+    ],
+    new Set([1, 2, 3])
+  );
+  assert.deepEqual(r.ok.map((x) => x.backMatters), [true, false, null]);
+  assert.equal(r.ok[0].backNote, "ink caption: Aunt Ruth, Mobile 1952");
+  const t = lotInstructions({ no: 1, name: "Farm snapshots", reason: null, suggestedPrice: null, guideId: null }, { name: "Box", kind: null }, [
+    { n: 4, identification: "Hogs in a pen", estValue: 2, backMatters: true, backNote: "pencil: Clay Co. 1974" },
+    { n: 5, identification: "Pond", estValue: 1 },
+  ]);
+  assert.match(t, /Hogs in a pen \(alone ≈ \$2\) — BACK MATTERS: pencil: Clay Co\. 1974 \[sort #4\]/);
+  assert.doesNotMatch(t.split("\n").pop()!, /BACK MATTERS/);
+});

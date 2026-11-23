@@ -31,7 +31,7 @@ export function lotBuildTools(who: string): ToolDef[] {
       name: "lot_build_sheet",
       title: "Contact sheets of a session's pieces",
       description:
-        "Numbered contact sheets of the pieces' front photos (the badge on a tile is the piece number), up to two sheets per call. Work through the session from=1 upward; the reply says where to continue. Use per=4–6 when the pieces carry small text you need to read, 9–16 to move fast. only: 'sorting' (default: pieces not yet built or pulled), 'needs_look' (never looked at, or Todd added a photo), 'all'.",
+        "Numbered contact sheets of the pieces' front photos (the badge on a tile is the piece number), up to two sheets per call. Work through the session from=1 upward; the reply says where to continue. Use per=4–6 when the pieces carry small text you need to read, 9–16 to move fast. only: 'sorting' (default: pieces not yet built or pulled), 'needs_look' (never looked at, or Todd added a photo), 'all'. side: 'back' shows the pieces' BACK scans instead (only pieces sent front and back) — use it to find the backs with handwriting, captions or stamps.",
       inputSchema: {
         type: "object",
         required: ["build_id"],
@@ -41,11 +41,12 @@ export function lotBuildTools(who: string): ToolDef[] {
           count: { type: "number", default: 18, description: "How many pieces (max 32)" },
           per: { type: "number", default: 9, description: "Pieces per sheet (2–16)" },
           only: { type: "string", enum: ["sorting", "needs_look", "all"], default: "sorting" },
+          side: { type: "string", enum: ["front", "back"], default: "front" },
         },
       },
       run: async (a) => {
         const only = a.only === "all" || a.only === "needs_look" ? a.only : "sorting";
-        return rawContent(await claudeBuildSheet(argStr(a, "build_id", 40) ?? "", Number(a.from ?? 1), Number(a.count ?? 18), Number(a.per ?? 9), only));
+        return rawContent(await claudeBuildSheet(argStr(a, "build_id", 40) ?? "", Number(a.from ?? 1), Number(a.count ?? 18), Number(a.per ?? 9), only, a.side === "back" ? "back" : "front"));
       },
     },
     {
@@ -81,6 +82,8 @@ export function lotBuildTools(who: string): ToolDef[] {
                 verdict: { type: "string", enum: ["lot", "pull", "need_photo", "pool", "discard"], description: "pool and discard only in a Preview session" },
                 reason: { type: "string", description: "Required for pull (why it sells better alone; name the guide rule) and for discard (why it isn't worth listing)" },
                 photo_request: { type: "string", description: "Required for need_photo: exactly what to photograph" },
+                back_matters: { type: "boolean", description: "Pieces scanned front and back: true when the back has handwriting, a caption, a studio stamp or printing that matters beyond a routine date stamp (it is then listed in the lot's photos); false for a plain back (one representative back stands for those)" },
+                back_note: { type: "string", description: "With back_matters: what the back says, in a few words" },
               },
             },
           },

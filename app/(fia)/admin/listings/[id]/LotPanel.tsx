@@ -34,7 +34,7 @@ export function LotPanel({
   canOpen?: boolean;
   additions?: Array<{ at: string; pieces: string[]; reason: string | null }>;
   /** "Fit to 24" (lib/listings/photo-fit.ts). */
-  fit?: { soloOnly: boolean; text: string; dropped: number[]; error: string | null } | null;
+  fit?: { soloOnly: boolean; text: string; dropped: number[]; error: string | null; backs?: "one" | "all" | null; backsKeep?: number[]; backsText?: string; pieces?: number } | null;
   canFit?: boolean;
 }) {
   const router = useRouter();
@@ -148,7 +148,7 @@ export function LotPanel({
           ))}
         </p>
       )}
-      {fit && <PhotoFitBox id={id} soloOnly={fit.soloOnly} text={fit.text} dropped={fit.dropped} error={fit.error} canEdit={canFit} />}
+      {fit && <PhotoFitBox id={id} soloOnly={fit.soloOnly} text={fit.text} dropped={fit.dropped} error={fit.error} canEdit={canFit} backs={fit.backs ?? null} backsKeep={fit.backsKeep ?? []} backsText={fit.backsText ?? ""} pieces={fit.pieces ?? 0} />}
       {canOpen && !open && (
         <button
           type="button"

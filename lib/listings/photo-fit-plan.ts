@@ -138,3 +138,48 @@ export function fitText(plan: FitPlan): string {
   });
   return parts.join("; ");
 }
+
+/** How a lot shows its pieces' backs (Todd, Nov 23 2026). "all" = every back
+ *  is laid out with its front (the original behaviour). "one" = fronts fill
+ *  the gallery; ONE representative back stands for the plain ones, and the
+ *  backs that matter (handwriting, captions, printing beyond a date stamp)
+ *  are listed as well. Backs left out stay on the draft, never listed. */
+export type BackRule = "one" | "all";
+
+/** Pure: apply the "one representative back" rule to a lot's pieces. A
+ *  piece's first scan is its front and is never dropped. `keep` = numbers of
+ *  the pieces whose backs matter. */
+export function applyBackRule(
+  pieces: FitPiece[],
+  isBack: (scan: string) => boolean,
+  keep: number[]
+): { pieces: FitPiece[]; hidden: string[]; representative: number | null; kept: number[]; plain: number } {
+  const keepSet = new Set(keep);
+  const hasBack = (p: FitPiece) => p.scans.slice(1).some(isBack);
+  const kept = pieces.filter((p) => keepSet.has(p.n) && hasBack(p)).map((p) => p.n);
+  const plainPieces = pieces.filter((p) => !keepSet.has(p.n) && hasBack(p));
+  const representative = plainPieces[0]?.n ?? null;
+  const hidden: string[] = [];
+  const out = pieces.map((p) => {
+    if (keepSet.has(p.n)) return p;
+    let shown = false;
+    const scans = p.scans.filter((s, i) => {
+      if (i === 0 || !isBack(s)) return true;
+      if (p.n === representative && !shown) return (shown = true);
+      hidden.push(s);
+      return false;
+    });
+    return { ...p, scans };
+  });
+  return { pieces: out, hidden, representative, kept, plain: plainPieces.length };
+}
+
+/** Pure: one sentence about the backs, for Todd's draft page and for Claude. */
+export function backRuleText(r: { representative: number | null; kept: number[]; hidden: string[]; plain: number }): string {
+  const parts: string[] = [];
+  if (r.kept.length) parts.push(`the back${r.kept.length === 1 ? "" : "s"} of #${r.kept.join(", #")} ${r.kept.length === 1 ? "is" : "are"} listed because ${r.kept.length === 1 ? "it carries" : "they carry"} writing or printing that matters`);
+  if (r.representative != null)
+    parts.push(r.plain > 1 ? `one representative back is listed (piece #${r.representative}) for the ${r.plain} plain backs` : `the back of #${r.representative} is listed`);
+  if (r.hidden.length) parts.push(`${r.hidden.length} other back${r.hidden.length === 1 ? " is" : "s are"} kept on the draft, not listed`);
+  return parts.length ? `Backs: ${parts.join("; ")}` : "";
+}

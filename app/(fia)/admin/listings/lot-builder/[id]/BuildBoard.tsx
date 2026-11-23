@@ -27,6 +27,7 @@ type Ctx = {
   picked: Set<number>;
   toggle: (n: number) => void;
   addPhotos: (p: BuildPiece, files: FileList | null) => void;
+  setBack: (p: BuildPiece, matters: boolean) => void;
 };
 
 function Tile({ p, ctx }: { p: BuildPiece; ctx: Ctx }) {
@@ -68,6 +69,28 @@ function Tile({ p, ctx }: { p: BuildPiece; ctx: Ctx }) {
       {p.verdict === "pool" && p.reason && <p className="mt-1 rounded bg-teal-50 p-1 text-teal-900">{p.reason}</p>}
       {p.verdict === "discard" && p.reason && <p className="mt-1 rounded bg-stone-100 p-1 text-stone-800">{p.reason}</p>}
       {p.verdict === "need_photo" && live && <p className="mt-1 rounded bg-amber-50 p-1 text-amber-900">Photo wanted: {p.photoRequest ?? "another photo"}</p>}
+      {p.back && (
+        <div className="mt-1 flex items-center gap-1.5 rounded bg-brand-ink/5 p-1">
+          <a href={p.back} target="_blank" rel="noreferrer" title="Open the back scan">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={p.back} alt="back" loading="lazy" className="h-10 w-10 rounded bg-white object-contain" />
+          </a>
+          {live ? (
+            <button
+              type="button"
+              disabled={ctx.busy}
+              onClick={() => ctx.setBack(p, !p.backMatters)}
+              className={`rounded px-1.5 py-0.5 text-left ${p.backMatters ? "bg-indigo-700 font-bold text-white" : "border border-brand-ink/20"}`}
+              title={p.backMatters ? "This back is listed in the lot's photos. Click to treat it as a plain back." : "Plain back: one representative back stands for these in a lot. Click if this back has writing a buyer should see."}
+            >
+              {p.backMatters ? "Back matters ✓" : "Plain back"}
+            </button>
+          ) : (
+            <span>{p.backMatters ? "Back listed" : "Plain back"}</span>
+          )}
+        </div>
+      )}
+      {p.back && p.backMatters && p.backNote && <p className="mt-1 rounded bg-indigo-50 p-1 text-indigo-900">{p.backNote}</p>}
       {p.origin && (
         <p className="mt-1 rounded bg-teal-50 p-1 text-teal-900" title="A leftover carried over from an earlier session: fetch it from that wave's leftover pile">
           From {p.origin.name} #{p.origin.n}
@@ -269,7 +292,8 @@ export function BuildBoard({ build, others = [], leftovers = [] }: { build: Buil
     }
   }
 
-  const ctx: Ctx = { busy, picked, toggle, addPhotos };
+  const setBack = (p: BuildPiece, matters: boolean) => act({ action: "back", pieces: [p.n], matters }, undefined, true);
+  const ctx: Ctx = { busy, picked, toggle, addPhotos, setBack };
   const sel = Array.from(picked).sort((a, b) => a - b);
   const tiles = (ns: number[]) => (
     <div className="flex flex-wrap gap-2">

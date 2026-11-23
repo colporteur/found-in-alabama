@@ -267,6 +267,9 @@ export async function claudeDraftPacket(id: string): Promise<McpContent[]> {
           (fit.dropped?.length ? `Pieces #${fit.dropped.join(", #")} are only on the cover. ` : "") +
           `The full-size originals of merged scans come after photo ${fit.listed ?? 24} (listing_get_photos from=${(fit.listed ?? 24) + 1}) — look at them before writing. `
         : `Photo 1 is the cover (each piece's front); then piece by piece: its front, then its own backs/insides. `) +
+      (fit.backsText
+        ? `${fit.backsText}. The backs that aren't listed are still on the draft after the listed photos (listing_get_photos) — check them before writing. In the description, say in one sentence what the unlisted backs are like (e.g. "backs are blank apart from the processing date stamp; one is shown"), and describe any writing on the listed backs under its piece. `
+        : "") +
       `Write ONE listing for the whole lot: ` +
       `the title starts "Lot of ${lot.parts.length}" (or names the set), the description covers each piece in turn with its own condition, ` +
       `item specifics fit the lot as a whole, and the price is for the lot. Quantity stays 1. Never mention bins.`
