@@ -1,0 +1,1 @@
+ALTER TABLE "lot_builds" ADD COLUMN IF NOT EXISTS "mode" text DEFAULT 'lots' NOT NULL;

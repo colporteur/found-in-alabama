@@ -50,7 +50,7 @@ export type IntakeRequest = {
 
 /** Scans page "Send to Lot Builder": the draft becomes piece n of a sort
  *  session (lib/listings/lot-build.ts). One send = one key. */
-export type LotBuildAfter = { key: string; name: string; kind: string | null; n: number | null };
+export type LotBuildAfter = { key: string; name: string; kind: string | null; n: number | null; mode?: "lots" | "preview" };
 
 function str(v: unknown, max: number): string | null {
   if (v == null) return null;
@@ -82,7 +82,8 @@ function parseAfter(v: unknown): IntakeRequest["after"] {
     const name = (typeof r.name === "string" ? r.name.trim().slice(0, 120) : "") || r.key;
     const kind = typeof r.kind === "string" && r.kind.trim() ? r.kind.trim().slice(0, 80) : null;
     const n = Number.isInteger(r.n) && (r.n as number) >= 1 && (r.n as number) <= 5000 ? (r.n as number) : null;
-    return { claude: null, lotBuild: { key: r.key, name, kind, n } };
+    // "preview": a Preview session (a mixed batch sorted into discard / lot pool / lot / single).
+    return { claude: null, lotBuild: { key: r.key, name, kind, n, ...(r.mode === "preview" ? { mode: "preview" as const } : {}) } };
   }
   const c = (v as Record<string, unknown>).claude;
   if (!c || typeof c !== "object") return { claude: null };

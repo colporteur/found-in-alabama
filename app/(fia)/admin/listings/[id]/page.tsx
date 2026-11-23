@@ -149,7 +149,7 @@ export default async function DraftPage({ params }: { params: { id: string } }) 
 
       {d.status === "sorting" && (
         <p className="mb-6 rounded border border-purple-700 bg-purple-50 p-3 text-sm text-purple-900">
-          This is a piece of a Lot Builder session (nothing is written until its lot is built).{" "}
+          This is a piece of a Lot Builder or Preview session (nothing is written until it is sent on from there).{" "}
           {typeof (d.aiMeta?.lotBuild as { buildId?: string } | undefined)?.buildId === "string" && (
             <Link href={`/admin/listings/lot-builder/${(d.aiMeta!.lotBuild as { buildId: string }).buildId}`} className="underline font-medium">
               Open the session

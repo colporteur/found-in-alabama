@@ -36,6 +36,9 @@ import {
   LOT_MAX_PIECES,
   SHEET_DEFAULT,
   SHEET_MAX,
+  PREVIEW_DISCARD_MAX,
+  PREVIEW_SINGLE_MIN,
+  type Mode,
   type Verdict,
 } from "./lot-build-plan";
 import type { LotBuildAfter } from "./validate";
@@ -57,6 +60,14 @@ export async function lotBuildReady(): Promise<boolean> {
   return !!r?.ok;
 }
 
+/** Preview Mode (migration 0057: lot_builds.mode). The Scans page asks
+ *  before sending a preview batch, so an FIA without the column is never sent one. */
+export async function previewReady(): Promise<boolean> {
+  const [r] = await rows(sql`SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'lot_builds' AND column_name = 'mode') AS ok`);
+  return !!r?.ok;
+}
+const modeOf = (v: unknown): Mode => (v === "preview" ? "preview" : "lots");
+
 // ─── intake (the Scans page) ─────────────────────────────────────────────────
 
 /** A draft whose photos have all arrived becomes a piece of the sort session
@@ -64,10 +75,18 @@ export async function lotBuildReady(): Promise<boolean> {
  *  gave (the order in the folder) when that's free, else the next one. */
 export async function attachPiece(draftId: string, lb: LotBuildAfter, who: string): Promise<{ buildId: string; n: number }> {
   if (!UUID.test(draftId)) throw new Error("Bad id");
-  const [b] = await rows(sql`
-    INSERT INTO lot_builds (key, name, kind, created_by) VALUES (${lb.key}, ${lb.name}, ${lb.kind}, ${who})
-    ON CONFLICT (key) DO UPDATE SET updated_at = now(), status = 'open', kind = COALESCE(lot_builds.kind, EXCLUDED.kind)
-    RETURNING id`);
+  // A session keeps the mode it started with. The mode column is only named
+  // for a preview batch, so the Lot Builder works before migration 0057.
+  const [b] =
+    lb.mode === "preview"
+      ? await rows(sql`
+          INSERT INTO lot_builds (key, name, kind, created_by, mode) VALUES (${lb.key}, ${lb.name}, ${lb.kind}, ${who}, 'preview')
+          ON CONFLICT (key) DO UPDATE SET updated_at = now(), status = 'open', kind = COALESCE(lot_builds.kind, EXCLUDED.kind)
+          RETURNING id`)
+      : await rows(sql`
+          INSERT INTO lot_builds (key, name, kind, created_by) VALUES (${lb.key}, ${lb.name}, ${lb.kind}, ${who})
+          ON CONFLICT (key) DO UPDATE SET updated_at = now(), status = 'open', kind = COALESCE(lot_builds.kind, EXCLUDED.kind)
+          RETURNING id`);
   const buildId = String(b.id);
   const [have] = await rows(sql`SELECT n FROM lot_build_pieces WHERE draft_id = ${draftId}::uuid`);
   let n = have ? Number(have.n) : 0;
@@ -133,6 +152,8 @@ export type Build = {
   key: string;
   name: string;
   kind: string | null;
+  /** "lots" (Lot Builder) or "preview" (Preview Mode). */
+  mode: Mode;
   status: string;
   note: string | null;
   planNote: string | null;
@@ -146,6 +167,10 @@ export type BuildSummary = {
   id: string;
   name: string;
   kind: string | null;
+  mode: Mode;
+  /** Preview: pieces waiting to go to the lot pool / to be discarded. */
+  pool: number;
+  discard: number;
   status: string;
   createdAt: string | null;
   pieces: number;
@@ -160,7 +185,9 @@ export type BuildSummary = {
 
 export async function listBuilds(includeClosed = false): Promise<BuildSummary[]> {
   const list = await rows(sql`
-    SELECT b.id, b.name, b.kind, b.status, b.created_at,
+    SELECT b.id, b.name, b.kind, b.status, b.created_at, COALESCE(to_jsonb(b)->>'mode', 'lots') AS mode,
+      (SELECT count(*)::int FROM lot_build_pieces p WHERE p.build_id = b.id AND p.state = 'sorting' AND p.verdict = 'pool') AS pool,
+      (SELECT count(*)::int FROM lot_build_pieces p WHERE p.build_id = b.id AND p.state = 'sorting' AND p.verdict = 'discard') AS discard,
       (SELECT count(*)::int FROM lot_build_pieces p WHERE p.build_id = b.id AND p.state <> 'removed') AS pieces,
       (SELECT count(*)::int FROM lot_build_pieces p WHERE p.build_id = b.id AND p.state = 'sorting') AS sorting,
       (SELECT count(*)::int FROM lot_build_pieces p WHERE p.build_id = b.id AND p.state = 'sorting' AND p.verdict = 'pull') AS pulls,
@@ -177,6 +204,9 @@ export async function listBuilds(includeClosed = false): Promise<BuildSummary[]>
     id: String(r.id),
     name: String(r.name),
     kind: (r.kind as string | null) ?? null,
+    mode: modeOf(r.mode),
+    pool: Number(r.pool),
+    discard: Number(r.discard),
     status: String(r.status),
     createdAt: iso(r.created_at),
     pieces: Number(r.pieces),
@@ -200,7 +230,7 @@ export async function loadBuild(buildId: string): Promise<Build> {
   const photos = ps.length
     ? await rows(sql`
         SELECT ph.id, ph.draft_id, ph.position, ph.url, ph.role, ph.original_name FROM draft_photos ph
-        WHERE ph.draft_id IN (SELECT draft_id FROM lot_build_pieces WHERE build_id = ${buildId}::uuid AND state IN ('sorting', 'pulled'))
+        WHERE ph.draft_id IN (SELECT draft_id FROM lot_build_pieces WHERE build_id = ${buildId}::uuid AND state IN ('sorting', 'pulled', 'pooled', 'discarded'))
           AND ph.uploaded_at IS NOT NULL AND ph.position < 1000 ORDER BY ph.position`)
     : [];
   const byDraft = new Map<string, BuildPhoto[]>();
@@ -292,6 +322,7 @@ export async function loadBuild(buildId: string): Promise<Build> {
     key: String(b.key),
     name: String(b.name),
     kind: (b.kind as string | null) ?? null,
+    mode: modeOf(b.mode),
     status: String(b.status),
     note: (b.note as string | null) ?? null,
     planNote: (b.plan_note as string | null) ?? null,
@@ -319,6 +350,19 @@ export const SORT_RULES = `HOW TO SORT THIS BATCH (Todd has already decided it i
 4. Lot numbers are physical piles on Todd's table: keep a lot's number when you revise it (send its "no"), and never reuse one. Pieces Todd placed himself (locked) stay where he put them.
 5. Nothing is built from here. Todd reviews the plan on the Lot Builder page, moves pieces, and builds; the lots and pulls then arrive in listing_queue to write as usual (listing_get_draft → listing_save). Tell Todd in your reply: the pulls and why, the pieces that need a photo and which photo, and the lots.`;
 
+export const PREVIEW_RULES = `HOW TO PREVIEW THIS BATCH (a mixed batch Todd is NOT optimistic about — a first pass to decide where each piece goes BEFORE any listing is written. Do not write titles or descriptions here; identify, value, and sort):
+1. LOOK at every piece. lot_build_sheet shows numbered contact sheets of the fronts (the number on a tile is the piece number and never changes — it is the order of Todd's physical pile). Pieces here are full scans, usually front and back: lot_build_piece shows one piece's photos full size when the tile is too small or the back matters.
+2. SAVE each piece with lot_build_identify (many per call): identification = what a buyer would search, est_value_usd = what it would realistically SELL for alone (from an Expert Guide's bands when one covers it — listing_find_guide with a few words — otherwise sold-price sense, not asking prices), and ONE verdict:
+   - "pull" — worth its own listing: about $${PREVIEW_SINGLE_MIN} or more alone, or a guide's pull trigger. reason required (what makes it worth it).
+   - "lot" — worth more with other pieces OF THIS BATCH: same subject, maker, place, era or type, enough of them here to make a lot a buyer would search for. Then group them with lot_build_plan. Todd finds a lot within the batch easier than the lot pool, so prefer this when a real theme exists (2+ pieces; postcards only with postcards).
+   - "pool" — has some value in a lot but nothing in this batch goes with it: it waits in the lot pool for partners from other batches. Give a short reason (what kind of lot it would suit).
+   - "discard" — not worth any more of Todd's time: under about $${PREVIEW_DISCARD_MAX} alone AND no lot it would add value to (common, damaged, incomplete, no collector interest). reason required. Be CONSERVATIVE: a wrong discard is the one mistake that can't be fixed later. Only discard when confident; when in doubt it goes to "pool".
+   - "need_photo" — the scans don't settle it and the answer could change the pile (a signature, a date, a maker's mark, the other side). Say in photo_request exactly what to scan or check. Don't use it for pieces that are plainly low value either way.
+   Only state what the photos show. Never include a phone number in an identification.
+3. PROPOSE THE BATCH LOTS with lot_build_plan: each with a name (the theme a buyer would search), its pieces, a reason and a suggested lot price. A lot has 2–${LOT_MAX_PIECES} pieces. Lot numbers are physical piles: keep a lot's number when you revise it, never reuse one. A "lot" piece that ends up with no partners should be changed to "pool".
+4. Pieces Todd placed himself (locked) stay where he put them.
+5. Nothing happens from here. Todd reviews the Preview board, moves pieces, and applies it: singles and built lots then arrive in listing_queue to write as usual, pool pieces go to the lot pool, discards are set aside. In your reply give Todd the report: how many pieces and roughly how much value in each pile, the singles and why, the lots, anything that needs a better look, and the discards with a few words each so he can overrule you.`;
+
 export async function claudeBuildList() {
   if (!(await lotBuildReady())) return { sessions: [], note: "The Lot Builder isn't switched on in FIA yet (migration 0055)." };
   const list = await listBuilds();
@@ -327,10 +371,12 @@ export async function claudeBuildList() {
       buildId: b.id,
       name: b.name,
       kind: b.kind,
+      type: b.mode === "preview" ? "PREVIEW (mixed batch: discard / lot pool / lot / single)" : "Lot Builder (one item type, sort into lots)",
       started: b.createdAt,
       pieces: b.pieces,
       stillSorting: b.sorting,
       waitingForYourLook: b.needsLook,
+      ...(b.mode === "preview" ? { forLotPool: b.pool, toDiscard: b.discard } : {}),
       pulls: b.pulls,
       needPhoto: b.needPhoto,
       notInALot: b.unplaced,
@@ -339,29 +385,45 @@ export async function claudeBuildList() {
     })),
     note: list.length
       ? "Open a session with lot_build_get (text: every piece, the plan so far, the Expert Guide and the sorting rules)."
-      : "No open Lot Builder sessions. Todd starts one from the Scans page (\"Send to Lot Builder\").",
+      : "No open Lot Builder or Preview sessions. Todd starts one from the Scans page (\"Send to Lot Builder\" or \"Send to Preview\").",
   };
 }
 
 export async function claudeBuildPacket(buildId: string): Promise<McpContent[]> {
   const b = await loadBuild(buildId);
-  const guides = await matchGuides([b.kind, b.name, "lot"].filter(Boolean).join(" ")).catch(() => []);
+  const preview = b.mode === "preview";
+  // A preview batch is mixed: a guide is only matched when Todd said what it is.
+  const guides = preview && !b.kind ? [] : await matchGuides([b.kind, preview ? null : b.name, "lot"].filter(Boolean).join(" ")).catch(() => []);
   const live = b.pieces.filter((p) => p.state === "sorting");
   const line = (p: BuildPiece) =>
     `#${p.n}: ${p.identification ?? "(not identified)"}` +
     (p.estValue != null ? ` · alone ≈ $${p.estValue}` : "") +
     ` · ${p.photos.length} photo${p.photos.length === 1 ? "" : "s"}` +
-    (p.verdict === "pull" ? ` · PULL: ${p.reason ?? ""}` : p.verdict === "need_photo" ? ` · NEEDS PHOTO: ${p.photoRequest ?? ""}` : p.lotNo ? ` · lot ${p.lotNo}` : p.verdict === "lot" ? " · lot (not placed)" : "") +
+    (p.verdict === "pull"
+      ? ` · ${preview ? "SINGLE" : "PULL"}: ${p.reason ?? ""}`
+      : p.verdict === "need_photo"
+        ? ` · NEEDS ${preview ? "A BETTER LOOK" : "PHOTO"}: ${p.photoRequest ?? ""}`
+        : p.verdict === "pool"
+          ? ` · LOT POOL${p.reason ? `: ${p.reason}` : ""}`
+          : p.verdict === "discard"
+            ? ` · DISCARD: ${p.reason ?? ""}`
+            : p.lotNo
+              ? ` · lot ${p.lotNo}`
+              : p.verdict === "lot"
+                ? " · lot (not placed)"
+                : "") +
     (p.origin ? ` · carried over from "${p.origin.name}" #${p.origin.n}` : "") +
     (p.locked ? " · locked by Todd" : "") +
     (p.needsLook ? (p.lookedAt ? " · NEW PHOTO — look again" : " · not looked at yet") : "");
   const done = b.pieces.filter((p) => p.state !== "sorting" && p.state !== "removed");
   const elsewhere = await leftoversElsewhere(buildId).catch(() => []);
   const text = [
-    `LOT BUILDER SESSION "${b.name}"${b.kind ? ` — ${b.kind}` : ""} (${b.pieces.filter((p) => p.state !== "removed").length} pieces, ${live.length} still to sort; one photo per piece unless Todd added more).` +
+    (preview
+      ? `PREVIEW SESSION "${b.name}"${b.kind ? ` — ${b.kind}` : ""} (${b.pieces.filter((p) => p.state !== "removed").length} pieces, ${live.length} still to sort; full scans, usually front and back).`
+      : `LOT BUILDER SESSION "${b.name}"${b.kind ? ` — ${b.kind}` : ""} (${b.pieces.filter((p) => p.state !== "removed").length} pieces, ${live.length} still to sort; one photo per piece unless Todd added more).`) +
       (b.note ? `\nTodd's note: ${b.note}` : ""),
-    SORT_RULES,
-    live.length ? `PIECES STILL SORTING:\n${live.map(line).join("\n")}` : "Every piece has been built into a lot or pulled.",
+    preview ? PREVIEW_RULES : SORT_RULES,
+    live.length ? `PIECES STILL SORTING:\n${live.map(line).join("\n")}` : preview ? "Every piece has been sent on (listed alone, built into a lot, pooled or discarded)." : "Every piece has been built into a lot or pulled.",
     b.lots.length
       ? `LOTS (numbers are Todd's physical piles):\n${b.lots
           .map(
@@ -374,15 +436,17 @@ export async function claudeBuildPacket(buildId: string): Promise<McpContent[]> 
           .join("\n")}`
       : "No lots proposed yet.",
     b.planNote ? `Your last plan note: ${b.planNote}` : "",
-    elsewhere.length
+    elsewhere.length && !preview
       ? `LEFTOVERS IN TODD'S OTHER OPEN SESSIONS (identified, not in any lot — they fit nothing in their own wave). If one would fit or complete a lot here, say so to Todd and, when he asks you to, bring it in with lot_build_carry_over; it then gets a number in this session and can go in lot_build_plan like any piece:\n${elsewhere
           .map((s) => `"${s.name}" (build_id ${s.buildId}):\n${s.pieces.map((p) => `  #${p.n}: ${p.identification ?? "(not identified)"}${p.estValue != null ? ` · alone ≈ $${p.estValue}` : ""}`).join("\n")}`)
           .join("\n")}`
       : "",
-    done.length ? `Already built or pulled (leave these): #${done.map((p) => p.n).join(", #")}` : "",
+    done.length ? `Already sent on (leave these): #${done.map((p) => p.n).join(", #")}` : "",
     guides.length
       ? `EXPERT GUIDE(S) FOR THIS BATCH — pull triggers, value bands, and lot type and size come from here:\n${guidePromptText(guides.map((g) => ({ id: g.id, name: g.name, content: g.content })), 26_000, 15_000)}\n(Other guides: listing_find_guide with a few words — e.g. a genre or maker once you see what's in the batch, or "lot building" for the lot playbooks.)`
-      : `No Expert Guide matched "${b.kind ?? b.name}". Call listing_find_guide with a few words for the item type before sorting; without a guide, be conservative and say so in the plan note.`,
+      : preview
+        ? `No Expert Guide is attached: a preview batch is mixed. Once you see what's in it, call listing_find_guide with a few words for each kind of thing (and "lot building" for the lot playbooks) and take values, pull triggers and lot shapes from the guides that cover them.`
+        : `No Expert Guide matched "${b.kind ?? b.name}". Call listing_find_guide with a few words for the item type before sorting; without a guide, be conservative and say so in the plan note.`,
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -446,7 +510,7 @@ export async function claudeBuildPiece(buildId: string, n: number): Promise<McpC
 export async function claudeBuildIdentify(buildId: string, input: unknown, who: string) {
   const b = await loadBuild(buildId);
   if (b.status !== "open") throw new Error("Todd closed this session.");
-  const { ok, errors } = cleanIdentify(input, new Set(b.pieces.map((p) => p.n)));
+  const { ok, errors } = cleanIdentify(input, new Set(b.pieces.map((p) => p.n)), b.mode);
   const byN = new Map(b.pieces.map((p) => [p.n, p]));
   const skipped: string[] = [];
   let saved = 0;
@@ -483,7 +547,17 @@ export async function claudeBuildIdentify(buildId: string, input: unknown, who: 
     stillToLookAt: live.filter((p) => p.needsLook).map((p) => p.n),
     pulls: live.filter((p) => p.verdict === "pull").length,
     needPhoto: live.filter((p) => p.verdict === "need_photo").length,
-    note: "Saved for Todd's Lot Builder page. When the pieces are identified, propose lots with lot_build_plan.",
+    ...(b.mode === "preview"
+      ? {
+          forLotPool: live.filter((p) => p.verdict === "pool").length,
+          toDiscard: live.filter((p) => p.verdict === "discard").length,
+          lotMaterialNotInALot: live.filter((p) => p.lotNo == null && (p.verdict ?? "lot") === "lot" && !p.needsLook).map((p) => p.n),
+        }
+      : {}),
+    note:
+      b.mode === "preview"
+        ? "Saved for Todd's Preview board. Group the \"lot\" pieces with lot_build_plan; a lot piece with no partners in this batch should become \"pool\"."
+        : "Saved for Todd's Lot Builder page. When the pieces are identified, propose lots with lot_build_plan.",
   };
 }
 
@@ -545,11 +619,11 @@ export async function claudeBuildPlan(buildId: string, a: Record<string, unknown
 }
 
 /** For listing_queue: sessions with pieces waiting for Claude. */
-export async function buildsForQueue(): Promise<Array<{ buildId: string; name: string; kind: string | null; pieces: number; waitingForYourLook: number; notInALot: number }>> {
+export async function buildsForQueue(): Promise<Array<{ buildId: string; name: string; kind: string | null; type?: string; pieces: number; waitingForYourLook: number; notInALot: number }>> {
   if (!(await lotBuildReady())) return [];
   return (await listBuilds())
     .filter((b) => b.needsLook > 0 || (b.unplaced > 0 && b.lots === 0))
-    .map((b) => ({ buildId: b.id, name: b.name, kind: b.kind, pieces: b.pieces, waitingForYourLook: b.needsLook, notInALot: b.unplaced }));
+    .map((b) => ({ buildId: b.id, name: b.name, kind: b.kind, ...(b.mode === "preview" ? { type: "preview" } : {}), pieces: b.pieces, waitingForYourLook: b.needsLook, notInALot: b.unplaced }));
 }
 
 // ─── Todd (the Lot Builder page) ─────────────────────────────────────────────
@@ -589,6 +663,15 @@ export async function placePieces(
     if (Number(c.n) + list.length > LOT_MAX_PIECES) throw new Error(`A lot holds at most ${LOT_MAX_PIECES} pieces.`);
     await db.execute(sql`
       UPDATE lot_build_pieces SET lot_no = ${lotNo}, verdict = 'lot', photo_request = NULL, locked = true, decided_by = ${who}, updated_at = now()
+      WHERE build_id = ${buildId}::uuid AND n IN (${ints(list)}) AND state = 'sorting'`);
+  } else if (to.verdict === "pool" || to.verdict === "discard") {
+    // Preview piles. Nothing moves until Todd applies the preview.
+    const note = (to.note ?? "").trim().slice(0, 400) || null;
+    const fallback = to.verdict === "discard" ? "Todd discarded it" : null;
+    await db.execute(sql`
+      UPDATE lot_build_pieces SET lot_no = NULL, locked = true, decided_by = ${who}, photo_request = NULL,
+        reason = COALESCE(${note}, CASE WHEN verdict = ${to.verdict} THEN reason END, ${fallback}),
+        verdict = ${to.verdict}, updated_at = now()
       WHERE build_id = ${buildId}::uuid AND n IN (${ints(list)}) AND state = 'sorting'`);
   } else if (to.verdict === "pull" || to.verdict === "need_photo") {
     const note = (to.note ?? "").trim().slice(0, 400) || null;
@@ -810,6 +893,93 @@ export async function buildAll(buildId: string, who: string): Promise<{ built: A
   }
   const pulls = b.pieces.some((p) => p.state === "sorting" && p.verdict === "pull") ? (await sendPulls(buildId, null, who)).sent : 0;
   return { built, pulls, left };
+}
+
+// ─── Preview Mode: the lot pool and discards ─────────────────────────────────
+
+/** Preview: send "pool" pieces to the lot pool (all of them, or the numbers
+ *  given). Each becomes a pooled draft in bin LOTPOOL with its photos,
+ *  identification and value, ready for the Lot pool page. */
+export async function poolPieces(buildId: string, ns: number[] | null, who: string): Promise<{ pooled: number; left: string[] }> {
+  const b = await loadBuild(buildId);
+  const ps = b.pieces.filter((p) => p.state === "sorting" && p.verdict === "pool" && (!ns || ns.includes(p.n)));
+  if (!ps.length) throw new Error("No pieces marked for the lot pool.");
+  const { poolDraft, poolReady } = await import("./pool");
+  if (!(await poolReady())) throw new Error("The lot pool isn't switched on in FIA (migration 0045).");
+  let pooled = 0;
+  const left: string[] = [];
+  for (const p of ps) {
+    // The pool takes Ready drafts; a piece is "sorting" until now.
+    const freed = await rows(sql`UPDATE listing_drafts SET status = 'ready', updated_at = now() WHERE id = ${p.draftId}::uuid AND status = ${SORTING_STATUS} RETURNING id`);
+    if (!freed.length) {
+      left.push(`#${p.n}: its draft isn't waiting in this session any more`);
+      continue;
+    }
+    try {
+      await poolDraft(p.draftId, who, {
+        identification: p.identification,
+        estValue: p.estValue,
+        note: `Preview "${b.name}" #${p.n}${p.reason ? `: ${p.reason}` : ""}`.slice(0, 500),
+      });
+    } catch (err) {
+      await db.execute(sql`UPDATE listing_drafts SET status = ${SORTING_STATUS}, updated_at = now() WHERE id = ${p.draftId}::uuid AND status = 'ready'`);
+      left.push(`#${p.n}: ${(err as Error).message}`);
+      continue;
+    }
+    if (p.identification) await db.execute(sql`UPDATE listing_drafts SET title_hint = COALESCE(title_hint, ${p.identification}) WHERE id = ${p.draftId}::uuid`);
+    await db.execute(sql`UPDATE lot_build_pieces SET state = 'pooled', lot_no = NULL, updated_at = now() WHERE id = ${p.id}::uuid`);
+    pooled += 1;
+  }
+  await closeIfDone(buildId);
+  return { pooled, left };
+}
+
+/** Preview: set "discard" pieces aside (all of them, or the numbers given).
+ *  The draft is discarded exactly as from its own page — kept, with what it
+ *  was and why, out of the Listings list, and restorable from there. */
+export async function discardPieces(buildId: string, ns: number[] | null, who: string): Promise<{ discarded: number }> {
+  const b = await loadBuild(buildId);
+  const ps = b.pieces.filter((p) => p.state === "sorting" && p.verdict === "discard" && (!ns || ns.includes(p.n)));
+  if (!ps.length) throw new Error("No pieces marked to discard.");
+  let discarded = 0;
+  for (const p of ps) {
+    const note = `Preview "${b.name}" #${p.n} discarded by ${who}${p.identification ? ` — ${p.identification}` : ""}${p.estValue != null ? ` (alone ≈ $${p.estValue})` : ""}${p.reason ? `: ${p.reason}` : ""}`.slice(0, 1900);
+    const done = await rows(sql`
+      UPDATE listing_drafts SET status = 'discarded', review_note = ${note}, title_hint = COALESCE(title_hint, ${p.identification}), updated_at = now()
+      WHERE id = ${p.draftId}::uuid AND status = ${SORTING_STATUS} RETURNING registry_item_id`);
+    if (!done.length) continue;
+    if (done[0].registry_item_id) {
+      await db.execute(sql`UPDATE registry_items SET status = 'archived', updated_at = now() WHERE id = ${String(done[0].registry_item_id)}::uuid AND status = 'draft'`);
+    }
+    await db.execute(sql`UPDATE lot_build_pieces SET state = 'discarded', lot_no = NULL, updated_at = now() WHERE id = ${p.id}::uuid`);
+    discarded += 1;
+  }
+  await closeIfDone(buildId);
+  return { discarded };
+}
+
+/** Preview: apply the whole board. Builds every lot that's ready, queues the
+ *  singles for Claude to write, sends the pool pieces to the lot pool and
+ *  sets the discards aside. Pieces that still need a better look, or are lot
+ *  material with no lot, are left for Todd. */
+export async function applyPreview(buildId: string, who: string): Promise<{ built: number; singles: number; pooled: number; discarded: number; left: string[] }> {
+  const first = await loadBuild(buildId);
+  if (first.mode !== "preview") throw new Error("That's a Lot Builder session, not a preview.");
+  const lots = await buildAll(buildId, who);
+  const left = [...lots.left];
+  const live = (await loadBuild(buildId)).pieces.filter((p) => p.state === "sorting");
+  let pooled = 0;
+  if (live.some((p) => p.verdict === "pool")) {
+    try {
+      const r = await poolPieces(buildId, null, who);
+      pooled = r.pooled;
+      left.push(...r.left);
+    } catch (err) {
+      left.push(`Lot pool: ${(err as Error).message}`);
+    }
+  }
+  const discarded = live.some((p) => p.verdict === "discard") ? (await discardPieces(buildId, null, who)).discarded : 0;
+  return { built: lots.built.length, singles: lots.pulls, pooled, discarded, left };
 }
 
 /** Take pieces out of the session altogether: they become ordinary Ready

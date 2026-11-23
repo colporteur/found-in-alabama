@@ -2079,6 +2079,8 @@ export const lotBuilds = pgTable(
     kind: text("kind"),
     /** open | closed */
     status: text("status").default("open").notNull(),
+    /** lots (Lot Builder sort) | preview (Preview Mode: discard / lot pool / lot / single) */
+    mode: text("mode").default("lots").notNull(),
     note: text("note"),
     /** Claude's summary of the sort plan. */
     planNote: text("plan_note"),

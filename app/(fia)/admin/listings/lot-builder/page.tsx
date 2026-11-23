@@ -34,6 +34,11 @@ export default async function LotBuilderPage({ searchParams }: { searchParams: {
         <b>need another photo</b>, and proposes lots from the Expert Guide. You adjust and build; the lots then go through Claude and Review
         like any listing.
       </p>
+      <p className="text-sm text-brand-ink/60 mb-6 max-w-3xl">
+        <b>Preview</b> sessions are for a mixed batch you&rsquo;re not optimistic about (&ldquo;Send to Preview&rdquo; on the Scans page, full scans).
+        Before anything is written, Claude sorts each piece into its own listing, a lot with others in the batch, the lot pool, or discard. You
+        check the board and apply it.
+      </p>
       {builds.length === 0 ? (
         <p className="text-brand-ink/70">No {all ? "" : "open "}sessions.</p>
       ) : (
@@ -42,6 +47,7 @@ export default async function LotBuilderPage({ searchParams }: { searchParams: {
             <li key={b.id}>
               <Link href={`/admin/listings/lot-builder/${b.id}`} className="block rounded border border-brand-ink/15 bg-white p-4 hover:border-brand-ink/50">
                 <span className="font-medium text-lg">{b.name}</span>
+                {b.mode === "preview" && <span className="ml-2 rounded bg-sky-800 px-1.5 py-0.5 text-xs font-bold text-white">Preview</span>}
                 {b.kind && <span className="ml-2 text-sm text-brand-ink/60">{b.kind}</span>}
                 {b.status !== "open" && <span className="ml-2 rounded bg-brand-ink/10 px-1.5 py-0.5 text-xs">closed</span>}
                 <span className="mt-1 block text-sm text-brand-ink/70">
@@ -49,7 +55,9 @@ export default async function LotBuilderPage({ searchParams }: { searchParams: {
                   {b.createdAt ? ` · started ${b.createdAt.slice(0, 10)}` : ""}
                 </span>
                 <span className="mt-1 flex flex-wrap gap-2 text-xs">
-                  {b.pulls > 0 && <span className="rounded bg-red-700 px-1.5 py-0.5 font-bold text-white">{b.pulls} to pull</span>}
+                  {b.pulls > 0 && <span className="rounded bg-red-700 px-1.5 py-0.5 font-bold text-white">{b.pulls} {b.mode === "preview" ? "individual" : "to pull"}</span>}
+                  {b.pool > 0 && <span className="rounded bg-teal-700 px-1.5 py-0.5 font-bold text-white">{b.pool} for the lot pool</span>}
+                  {b.discard > 0 && <span className="rounded bg-stone-600 px-1.5 py-0.5 font-bold text-white">{b.discard} to discard</span>}
                   {b.needPhoto > 0 && <span className="rounded bg-amber-600 px-1.5 py-0.5 font-bold text-white">{b.needPhoto} need a photo</span>}
                   {b.needsLook > 0 && <span className="rounded bg-sky-700 px-1.5 py-0.5 text-white">{b.needsLook} waiting for Claude</span>}
                   {b.unplaced > 0 && <span className="rounded bg-brand-ink/10 px-1.5 py-0.5">{b.unplaced} not in a lot</span>}
