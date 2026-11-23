@@ -15,7 +15,7 @@
 import { db } from "@/db";
 import { sql } from "drizzle-orm";
 import { frontOf, insertCoverRow, placePhotos, uploadCover, type LotMeta } from "./lots";
-import { FIT_MAX_PIECES, FIT_SLOTS, fitText, planFit, type FitPiece, type FitPlan } from "./photo-fit-plan";
+import { FIT_MAX_PIECES, FIT_SLOTS, applyBackRule, backRuleText, fitText, planFit, type BackRule, type FitPiece, type FitPlan } from "./photo-fit-plan";
 
 type Row = Record<string, unknown>;
 async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
@@ -27,6 +27,12 @@ export const FIT_TILE_PREFIX = "fit-";
 
 export type PhotoFitMeta = {
   soloOnly?: boolean;
+  /** How backs are shown: "one" = one representative back plus the backs of
+   *  the pieces in backsKeep (numbers as on the cover); unset / "all" = every back. */
+  backs?: BackRule;
+  backsKeep?: number[];
+  /** "Backs: one representative back is listed (piece #1) for the 20 plain backs; …" */
+  backsText?: string;
   at?: string;
   merged?: boolean;
   /** "photo 2: #1; photo 3: #2 + #3 (merged, 4 scans); …" */
@@ -119,7 +125,7 @@ export async function fitLotPhotos(lotId: string): Promise<PhotoFitMeta & { piec
   const extras = onLot.filter((p) => !known.has(String(p.id)) && !isOurs(p));
   for (const p of extras) urlOf.set(String(p.id), String(p.url));
 
-  const pieces: FitPiece[] = lot.parts.map((part, i) => {
+  const allPieces: FitPiece[] = lot.parts.map((part, i) => {
     // Where each photo was on its own draft, and its role (front / back…).
     const ps = part.photos
       .filter((x) => urlOf.has(x.id))
@@ -128,6 +134,13 @@ export async function fitLotPhotos(lotId: string): Promise<PhotoFitMeta & { piec
     const ordered = front ? [front.id, ...ps.filter((x) => x.id !== front.id).sort((a, b) => a.position - b.position).map((x) => x.id)] : [];
     return { n: i + 1, scans: i === 0 ? [...ordered, ...extras.map((p) => String(p.id))] : ordered };
   });
+  // "One representative back": plain backs are left off the listed photos.
+  const backRule =
+    prev.backs === "one"
+      ? applyBackRule(allPieces, (id) => roleOf.get(id) === "back", (prev.backsKeep ?? []).map(Number).filter(Number.isInteger))
+      : null;
+  const pieces = backRule ? backRule.pieces : allPieces;
+  const hiddenBacks = backRule?.hidden ?? [];
   const scans = pieces.reduce((a, p) => a + p.scans.length, 0);
   const coverRow = onLot.find((p) => String(p.id) === lot.coverPhotoId) ?? onLot.find((p) => String(p.role) === "cover" && /\/cover\//.test(String(p.storage_key)));
 
@@ -145,7 +158,7 @@ export async function fitLotPhotos(lotId: string): Promise<PhotoFitMeta & { piec
     await clearFitTiles(lotId);
     const listed = plan.tiles.map((t, i) => ({ t, i })).filter((x) => x.t.scans.length === 1);
     const listedIds = new Set(listed.map((x) => x.t.scans[0]));
-    const parked = pieces.flatMap((p) => p.scans).filter((s) => !listedIds.has(s));
+    const parked = [...pieces.flatMap((p) => p.scans).filter((s) => !listedIds.has(s)), ...hiddenBacks];
     await placePhotos([
       ...(coverRow ? [{ id: String(coverRow.id), draftId: lotId, position: 1 }] : []),
       ...listed.map((x) => ({ id: x.t.scans[0], draftId: lotId, position: x.i + 2 })),
@@ -178,6 +191,8 @@ export async function fitLotPhotos(lotId: string): Promise<PhotoFitMeta & { piec
   }
   const fit: PhotoFitMeta = {
     soloOnly: prev.soloOnly === true,
+    ...(prev.backs ? { backs: prev.backs, backsKeep: prev.backsKeep ?? [] } : {}),
+    ...(backRule ? { backsText: backRuleText(backRule) } : {}),
     at: new Date().toISOString(),
     merged: plan.merged,
     text: crowded ? fitText(plan) : "",

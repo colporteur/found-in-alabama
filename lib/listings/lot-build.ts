@@ -127,6 +127,12 @@ export type BuildPiece = {
   decidedBy: string | null;
   photos: BuildPhoto[];
   front: string | null;
+  /** The piece's back scan, when it was sent front and back. */
+  back: string | null;
+  /** The back carries handwriting, a caption or printing a buyer cares about:
+   *  it is listed in the lot's gallery. Plain backs share one representative. */
+  backMatters: boolean;
+  backNote: string | null;
   /** Never looked at, or Todd added photos since Claude's last look. */
   needsLook: boolean;
   /** Carried over from an earlier session (a leftover): where it started, so
@@ -267,6 +273,17 @@ export async function loadBuild(buildId: string): Promise<Build> {
         SELECT id, ai_meta->'lotBuild'->'from' AS origin FROM listing_drafts
         WHERE id IN (SELECT draft_id FROM lot_build_pieces WHERE build_id = ${buildId}::uuid) AND ai_meta->'lotBuild' ? 'from'`)
     : [];
+  // What was said about each piece's back (ai_meta.lotBack on its own draft).
+  const backRows = ps.length
+    ? await rows(sql`
+        SELECT id, ai_meta->'lotBack' AS back FROM listing_drafts
+        WHERE id IN (SELECT draft_id FROM lot_build_pieces WHERE build_id = ${buildId}::uuid) AND ai_meta ? 'lotBack'`)
+    : [];
+  const backOf = new Map<string, { matters: boolean; note: string | null }>();
+  for (const r of backRows) {
+    const o = r.back as { matters?: unknown; note?: unknown } | null;
+    if (o) backOf.set(String(r.id), { matters: o.matters === true, note: typeof o.note === "string" && o.note ? o.note : null });
+  }
   const originOf = new Map<string, PieceOrigin>();
   for (const r of originRows) {
     const o = r.origin as { buildId?: unknown; name?: unknown; n?: unknown } | null;
@@ -294,6 +311,9 @@ export async function loadBuild(buildId: string): Promise<Build> {
       decidedBy: (p.decided_by as string | null) ?? null,
       photos: list,
       front: front?.url ?? null,
+      back: list.find((x) => x.role === "back" && x.id !== front?.id)?.url ?? null,
+      backMatters: backOf.get(String(p.draft_id))?.matters === true,
+      backNote: backOf.get(String(p.draft_id))?.note ?? null,
       needsLook: needsLook({ lookedAt, photos: list.length, photosSeen: Number(p.photos_seen ?? 0), state }),
       origin: originOf.get(String(p.draft_id)) ?? null,
     };
@@ -348,7 +368,8 @@ export const SORT_RULES = `HOW TO SORT THIS BATCH (Todd has already decided it i
    Only state what the photos show; one cover photo can't prove a pressing, a grade or a signature's authenticity.
 3. PROPOSE LOTS with lot_build_plan once most pieces are identified. Take the lot's TYPE (which themes sell as lots: one artist, one genre, one era, one maker…) and SIZE (pieces per lot, the price ladder by size, shipping weight) from the Expert Guide — name the rule in each lot's reason. Every lot gets a theme a buyer would search for; "assorted" only when the guide says bulk lots are the product. Suggest a lot price from the guide's lot bands. A lot has 2–${LOT_MAX_PIECES} pieces. When the guide has no lot-size data, say so in the plan note and size by theme and shipping weight. Pieces that fit no theme can stay unplaced — say so.
 4. Lot numbers are physical piles on Todd's table: keep a lot's number when you revise it (send its "no"), and never reuse one. Pieces Todd placed himself (locked) stay where he put them.
-5. Nothing is built from here. Todd reviews the plan on the Lot Builder page, moves pieces, and builds; the lots and pulls then arrive in listing_queue to write as usual (listing_get_draft → listing_save). Tell Todd in your reply: the pulls and why, the pieces that need a photo and which photo, and the lots.`;
+5. BACKS. A piece sent front and back says "front + back" in the list. In a lot, only ONE representative back is listed for all the plain backs, so say which backs a buyer needs to see: lot_build_sheet with side "back" shows the backs as contact sheets; set back_matters: true (with a short back_note: "ink caption: Aunt Ruth, Mobile 1952") on a piece whose back has handwriting, a caption, a photographer's or studio stamp, or printing that identifies or dates it beyond a routine processing date stamp. Set back_matters: false for a blank back or one with only a date stamp or paper branding. Use what the backs say (names, places, dates) in the identifications.
+6. Nothing is built from here. Todd reviews the plan on the Lot Builder page, moves pieces, and builds; the lots and pulls then arrive in listing_queue to write as usual (listing_get_draft → listing_save). Tell Todd in your reply: the pulls and why, the pieces that need a photo and which photo, and the lots.`;
 
 export const PREVIEW_RULES = `HOW TO PREVIEW THIS BATCH (a mixed batch Todd is NOT optimistic about — a first pass to decide where each piece goes BEFORE any listing is written. Do not write titles or descriptions here; identify, value, and sort):
 1. LOOK at every piece. lot_build_sheet shows numbered contact sheets of the fronts (the number on a tile is the piece number and never changes — it is the order of Todd's physical pile). Pieces here are full scans, usually front and back: lot_build_piece shows one piece's photos full size when the tile is too small or the back matters.
@@ -361,7 +382,8 @@ export const PREVIEW_RULES = `HOW TO PREVIEW THIS BATCH (a mixed batch Todd is N
    Only state what the photos show. Never include a phone number in an identification.
 3. PROPOSE THE BATCH LOTS with lot_build_plan: each with a name (the theme a buyer would search), its pieces, a reason and a suggested lot price. A lot has 2–${LOT_MAX_PIECES} pieces. Lot numbers are physical piles: keep a lot's number when you revise it, never reuse one. A "lot" piece that ends up with no partners should be changed to "pool".
 4. Pieces Todd placed himself (locked) stay where he put them.
-5. Nothing happens from here. Todd reviews the Preview board, moves pieces, and applies it: singles and built lots then arrive in listing_queue to write as usual, pool pieces go to the lot pool, discards are set aside. In your reply give Todd the report: how many pieces and roughly how much value in each pile, the singles and why, the lots, anything that needs a better look, and the discards with a few words each so he can overrule you.`;
+5. BACKS. In a lot, only ONE representative back is listed for all the plain backs. Look at the backs (lot_build_sheet with side "back") and set back_matters: true with a short back_note on any piece whose back has handwriting, a caption, a studio stamp, or printing that identifies or dates it beyond a routine processing date stamp; false for a blank or date-stamp-only back. Writing on a back can also change a piece's value and pile.
+6. Nothing happens from here. Todd reviews the Preview board, moves pieces, and applies it: singles and built lots then arrive in listing_queue to write as usual, pool pieces go to the lot pool, discards are set aside. In your reply give Todd the report: how many pieces and roughly how much value in each pile, the singles and why, the lots, anything that needs a better look, and the discards with a few words each so he can overrule you.`;
 
 export async function claudeBuildList() {
   if (!(await lotBuildReady())) return { sessions: [], note: "The Lot Builder isn't switched on in FIA yet (migration 0055)." };
@@ -398,7 +420,8 @@ export async function claudeBuildPacket(buildId: string): Promise<McpContent[]> 
   const line = (p: BuildPiece) =>
     `#${p.n}: ${p.identification ?? "(not identified)"}` +
     (p.estValue != null ? ` · alone ≈ $${p.estValue}` : "") +
-    ` · ${p.photos.length} photo${p.photos.length === 1 ? "" : "s"}` +
+    ` · ${p.back ? "front + back" : `${p.photos.length} photo${p.photos.length === 1 ? "" : "s"}`}` +
+    (p.back && p.backMatters ? ` · BACK MATTERS${p.backNote ? `: ${p.backNote}` : ""}` : "") +
     (p.verdict === "pull"
       ? ` · ${preview ? "SINGLE" : "PULL"}: ${p.reason ?? ""}`
       : p.verdict === "need_photo"
@@ -455,11 +478,13 @@ export async function claudeBuildPacket(buildId: string): Promise<McpContent[]> 
 
 /** Numbered contact sheets of the pieces' fronts (the cover tiler), up to two
  *  sheets a call. */
-export async function claudeBuildSheet(buildId: string, from: number, count: number, per: number, only: "all" | "sorting" | "needs_look" = "sorting"): Promise<McpContent[]> {
+export async function claudeBuildSheet(buildId: string, from: number, count: number, per: number, only: "all" | "sorting" | "needs_look" = "sorting", side: "front" | "back" = "front"): Promise<McpContent[]> {
   const b = await loadBuild(buildId);
-  const pool = b.pieces.filter((p) => p.front && p.state !== "removed" && (only === "all" ? true : only === "needs_look" ? p.needsLook : p.state === "sorting"));
+  const img = (p: BuildPiece) => (side === "back" ? p.back : p.front);
+  const pool = b.pieces.filter((p) => img(p) && p.state !== "removed" && (only === "all" ? true : only === "needs_look" ? p.needsLook : p.state === "sorting"));
   const pages = sheetPages(pool.map((p) => p.n), from, count, per || SHEET_DEFAULT).slice(0, 2);
-  if (!pages.length) return [{ type: "text", text: `No pieces from #${Math.max(1, Math.floor(from) || 1)} on (${pool.length} pieces match "${only}").` }];
+  if (!pages.length)
+    return [{ type: "text", text: `No pieces from #${Math.max(1, Math.floor(from) || 1)} on (${pool.length} pieces match "${only}"${side === "back" ? " and have a back scan" : ""}).` }];
   const byN = new Map(pool.map((p) => [p.n, p]));
   const out: McpContent[] = [];
   const shown = pages.flat();
@@ -467,12 +492,12 @@ export async function claudeBuildSheet(buildId: string, from: number, count: num
   out.push({
     type: "text",
     text:
-      `Contact sheet${pages.length > 1 ? "s" : ""} of pieces #${shown[0]}–#${shown[shown.length - 1]} (the badge on each tile is the piece number; tiles run left to right, top to bottom). ` +
+      `Contact sheet${pages.length > 1 ? "s" : ""} of ${side === "back" ? "the BACKS of " : ""}pieces #${shown[0]}–#${shown[shown.length - 1]} (the badge on each tile is the piece number; tiles run left to right, top to bottom). ` +
       (rest.length ? `Next: from=${rest[0]} (${rest.length} more).` : "That's the last of them.") +
       ` A tile too small to read → lot_build_piece.`,
   });
   for (const page of pages) {
-    const urls = page.map((n) => byN.get(n)!.front!);
+    const urls = page.map((n) => img(byN.get(n)!)!);
     try {
       const jpg = await renderCover(urls, 1568, { labels: page.map(String), maxTiles: SHEET_MAX });
       out.push({ type: "text", text: `Pieces: #${page.join(", #")}` });
@@ -535,6 +560,13 @@ export async function claudeBuildIdentify(buildId: string, input: unknown, who: 
         looked_at = now(), photos_seen = ${p.photos.length},
         decided_by = ${p.locked ? p.decidedBy : `claude:${who}`}, updated_at = now()
       WHERE id = ${p.id}::uuid`);
+    // What the back shows. Todd's own call on a back stands.
+    if (x.backMatters != null) {
+      await db.execute(sql`
+        UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('lotBack',
+          jsonb_build_object('matters', ${x.backMatters}::boolean, 'note', ${x.backNote}::text, 'by', ${`claude:${who}`}::text))
+        WHERE id = ${p.draftId}::uuid AND COALESCE(ai_meta->'lotBack'->>'by', 'claude:') LIKE 'claude:%'`);
+    }
     saved += 1;
   }
   await touch(buildId);
@@ -697,6 +729,20 @@ export async function placePieces(
   return { moved: list.length, lotNo };
 }
 
+/** Todd says whether these pieces' backs matter (listed in the lot's gallery)
+ *  or are plain (one representative back stands for them). */
+export async function setBackMatters(buildId: string, ns: number[], matters: boolean, who: string, note: string | null = null): Promise<number> {
+  const ps = await sortingPieces(buildId, ns);
+  for (const p of ps) {
+    await db.execute(sql`
+      UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('lotBack',
+        jsonb_build_object('matters', ${matters}::boolean, 'note', COALESCE(${note}::text, CASE WHEN ${matters}::boolean THEN ai_meta->'lotBack'->>'note' END), 'by', ${who}::text))
+      WHERE id = ${String(p.draft_id)}::uuid`);
+  }
+  await touch(buildId);
+  return ps.length;
+}
+
 /** Let Claude decide these pieces again. */
 export async function unlockPieces(buildId: string, ns: number[]): Promise<number> {
   const ps = await sortingPieces(buildId, ns);
@@ -839,7 +885,13 @@ export async function buildLot(buildId: string, no: number, who: string, opts: {
     who,
     lot.reason ?? `Lot Builder: ${lot.name}`,
     [],
-    { buildId, name: lot.name, numbers: new Map(order.map((p) => [p.draftId, p.n])) }
+    {
+      buildId,
+      name: lot.name,
+      numbers: new Map(order.map((p) => [p.draftId, p.n])),
+      // Scanned front and back: one representative back, plus the backs that matter.
+      ...(order.some((p) => p.back) ? { backsKeep: order.filter((p) => p.backMatters).map((p) => p.draftId) } : {}),
+    }
   );
   const note = lotInstructions(lot, b, order);
   await db.execute(sql`

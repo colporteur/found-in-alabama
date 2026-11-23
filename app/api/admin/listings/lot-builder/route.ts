@@ -3,6 +3,7 @@
 //        (none of lotNo / newLot / verdict = take the pieces out of their lot)
 //   { action: "carry", buildId, fromBuildId | toBuildId, pieces?, lotNo? }   leftovers between sessions
 //   { action: "unlock", buildId, pieces }          let Claude decide them again
+//   { action: "back", buildId, pieces, matters, note? }   the back matters (listed) or is plain
 //   { action: "release", buildId, pieces }         out of the session → ordinary Ready drafts
 //   { action: "lot", buildId, no, name?, suggestedPrice?, reason? }
 //   { action: "dissolve", buildId, no }
@@ -30,6 +31,7 @@ import {
   discardPieces,
   poolPieces,
   previewReady,
+  setBackMatters,
   buildLot,
   dissolveLot,
   editLot,
@@ -82,6 +84,8 @@ export async function POST(req: NextRequest) {
         const out = b.fromBuildId ? await carryOver(other, list, buildId, who, into) : await carryOver(buildId, list, other, who, into);
         return NextResponse.json({ ok: true, ...out });
       }
+      case "back":
+        return NextResponse.json({ ok: true, changed: await setBackMatters(buildId, nums(b.pieces), b.matters === true, who, s(b.note)) });
       case "unlock":
         return NextResponse.json({ ok: true, unlocked: await unlockPieces(buildId, nums(b.pieces)) });
       case "release":

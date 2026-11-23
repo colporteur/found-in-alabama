@@ -42,6 +42,10 @@ export type IdentifyIn = {
   verdict: Verdict | null;
   reason: string | null;
   photoRequest: string | null;
+  /** Pieces scanned front and back: does the back matter to a buyer
+   *  (handwriting, a caption, printing beyond a date stamp)? null = not said. */
+  backMatters: boolean | null;
+  backNote: string | null;
 };
 
 const text = (v: unknown, max: number): string | null => {
@@ -99,6 +103,8 @@ export function cleanIdentify(input: unknown, known: Set<number>, mode: Mode = "
       verdict,
       reason,
       photoRequest: verdict === "need_photo" ? photoRequest : null,
+      backMatters: typeof (r.back_matters ?? r.backMatters) === "boolean" ? ((r.back_matters ?? r.backMatters) as boolean) : null,
+      backNote: text(r.back_note ?? r.backNote, 200),
     });
   }
   return { ok, errors };
@@ -226,8 +232,10 @@ export function needsLook(p: { lookedAt: string | null; photos: number; photosSe
 
 /** Todd's instructions on a lot draft built from a sort session (Claude reads
  *  them in listing_get_draft and writes the lot as usual). */
-export function lotInstructions(lot: { no: number; name: string; reason: string | null; suggestedPrice: number | null; guideId: string | null }, build: { name: string; kind: string | null }, pieces: Array<{ n: number; identification: string | null; estValue: number | null }>): string {
-  const lines = pieces.map((p, i) => `${i + 1}. ${p.identification ?? "not identified"}${p.estValue != null ? ` (alone ≈ $${p.estValue})` : ""} [sort #${p.n}]`);
+export function lotInstructions(lot: { no: number; name: string; reason: string | null; suggestedPrice: number | null; guideId: string | null }, build: { name: string; kind: string | null }, pieces: Array<{ n: number; identification: string | null; estValue: number | null; backMatters?: boolean; backNote?: string | null }>): string {
+  const lines = pieces.map(
+    (p, i) => `${i + 1}. ${p.identification ?? "not identified"}${p.estValue != null ? ` (alone ≈ $${p.estValue})` : ""}${p.backMatters ? ` — BACK MATTERS${p.backNote ? `: ${p.backNote}` : ""}` : ""} [sort #${p.n}]`
+  );
   return [
     `Built in the Lot Builder from "${build.name}"${build.kind ? ` (${build.kind})` : ""}: lot ${lot.no}, "${lot.name}". Todd approved this lot — write it as ONE lot listing; don't split it or move pieces.`,
     lot.reason ? `Why these go together: ${lot.reason}` : "",

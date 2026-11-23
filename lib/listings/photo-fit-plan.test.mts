@@ -103,3 +103,45 @@ test("fitText names merged photos", () => {
   assert.match(t, /^photo 2: /);
   assert.match(t, /merged, 2 scans/);
 });
+
+// ─── one representative back (Nov 23, 2026) ──────────────────────────────────
+import { applyBackRule, backRuleText } from "./photo-fit-plan";
+
+const fb = (n: number, extra: string[] = []) => ({ n, scans: [`f${n}`, `b${n}`, ...extra] });
+const isBack = (s: string) => s.startsWith("b");
+
+test("backs: one representative back stands for the plain ones", () => {
+  const r = applyBackRule([fb(1), fb(2), fb(3)], isBack, []);
+  assert.deepEqual(r.pieces.map((p) => p.scans), [["f1", "b1"], ["f2"], ["f3"]]);
+  assert.deepEqual(r.hidden, ["b2", "b3"]);
+  assert.equal(r.representative, 1);
+  assert.equal(backRuleText(r), "Backs: one representative back is listed (piece #1) for the 3 plain backs; 2 other backs are kept on the draft, not listed");
+});
+
+test("backs: the ones that matter are listed as well, and are never the representative", () => {
+  const r = applyBackRule([fb(1), fb(2), fb(3), fb(4)], isBack, [1, 3]);
+  assert.deepEqual(r.pieces.map((p) => p.scans), [["f1", "b1"], ["f2", "b2"], ["f3", "b3"], ["f4"]]);
+  assert.deepEqual(r.kept, [1, 3]);
+  assert.equal(r.representative, 2);
+  assert.deepEqual(r.hidden, ["b4"]);
+  assert.match(backRuleText(r), /backs of #1, #3 are listed because they carry writing/);
+});
+
+test("backs: when every back matters there is no representative and nothing is hidden", () => {
+  const r = applyBackRule([fb(1), fb(2)], isBack, [1, 2]);
+  assert.equal(r.representative, null);
+  assert.deepEqual(r.hidden, []);
+  assert.deepEqual(r.pieces.map((p) => p.scans.length), [2, 2]);
+});
+
+test("backs: fronts, insides and one-photo pieces are untouched; a front is never dropped", () => {
+  const r = applyBackRule([{ n: 1, scans: ["b-looks-like-a-back"] }, { n: 2, scans: ["f2", "inside2", "b2"] }, { n: 3, scans: ["f3"] }, fb(4)], isBack, []);
+  assert.deepEqual(r.pieces.map((p) => p.scans), [["b-looks-like-a-back"], ["f2", "inside2", "b2"], ["f3"], ["f4"]]);
+  assert.equal(r.representative, 2);
+  assert.deepEqual(r.hidden, ["b4"]);
+  // 20 fronts + 1 back fit eBay's 23 slots with no merging, where 40 scans would not.
+  const twenty = applyBackRule(Array.from({ length: 20 }, (_, i) => fb(i + 1)), isBack, []);
+  assert.equal(planFit(twenty.pieces).merged, false);
+  assert.equal(planFit(Array.from({ length: 20 }, (_, i) => fb(i + 1))).merged, true);
+  assert.equal(backRuleText(applyBackRule([{ n: 1, scans: ["f1"] }], isBack, [])), "");
+});

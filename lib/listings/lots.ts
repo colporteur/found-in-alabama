@@ -144,7 +144,7 @@ export async function combineLot(
   poolMemberIds: string[] = [],
   /** Lot Builder: Todd built this lot from a sort session — the pieces are
    *  "sorting" drafts, not a Claude batch. */
-  build: { buildId: string; name: string; numbers: Map<string, number> } | null = null
+  build: { buildId: string; name: string; numbers: Map<string, number>; /** drafts whose backs matter; set = use "one representative back" */ backsKeep?: string[] } | null = null
 ): Promise<{ lotDraftId: string; parts: number; photos: number; parked: number; bin: string | null; note: string }> {
   const queuedIds = Array.from(new Set(ids.filter((id) => UUID.test(id))));
   if (!queuedIds.length) throw new Error("Give at least one draft id from listing_queue (the lot is built on it).");
@@ -232,6 +232,15 @@ export async function combineLot(
       ai_meta = COALESCE(ai_meta, '{}'::jsonb) || jsonb_build_object('lot', ${JSON.stringify(lotMeta)}::jsonb),
       updated_at = now()
     WHERE id = ${lotId}::uuid`);
+  // Lot Builder pieces scanned front and back: one representative back, plus
+  // the backs that matter (photo-fit.ts reads this when it lays the lot out).
+  if (build?.backsKeep && photos.some((p) => p.role === "back")) {
+    const keep = build.backsKeep.map((id) => clean.indexOf(id) + 1).filter((n) => n >= 1);
+    await db.execute(sql`
+      UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb)
+        || jsonb_build_object('photoFit', COALESCE(ai_meta->'photoFit', '{}'::jsonb) || ${JSON.stringify({ backs: "one", backsKeep: keep })}::jsonb)
+      WHERE id = ${lotId}::uuid`);
+  }
   for (const d of drafts.slice(1)) {
     await db.execute(sql`
       UPDATE listing_drafts SET status = 'discarded', review_note = ${`combined into a lot (${lotId})`},

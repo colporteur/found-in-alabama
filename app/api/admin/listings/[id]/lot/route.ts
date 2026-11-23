@@ -56,6 +56,18 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
             || jsonb_build_object('photoFit', COALESCE(ai_meta->'photoFit', '{}'::jsonb) || jsonb_build_object('soloOnly', ${b.soloOnly}::boolean))
           WHERE id = ${params.id}::uuid`);
       }
+      // backs: "one" (one representative back + the backs that matter) | "all";
+      // backsKeep: piece numbers (as on the cover) whose backs are listed.
+      const br = b as { backs?: unknown; backsKeep?: unknown };
+      if (br.backs === "one" || br.backs === "all" || Array.isArray(br.backsKeep)) {
+        const patch: Record<string, unknown> = {};
+        if (br.backs === "one" || br.backs === "all") patch.backs = br.backs;
+        if (Array.isArray(br.backsKeep)) patch.backsKeep = Array.from(new Set(br.backsKeep.map(Number).filter((n) => Number.isInteger(n) && n >= 1 && n <= 60)));
+        await db.execute(sql`
+          UPDATE listing_drafts SET ai_meta = COALESCE(ai_meta, '{}'::jsonb)
+            || jsonb_build_object('photoFit', COALESCE(ai_meta->'photoFit', '{}'::jsonb) || ${JSON.stringify(patch)}::jsonb)
+          WHERE id = ${params.id}::uuid`);
+      }
       if (folderLotOf(d.ai_meta)) return NextResponse.json({ ok: true, ...(await arrangeFolderLot(params.id, null, who)) });
       if (!d.ai_meta?.lot) throw new Error("This draft isn't a lot.");
       return NextResponse.json({ ok: true, ...(await fitLotPhotos(params.id)) });
