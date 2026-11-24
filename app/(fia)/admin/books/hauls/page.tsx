@@ -55,6 +55,7 @@ export default async function HaulsPage() {
               <th className="py-2">Kind</th>
               <th className="py-2 text-right">Paid</th>
               <th className="py-2 text-right">Items</th>
+              <th className="py-2 text-right" title="What you paid divided by the number of items">Paid / item</th>
               <th className="py-2 text-right">Sold</th>
               <th className="py-2 text-right">Sales so far</th>
               <th className="py-2 text-right" title="Asking prices of the items not yet sold">Unsold asking</th>
@@ -98,6 +99,9 @@ export default async function HaulsPage() {
                       {h.itemsViaJournal} via journal
                     </div>
                   )}
+                </td>
+                <td className="py-2 text-right">
+                  {h.totalCost != null && h.items > 0 ? money(h.totalCost / h.items) : ""}
                 </td>
                 <td className="py-2 text-right">{h.itemsSold}</td>
                 <td className="py-2 text-right">{money(h.revenue)}</td>
