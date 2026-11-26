@@ -9,6 +9,7 @@ import { hasListings, verifyAccessToken } from "@/lib/mcp/oauth";
 import { listingTools } from "@/lib/mcp/listing-tools";
 import { lotBuildTools } from "@/lib/mcp/lot-build-tools";
 import { guideLinkTools } from "@/lib/mcp/guide-tools";
+import { photoOrigins, reviewPanelResources, reviewPanelTools } from "@/lib/mcp/review-panel-tools";
 import { siteOrigin } from "@/lib/mcp/oauth-core";
 import { CORS, json, preflight } from "@/lib/mcp/http";
 
@@ -36,8 +37,14 @@ export async function POST(req: Request) {
     return json({ jsonrpc: "2.0", id: null, error: { code: -32700, message: "Parse error" } }, 400);
   }
   // Listing-draft tools only on connections Todd allowed to write drafts.
-  const tools = hasListings(who.scope) ? [...TOOLS, ...listingTools(who.who), ...lotBuildTools(who.who), ...guideLinkTools(who.who)] : TOOLS;
-  const reply = await handleRpc(body, tools);
+  // Those connections also get the review panel (an MCP App: a tool plus the
+  // ui:// resource holding its HTML).
+  const listings = hasListings(who.scope);
+  const tools = listings
+    ? [...TOOLS, ...listingTools(who.who), ...lotBuildTools(who.who), ...guideLinkTools(who.who), ...reviewPanelTools(who.who, siteOrigin(req))]
+    : TOOLS;
+  const resources = listings ? reviewPanelResources(photoOrigins()) : [];
+  const reply = await handleRpc(body, tools, resources);
   if (reply === null) return new Response(null, { status: 202, headers: CORS });
   return json(reply);
 }

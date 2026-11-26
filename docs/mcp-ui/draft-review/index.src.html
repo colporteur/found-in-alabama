@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>FIA draft review</title>
+<style>
+  :root {
+    --bg: var(--color-background-primary, #ffffff);
+    --bg2: var(--color-background-secondary, #f5f4f0);
+    --text: var(--color-text-primary, #1d1c19);
+    --text2: var(--color-text-secondary, #5f5d57);
+    --line: var(--color-border-secondary, rgba(0, 0, 0, 0.14));
+    --warn-bg: var(--color-background-warning, #fbf1d6);
+    --warn-text: var(--color-text-warning, #6b4a00);
+    --ok-bg: var(--color-background-success, #e3f1e5);
+    --ok-text: var(--color-text-success, #1f5a2c);
+    --danger: var(--color-text-danger, #a12020);
+    --radius: var(--border-radius-md, 8px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: var(--color-background-primary, #1f1e1c);
+      --bg2: var(--color-background-secondary, #2a2926);
+      --text: var(--color-text-primary, #f0eee8);
+      --text2: var(--color-text-secondary, #b3b0a8);
+      --line: var(--color-border-secondary, rgba(255, 255, 255, 0.16));
+      --warn-bg: var(--color-background-warning, #45360f);
+      --warn-text: var(--color-text-warning, #f3d98a);
+      --ok-bg: var(--color-background-success, #1d3a24);
+      --ok-text: var(--color-text-success, #a9dcb3);
+      --danger: var(--color-text-danger, #f09a9a);
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body { font: 14px/1.45 var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); color: var(--text); background: var(--bg); padding: 12px; }
+  button { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 10px; cursor: pointer; }
+  button:hover { background: var(--bg2); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  button.primary { background: var(--text); color: var(--bg); border-color: var(--text); }
+  button.link { border: 0; padding: 0; background: none; color: var(--text2); text-decoration: underline; }
+  .bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 12px; }
+  .bar h1 { font-size: 15px; margin: 0 auto 0 0; font-weight: 600; }
+  .muted { color: var(--text2); }
+  .small { font-size: 12px; }
+  .card { border: 1px solid var(--line); border-radius: var(--radius); padding: 12px; margin-bottom: 12px; background: var(--bg); }
+  .photos { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .photos img { width: 92px; height: 92px; object-fit: cover; border-radius: 6px; border: 1px solid var(--line); background: var(--bg2); cursor: zoom-in; }
+  .photos .more { width: 92px; height: 92px; display: grid; place-items: center; border-radius: 6px; }
+  .title { font-weight: 600; font-size: 15px; margin: 0 0 2px; overflow-wrap: anywhere; }
+  .facts { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 4px 0 8px; }
+  .price { font-weight: 600; }
+  .note { border-radius: 6px; padding: 6px 8px; margin: 6px 0; overflow-wrap: anywhere; }
+  .note.warn { background: var(--warn-bg); color: var(--warn-text); }
+  .note.ok { background: var(--ok-bg); color: var(--ok-text); }
+  .note ul { margin: 2px 0 0; padding-left: 18px; }
+  .desc { white-space: pre-wrap; overflow-wrap: anywhere; margin: 8px 0 4px; }
+  .desc.clamp { max-height: 7.3em; overflow: hidden; -webkit-mask-image: linear-gradient(#000 60%, transparent); mask-image: linear-gradient(#000 60%, transparent); }
+  .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; align-items: center; }
+  .fixbox { margin-top: 10px; }
+  .fixbox textarea { width: 100%; min-height: 64px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; resize: vertical; }
+  .fixbox .row { display: flex; gap: 8px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
+  .err { color: var(--danger); }
+  .empty { padding: 24px 8px; text-align: center; }
+  #zoom { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.82); display: none; align-items: center; justify-content: center; padding: 16px; cursor: zoom-out; z-index: 10; }
+  #zoom.on { display: flex; }
+  #zoom img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+</style>
+</head>
+<body>
+<div class="bar">
+  <h1 id="heading">Drafts in Review</h1>
+  <button id="expand" hidden>Expand</button>
+  <button id="queue">Open Review queue</button>
+  <button id="refresh">Refresh</button>
+</div>
+<div id="status" class="muted small" role="status"></div>
+<div id="list"><p class="empty muted">Loading drafts…</p></div>
+<div id="zoom" role="dialog" aria-label="Photo"><img alt=""></div>
+<script>/*__APP_JS__*/</script>
+</body>
+</html>

@@ -56,3 +56,38 @@ test("raw content passes through and write tools aren't marked read-only", async
   const r = (await handleRpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "pics" } }, t)) as any;
   assert.equal(r.result.content[0].type, "image");
 });
+
+test("panels: tool _meta, structuredContent, and ui:// resources", async () => {
+  const { panelResult } = await import("./protocol");
+  const t: ToolDef[] = [
+    {
+      name: "panel", title: "P", description: "", inputSchema: {},
+      meta: { ui: { resourceUri: "ui://fia/x" } },
+      run: async () => panelResult("2 drafts", { drafts: [1, 2] }),
+    },
+    { name: "plain", title: "Q", description: "", inputSchema: {}, run: async () => ({}) },
+  ];
+  const res = [
+    { uri: "ui://fia/x", name: "X", mimeType: "text/html;profile=mcp-app", meta: { ui: { csp: { resourceDomains: ["https://img.example"] } } }, read: async () => "<html></html>" },
+  ];
+  const l = (await handleRpc({ jsonrpc: "2.0", id: 1, method: "tools/list" }, t, res)) as any;
+  assert.equal(l.result.tools[0]._meta.ui.resourceUri, "ui://fia/x");
+  assert.equal("_meta" in l.result.tools[1], false);
+  const c = (await handleRpc({ jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "panel" } }, t, res)) as any;
+  assert.equal(c.result.content[0].text, "2 drafts");
+  assert.deepEqual(c.result.structuredContent, { drafts: [1, 2] });
+  const i = (await handleRpc({ jsonrpc: "2.0", id: 3, method: "initialize", params: {} }, t, res)) as any;
+  assert.ok(i.result.capabilities.resources);
+  const i0 = (await handleRpc({ jsonrpc: "2.0", id: 4, method: "initialize", params: {} }, t)) as any;
+  assert.equal(i0.result.capabilities.resources, undefined);
+  const rl = (await handleRpc({ jsonrpc: "2.0", id: 5, method: "resources/list" }, t, res)) as any;
+  assert.equal(rl.result.resources[0].uri, "ui://fia/x");
+  assert.equal(rl.result.resources[0].mimeType, "text/html;profile=mcp-app");
+  const rr = (await handleRpc({ jsonrpc: "2.0", id: 6, method: "resources/read", params: { uri: "ui://fia/x" } }, t, res)) as any;
+  assert.equal(rr.result.contents[0].text, "<html></html>");
+  assert.deepEqual(rr.result.contents[0]._meta.ui.csp.resourceDomains, ["https://img.example"]);
+  const nf = (await handleRpc({ jsonrpc: "2.0", id: 7, method: "resources/read", params: { uri: "ui://nope" } }, t, res)) as any;
+  assert.equal(nf.error.code, -32002);
+  const none = (await handleRpc({ jsonrpc: "2.0", id: 8, method: "resources/list" }, t)) as any;
+  assert.deepEqual(none.result.resources, []);
+});
