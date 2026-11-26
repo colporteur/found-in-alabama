@@ -79,6 +79,22 @@ export default function AiModelsPage() {
             openrouter.ai — that&rsquo;s also where you top up.
           </p>
 
+          <h3>Claude direct (the switch at the top)</h3>
+          <p>
+            The one exception to &ldquo;everything goes through
+            OpenRouter&rdquo;. With Claude direct on, the gateway sends chat
+            calls straight to Anthropic, billed to the Claude Console
+            organization whose key is on the worker, so they use the monthly
+            API credit that comes with the Claude plan. The routing table
+            still picks the model; the Claude direct box decides which Claude
+            model that becomes (a Gemini or OpenAI target has to become a
+            Claude one). If Anthropic refuses a call for any reason,
+            including the credit running out, the gateway sends it to
+            OpenRouter instead, so nothing here breaks. Calls answered by
+            Anthropic report no OpenRouter cost, so spend figures for them
+            may be missing or estimated.
+          </p>
+
           <h3>If something breaks</h3>
           <p>
             An &ldquo;unknown model id&rdquo; warning here means a target

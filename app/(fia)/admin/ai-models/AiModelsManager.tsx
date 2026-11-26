@@ -6,6 +6,7 @@
 // day OpenRouter adds them.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import ClaudeDirectPanel from "./ClaudeDirectPanel";
 
 type Routing = {
   default: string;
@@ -154,6 +155,9 @@ export default function AiModelsManager() {
           );
         })}
       </datalist>
+
+      {/* Reads the saved-or-edited table, so its rows follow edits made below. */}
+      <ClaudeDirectPanel routing={routing} />
 
       {missingExpected.length > 0 && (
         <div className="mb-6 border border-brand-yellow bg-brand-yellow/10 rounded-lg p-4 text-sm">
