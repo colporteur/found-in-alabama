@@ -34,6 +34,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; }
   body { font: 14px/1.45 var(--font-sans, system-ui, -apple-system, "Segoe UI", sans-serif); color: var(--text); background: var(--bg); padding: 12px; }
   button { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 10px; cursor: pointer; }
@@ -63,6 +64,24 @@
   .fixbox textarea { width: 100%; min-height: 64px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; resize: vertical; }
   .fixbox .row { display: flex; gap: 8px; margin-top: 6px; align-items: center; flex-wrap: wrap; }
   .err { color: var(--danger); }
+  .head { display: flex; gap: 8px; align-items: flex-start; }
+  .head input[type=checkbox] { margin-top: 4px; width: 16px; height: 16px; flex: none; }
+  .head .title { flex: 1; }
+  .ph { display: flex; flex-direction: column; gap: 3px; align-items: center; }
+  .ph .tools { display: flex; gap: 2px; }
+  .ph .tools button { padding: 0 5px; min-width: 22px; line-height: 20px; font-size: 13px; border-radius: 4px; }
+  .changes { margin: 4px 0 6px; padding-left: 18px; }
+  .changes li { overflow-wrap: anywhere; }
+  .inline { display: inline-flex; gap: 6px; margin-left: 6px; }
+  .inline button { padding: 1px 8px; font-size: 12px; }
+  .editbox { margin-top: 10px; display: grid; gap: 6px; }
+  .editbox label { display: grid; gap: 2px; font-size: 12px; color: var(--text2); }
+  .editbox input { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 5px 8px; width: 100%; }
+  .editbox input.price { width: 8em; }
+  #batch { position: sticky; top: 0; z-index: 5; background: var(--bg2); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; margin-bottom: 12px; }
+  #batch textarea { width: 100%; min-height: 54px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 8px; resize: vertical; margin: 6px 0; }
+  #batch .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .busy { opacity: 0.55; pointer-events: none; }
   .empty { padding: 24px 8px; text-align: center; }
   #zoom { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.82); display: none; align-items: center; justify-content: center; padding: 16px; cursor: zoom-out; z-index: 10; }
   #zoom.on { display: flex; }
@@ -77,6 +96,11 @@
   <button id="refresh">Refresh</button>
 </div>
 <div id="status" class="muted small" role="status"></div>
+<div id="batch" hidden>
+  <strong id="batchcount"></strong>
+  <textarea id="batchnote" maxlength="4000" placeholder="One note for all of them. For example: these are all linen, not chrome."></textarea>
+  <div class="row"><button id="batchsend" class="primary">Send to Claude</button><button id="batchclear">Clear selection</button><span id="batchmsg" class="small"></span></div>
+</div>
 <div id="list"><p class="empty muted">Loading drafts…</p></div>
 <div id="zoom" role="dialog" aria-label="Photo"><img alt=""></div>
 <script>/*__APP_JS__*/</script>

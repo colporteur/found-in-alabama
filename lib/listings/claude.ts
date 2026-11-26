@@ -43,6 +43,7 @@ import {
 } from "./rules";
 import { arrangeFolderLot, folderLotOf, folderLotText } from "./folder-lot";
 import { photoFitOf } from "./photo-fit";
+import { carriedFlags } from "./flags";
 
 type Row = Record<string, unknown>;
 async function rows(q: ReturnType<typeof sql>): Promise<Row[]> {
@@ -475,7 +476,9 @@ export async function reviseClaudeWrite(id: string, changes: ClaudeWrite, who: s
     price_high: meta.priceHigh ?? null,
     price_rationale: meta.priceRationale ?? "",
     confidence: meta.confidence ?? null,
-    flags: [],
+    // Claude's earlier flags stay unless this revision sends a new list (a
+    // revision used to wipe them). See lib/listings/flags.ts.
+    flags: carriedFlags(meta.flags),
     guides_used: Array.isArray(meta.guides) ? (meta.guides as Array<{ id?: string }>).map((g) => g.id).filter(Boolean) : [],
     unverified: Array.isArray(meta.unverified)
       ? (meta.unverified as Array<{ words: string; basis: string; decision?: string | null }>).filter((u) => u.decision !== "removed")

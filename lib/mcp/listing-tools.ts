@@ -320,7 +320,7 @@ function buildTools(who: string): ToolDef[] {
       title: "Revise a listing you wrote",
       readOnly: false,
       description:
-        "Change a draft you already saved that is still in Review — or any written draft Todd asked you to fix (listing_fixes) — e.g. trim words from a description, fix a title, change the price, condition, category, shelves or specifics. Send only the fields that change; everything else — including any edits Todd made by hand — stays. The same rules run again (cleanup, .87 prices, specifics fitted to the category). Use listing_get_draft first to see the current text.",
+        "Change a draft you already saved that is still in Review — or any written draft Todd asked you to fix (listing_fixes) — e.g. trim words from a description, fix a title, change the price, condition, category, shelves or specifics. Send only the fields that change; everything else — including any edits Todd made by hand — stays. The same rules run again (cleanup, .87 prices, specifics fitted to the category). Use listing_get_draft first to see the current text. Flags you raised earlier stay on the draft unless you send flags: then your list replaces them, so send every flag that still applies ([] clears them).",
       inputSchema: { type: "object", required: ["draft_id"], properties: {} as Record<string, unknown> },
       run: async (a) => {
         const id = argStr(a, "draft_id", 40) ?? "";

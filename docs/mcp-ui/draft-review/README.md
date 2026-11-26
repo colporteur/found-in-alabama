@@ -8,34 +8,50 @@ connector itself. Added 2026-11-25 as a pilot.
 ## What it does
 
 - Claude calls the `listing_review_panel` tool (for example when Todd says "show me
-  the review panel"). The Claude app reads the panel's page from the connector and
-  shows it; the tool's result is the list of drafts the page draws.
+  the review panel"). claude.ai reads the panel's page from the connector and shows
+  it beside the chat; the tool's result is the list of drafts the page draws.
 - Each draft shows its photos (click to enlarge), title with a character count,
   price, condition, category, bin, Claude's flags, what it still needs before it can
   be approved, and any fix request.
+
+Buttons on each draft (PANEL-2, 2026-11-25):
+
 - **Ask Claude to fix** files an ordinary fix request (the same as the Fix box on the
-  Review page) and posts a message in the chat so Claude starts on it. Accepting or
-  undoing the finished fix is still done in FIA.
-- **Open in FIA to approve or edit** opens the draft's admin page in the browser.
-- **Refresh** reloads the list. **Expand** asks Claude for the full-screen view where
-  the app offers one.
+  Review page) and posts a message in the chat so Claude starts on it. Ticking the
+  boxes on several drafts opens one note for all of them (a batch fix request).
+- **Accept / Undo the fix** appear when Claude has finished a fix, under a list of
+  what changed (before and after). Undo puts the draft back as it was when Todd asked.
+- **Keep / Remove** on each word Claude used that the item doesn't show. Remove takes
+  the words out of the title, description and item specifics, as on the Review page.
+- **Edit title or price** saves Todd's own edit, exactly as typed. No price rules run
+  (no .87 ending, no floors, venue prices unchanged), the same as editing in the admin.
+- **Fix photos** shows turn and move buttons under each photo. Not offered for lots,
+  whose photos FIA arranges, or while Claude is working a fix on the draft. Photos
+  can't be removed here: ask Claude to fix it, which can be undone.
+- **Open in FIA to approve** opens the draft's admin page in the browser.
+
+**Refresh** reloads the list. **Expand** asks for the full-screen view where offered.
+
+It draws on claude.ai in a browser, including project chats. The Claude desktop app
+ran the tool without drawing the panel when this was written.
 
 ## What it does not do
 
-It does not approve, publish, or send anything to Nifty. Approval stays in the FIA
-admin behind Todd's own sign-in. The connector cannot tell a click in the panel from
-a tool call Claude made, so an approve button here would let Claude approve if the
-Claude app ever exposed that tool to it. `review_request_fix` is marked for the panel
-only (`_meta.ui.visibility: ["app"]`), but that rule is applied by the Claude app,
-not by this server.
+It does not approve, publish, send anything to Nifty, or delete anything. Approval
+stays in the FIA admin behind Todd's own sign-in. The connector cannot tell a click
+in the panel from a tool call Claude made, so an approve button here would let Claude
+approve if the Claude app ever exposed that tool to it. The panel's buttons call
+`review_*` tools marked for the panel only (`_meta.ui.visibility: ["app"]`), but that
+rule is applied by the Claude app, not by this server. So the buttons are limited to
+things Todd can undo or redo in the admin.
 
 ## Where the code is
 
 | File | What it is |
 | --- | --- |
 | `lib/mcp/protocol.ts` | The connector's protocol layer. Now also answers `resources/list` and `resources/read`, sends a tool's `_meta`, and can return `structuredContent` (`panelResult`). |
-| `lib/mcp/review-panel-tools.ts` | The two tools and the `ui://fia/draft-review` resource. |
-| `lib/listings/review-panel.ts` | The read-only query behind the panel. |
+| `lib/mcp/review-panel-tools.ts` | `listing_review_panel`, the `review_*` button tools, and the `ui://fia/draft-review` resource. |
+| `lib/listings/review-panel.ts` | The query behind the panel, one-draft reload, and the photo turn / reorder action. |
 | `lib/mcp/ui/draft-review-html.ts` | GENERATED. The whole panel page as one string. |
 | `docs/mcp-ui/draft-review/index.src.html`, `app.src.mjs` | The panel's page and script (the sources). |
 | `docs/mcp-ui/draft-review/build.mjs` | Builds the sources into the generated file. |
@@ -68,6 +84,7 @@ files can stay or be deleted; nothing else uses them. No database changes were m
 ## Tested how
 
 `lib/mcp/protocol.test.mts` covers the protocol additions. The panel page was run in
-headless Chrome inside a sandboxed frame against the SDK's own host bridge (render,
-photos, enlarge, fix request, chat message, links, refresh, expand). It had not been
-seen running inside the Claude app when this was written.
+headless Chrome inside a sandboxed frame against the SDK's own host bridge, with a
+stand-in for FIA answering the tools (every button above, plus refresh and expand).
+The first version was seen working on claude.ai; the PANEL-2 buttons had not yet been
+used against real drafts when this was written.
